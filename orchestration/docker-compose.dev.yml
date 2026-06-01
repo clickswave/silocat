@@ -1,0 +1,138 @@
+services:
+  # -----------------------------------------
+  # - WEB SERVER (SVELTEKIT)
+  # -----------------------------------------
+  sc_web_server:
+    container_name: sc_web_server
+    # restart: always
+    tty: true
+    command: sh -c "npm i --verbose && npm run dev"
+
+    build:
+      context: ../services/web_server
+      dockerfile: Dockerfile
+
+    volumes:
+      - ../services/web_server:/root/codebase:rw
+
+    ports:
+      - "12001:12001"
+
+    environment:
+      INTERNAL_API_URL: ${INTERNAL_API_URL}
+      PUBLIC_TURNSTILE_KEY: ${PUBLIC_TURNSTILE_KEY}
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      OAUTH_CALLBACK_BASE_URI: ${OAUTH_CALLBACK_BASE_URI}
+      OAUTH_ID_GOOGLE: ${OAUTH_ID_GOOGLE}
+      OAUTH_SECRET_GOOGLE: ${OAUTH_SECRET_GOOGLE}
+      AUTHORITY_SIGN: ${AUTHORITY_SIGN}
+      RAZORPAY_ID: ${RAZORPAY_ID}
+      RAZORPAY_SECRET: ${RAZORPAY_SECRET}
+
+    depends_on:
+      - sc_api_switch
+
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - ADMIN DASHBOARD (SVELTEKIT)
+  # -----------------------------------------
+  sc_admin_dashboard:
+    container_name: sc_admin_dashboard
+    # restart: always
+    tty: true
+    # Override dev script to use host and specific port
+    command: sh -c "npm i --verbose && npm run dev -- --host --port 12002"
+
+    build:
+      context: ../services/admin_dashboard
+      dockerfile: Dockerfile
+
+    volumes:
+      - ../services/admin_dashboard:/root/codebase:rw
+
+    ports:
+      - "12002:12002"
+
+    environment:
+      INTERNAL_API_URL: ${INTERNAL_API_URL}
+      AUTHORITY_SIGN: ${AUTHORITY_SIGN}
+      JWT_SECRET: ${JWT_SECRET}
+
+    depends_on:
+      - sc_api_switch
+
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - API SWITCH (AXUM)
+  # DB is core's `silocat` database (DATABASE_URL points at core_postgres).
+  # api_switch runs its own sqlx migrations against it.
+  # -----------------------------------------
+  sc_api_switch:
+    container_name: sc_api_switch
+    # restart: always
+    tty: true
+    command: >
+      sh -c "echo $DATABASE_URL && sleep 10 && cargo sqlx migrate run && cargo watch -x run"
+
+    build:
+      context: ../services/api_switch
+      dockerfile: Dockerfile
+
+    environment:
+      OAUTH_ID_GOOGLE: ${OAUTH_ID_GOOGLE}
+      OAUTH_SECRET_GOOGLE: ${OAUTH_SECRET_GOOGLE}
+      DATABASE_URL: ${POSTGRES_DATABASE_URL}
+      SMTP_ADDRESS: ${SMTP_ADDRESS}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      RAZORPAY_ID: ${RAZORPAY_ID}
+      RAZORPAY_SECRET: ${RAZORPAY_SECRET}
+      AUTHORITY_SIGN: ${AUTHORITY_SIGN}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL}
+      CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID}
+      CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID}
+      CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET}
+      CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET}
+      CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET}
+      CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET}
+      CF_R2_REGION: ${CF_R2_REGION}
+
+    volumes:
+      - ../services/api_switch:/root/codebase:rw
+
+    ports:
+      - "31337:31337"
+
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - NGINX PROXY
+  # -----------------------------------------
+  sc_nginx:
+    container_name: sc_nginx
+    restart: always
+    tty: true
+
+    build:
+      context: ../services/nginx
+      dockerfile: Dockerfile
+
+    ports:
+      - "8080:80"
+
+    depends_on:
+      - sc_api_switch
+
+    networks:
+      - clickswave_network
+
+networks:
+  clickswave_network:
+    external: true

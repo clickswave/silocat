@@ -1,0 +1,163 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Raleway:wght@400;500;600;700&display=swap');
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  height: 100%;
+}
+
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  backdrop-filter: blur(1rem);
+  background-color: #111111;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 999999; /* Ensures it's on top of everything */
+
+  .loading-logo {
+    width: 30px;
+    height: 30px;
+    background-image: url('/logo.png');
+    background-size: cover;
+    background-position: center;
+    animation: rotation 2s linear infinite;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  /* Backgrounds */
+  --bg-app: #1c1c1e;
+  /* Deep dark background */
+  --bg-sidebar: #2c2c2e;
+  /* Sidebar sidebar background */
+  --bg-card: #2c2c2e;
+  /* Card background */
+  --bg-card-hover: #3a3a3c;
+  --bg-input: #1c1c1e;
+
+  /* Primary accents */
+  --primary: #ff4655;
+  /* Valorant Red */
+  --primary-hover: #e03e4b;
+  --primary-glow: rgba(255, 70, 85, 0.4);
+
+  /* Secondary accents */
+  --accent-blue: #4aa3e2;
+  --accent-purple: #7b4ae2;
+  --accent-gradient: linear-gradient(135deg, #ff4655 0%, #ff8088 100%);
+
+  /* Text */
+  --text-primary: #ffffff;
+  --text-secondary: #aaaaaa;
+  --text-muted: #666666;
+
+  /* Borders */
+  --border-default: #3a3a3c;
+  --border-active: #ff4655;
+
+  /* Status */
+  --success: #3ddc97;
+  --warning: #f2c94c;
+  --danger: #ff4655;
+
+  /* Spacing & Radius */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+
+  /* Shadows */
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.2);
+  --shadow-glow: 0 0 15px var(--primary-glow);
+
+  /* Sidebar Specifics (Dark Default) */
+  --bg-sidebar-glass: rgba(20, 20, 22, 0.6);
+  --border-sidebar: rgba(255, 255, 255, 0.08);
+  --nav-hover: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme='light'] {
+  /* Backgrounds */
+  --bg-app: #f4f4f5;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-input: #f4f4f5;
+
+  /* Text */
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-muted: #71717a;
+
+  /* Borders */
+  --border-default: #e4e4e7;
+  --border-active: #ff4655;
+
+  /* Shadows */
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.05);
+
+  /* Sidebar Specifics (Light) */
+  --bg-sidebar-glass: rgba(255, 255, 255, 0.85);
+  --border-sidebar: rgba(0, 0, 0, 0.08);
+  --nav-hover: rgba(0, 0, 0, 0.05);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-card-hover);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* NProgress Overrides */
+#nprogress {
+  pointer-events: none;
+
+  .bar {
+    background: var(--primary) !important;
+    height: 3px !important;
+    z-index: 10000;
+  }
+
+  /* Fancy blur effect */
+  .peg {
+    display: block;
+    position: absolute;
+    right: 0px;
+    width: 100px;
+    height: 100%;
+    box-shadow: 0 0 10px var(--primary), 0 0 5px var(--primary) !important;
+    opacity: 1.0;
+    transform: rotate(3deg) translate(0px, -4px);
+  }
+
+  .spinner-icon {
+    border-top-color: var(--primary) !important;
+    border-left-color: var(--primary) !important;
+  }
+}

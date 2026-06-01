@@ -1,0 +1,49 @@
+{
+	"name": "web-server",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev --host --port 12001",
+		"build": "vite build",
+		"preview": "wrangler pages dev .svelte-kit/cloudflare --port 4173",
+		"prepare": "pnpm run types && svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json --watch",
+		"format": "prettier --write .",
+		"lint": "prettier --check . && eslint .",
+		"types": "wrangler types"
+	},
+	"devDependencies": {
+		"@eslint/compat": "^1.4.0",
+		"@eslint/js": "^9.39.1",
+		"@iconify/svelte": "^5.1.0",
+		"@sveltejs/adapter-cloudflare": "^7.2.4",
+		"@sveltejs/kit": "^2.49.1",
+		"@sveltejs/vite-plugin-svelte": "^6.2.1",
+		"@types/node": "^24",
+		"eslint": "^9.39.1",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-svelte": "^3.13.1",
+		"globals": "^16.5.0",
+		"prettier": "^3.7.4",
+		"prettier-plugin-svelte": "^3.4.0",
+		"svelte": "^5.45.6",
+		"svelte-check": "^4.3.4",
+		"typescript": "^5.9.3",
+		"vite": "^7.2.6",
+		"wrangler": "^4.56.0"
+	},
+	"dependencies": {
+		"@tanstack/svelte-query": "^6.0.14",
+		"axios": "^1.13.2",
+		"jsonwebtoken": "^9.0.3",
+		"jszip": "^3.10.1",
+		"libsodium-wrappers-sumo": "^0.8.0",
+		"nprogress": "^0.2.0",
+		"razorpay": "^2.9.6",
+		"sass": "^1.97.1",
+		"svelte-sonner": "^1.0.7",
+		"svelte-turnstile": "^0.11.0"
+	}
+}

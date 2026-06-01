@@ -1,0 +1,21 @@
+FROM debian:bookworm-slim
+
+# container setup basics
+ENV HOME=/root
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y ca-certificates libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root
+
+# Copy the pre-built binary
+# Note: The binary must be in the build context (services/api_switch)
+COPY target/release/api_switch .
+
+# executable permissions just in case
+RUN chmod +x api_switch
+
+# Copy .env if needed (usually provided by docker-compose environment, but good for defaults)
+# COPY .env .
+
+CMD ["./api_switch"]
