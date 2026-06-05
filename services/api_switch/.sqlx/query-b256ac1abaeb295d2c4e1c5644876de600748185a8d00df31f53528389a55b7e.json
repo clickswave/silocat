@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) as count FROM anonymous_users WHERE last_seen > NOW() - INTERVAL '24 HOURS'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b256ac1abaeb295d2c4e1c5644876de600748185a8d00df31f53528389a55b7e"
+}

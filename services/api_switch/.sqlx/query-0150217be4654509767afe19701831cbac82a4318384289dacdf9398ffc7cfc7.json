@@ -1,0 +1,149 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM files WHERE user_id = $1 AND deleted = $2 AND starred = true ORDER BY created_on DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "mime",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "encrypted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "total_chunks",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "uploaded_chunks",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "deleted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "sha256_checksum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "blake3_checksum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "public_access",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "folder_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "owner_api_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "starred",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "share_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "share_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "link_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 20,
+        "name": "link_max_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 21,
+        "name": "deleted_on",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0150217be4654509767afe19701831cbac82a4318384289dacdf9398ffc7cfc7"
+}

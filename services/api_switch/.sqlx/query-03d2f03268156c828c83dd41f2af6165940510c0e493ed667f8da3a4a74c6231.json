@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT code, discount_percentage, duration, active as \"active!\" FROM promo_codes ORDER BY code ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "discount_percentage",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "duration",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "active!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "03d2f03268156c828c83dd41f2af6165940510c0e493ed667f8da3a4a74c6231"
+}

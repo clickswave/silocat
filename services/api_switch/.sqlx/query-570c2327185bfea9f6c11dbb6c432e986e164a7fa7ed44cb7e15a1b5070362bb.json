@@ -1,0 +1,128 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM users ORDER BY created_on DESC LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "password_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "api_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "account_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "profile_image",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "email_verified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "otp",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "sessions",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_restricted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "team_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "subscription_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "default_storage_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "transactions",
+        "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 16,
+        "name": "country",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "bio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "otp_last_sent_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "570c2327185bfea9f6c11dbb6c432e986e164a7fa7ed44cb7e15a1b5070362bb"
+}

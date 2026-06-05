@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET default_storage_bytes = default_storage_bytes + $1 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ba95baf6672c51a90f6a9d27009f38b16d9e1973ed0c4d363ea3262254a7594"
+}

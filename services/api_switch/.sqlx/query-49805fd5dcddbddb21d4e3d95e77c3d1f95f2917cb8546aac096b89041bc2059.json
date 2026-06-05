@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folders SET share_token = $1, link_downloads = 0 WHERE id = $2 AND user_id = $3 RETURNING share_token",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "share_token",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "49805fd5dcddbddb21d4e3d95e77c3d1f95f2917cb8546aac096b89041bc2059"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(sum(size), 0)::BIGINT as size FROM files",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "size",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "123a1d9885012fda3459e3ce4a4334f0cf5abed550cb0bc78b5642dbe23bed7d"
+}

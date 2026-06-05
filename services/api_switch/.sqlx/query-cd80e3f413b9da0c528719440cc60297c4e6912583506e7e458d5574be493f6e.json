@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscriptions (name, additional_space, created_by, expires_on) \n             VALUES ('Pro', 1099511627776, $1, NOW() + INTERVAL '1 month')\n             RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cd80e3f413b9da0c528719440cc60297c4e6912583506e7e458d5574be493f6e"
+}

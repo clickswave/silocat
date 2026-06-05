@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH RECURSIVE folder_tree AS (\n            -- Base case: the target folder\n            SELECT id\n            FROM folders\n            WHERE id = $1 AND user_id = $2\n            \n            UNION ALL\n            \n            -- Recursive step: subfolders\n            SELECT f.id\n            FROM folders f\n            INNER JOIN folder_tree ft ON f.parent_id = ft.id\n            WHERE f.user_id = $2\n        )\n        SELECT \n            (SELECT COUNT(*) FROM folder_tree) - 1 as \"folder_count!\", -- Subtract 1 to exclude the root folder itself from \"items inside\"\n            (SELECT COUNT(*) FROM files WHERE folder_id IN (SELECT id FROM folder_tree) AND user_id = $2) as \"file_count!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "folder_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "file_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "e4aa6155edd121af0ff7d72c10c996fb87e5294f9d1c564901df7d2f1e21f378"
+}

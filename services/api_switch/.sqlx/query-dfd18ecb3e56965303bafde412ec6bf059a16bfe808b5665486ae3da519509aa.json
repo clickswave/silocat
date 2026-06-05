@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM orders WHERE user_id = $1 ORDER BY created_on DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "subscription_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "subscription_cycle",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "additional_space",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "reference_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "payment_gateway",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "amount",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "details",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "transactions",
+        "type_info": "JsonbArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dfd18ecb3e56965303bafde412ec6bf059a16bfe808b5665486ae3da519509aa"
+}

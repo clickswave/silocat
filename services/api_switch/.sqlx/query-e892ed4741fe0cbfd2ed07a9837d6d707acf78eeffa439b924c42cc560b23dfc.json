@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE anonymous_users SET bandwidth_usage_bytes = $1, last_reset_stats = $2 WHERE api_key = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e892ed4741fe0cbfd2ed07a9837d6d707acf78eeffa439b924c42cc560b23dfc"
+}

@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                f.id, \n                f.name, \n                f.created_on, \n                f.parent_id,\n                f.starred,\n                ((SELECT COUNT(*) FROM files WHERE folder_id = f.id AND user_id = $1 AND deleted = $2) + (SELECT COUNT(*) FROM folders WHERE parent_id = f.id AND user_id = $1 AND deleted = $2)) as \"file_count\"\n            FROM folders f\n            WHERE f.user_id = $1 AND f.share_type != 'off' AND f.deleted = $2\n            ORDER BY f.created_on DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "starred",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "file_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "6cf9c0b82233bb6406a93a797a350a5ac97b2295bf65cadc98f3d6ebfd234db2"
+}

@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM subscriptions ORDER BY created_on DESC LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "additional_space",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "invited",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "49a2d27e872615104c2f42e19c606d610d848e0c4b297fc140f3c56644388125"
+}

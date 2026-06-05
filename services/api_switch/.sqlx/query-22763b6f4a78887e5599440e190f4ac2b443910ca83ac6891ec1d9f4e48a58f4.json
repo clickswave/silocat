@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE files SET deleted = false, deleted_on = NULL WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "22763b6f4a78887e5599440e190f4ac2b443910ca83ac6891ec1d9f4e48a58f4"
+}

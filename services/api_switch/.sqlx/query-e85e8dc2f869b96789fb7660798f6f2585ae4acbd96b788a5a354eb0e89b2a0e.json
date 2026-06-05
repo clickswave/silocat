@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE files SET share_type = $1, share_token = $2 WHERE id = $3 AND user_id = $4 RETURNING share_token, share_type, link_downloads, link_max_downloads",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "share_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "share_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "link_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "link_max_downloads",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e85e8dc2f869b96789fb7660798f6f2585ae4acbd96b788a5a354eb0e89b2a0e"
+}

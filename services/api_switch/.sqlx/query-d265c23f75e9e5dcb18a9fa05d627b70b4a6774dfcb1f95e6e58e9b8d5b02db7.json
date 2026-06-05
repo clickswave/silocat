@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE invite_codes SET claimed_by = $1 WHERE code = $2 AND claimed_by IS NULL\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d265c23f75e9e5dcb18a9fa05d627b70b4a6774dfcb1f95e6e58e9b8d5b02db7"
+}

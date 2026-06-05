@@ -1,4 +1,3 @@
 services/postgres/data
-.sqlx
 .vscode
 .idea

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(SUM(size), 0)::BIGINT as used_bytes FROM files WHERE user_id = $1 AND deleted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "used_bytes",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6ceba7f16052a77cd90bef6e4723e1efa24cddcb6cd5fd1abbbf4a7f27e732b6"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folders SET deleted = true, deleted_on = NOW() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "75515c045780f60e69cb87e6af5370cd745c389e9152a3ddc727356833875aa4"
+}

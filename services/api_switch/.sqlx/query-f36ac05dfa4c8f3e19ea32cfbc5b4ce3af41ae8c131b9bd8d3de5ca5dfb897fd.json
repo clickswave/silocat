@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO orders (reference_id, user_id, subscription_name, subscription_cycle, additional_space, payment_gateway, currency, amount, status, details)\n             VALUES ($1, $2, $3, $4, $5, 'free', $6, $7, 'completed', $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f36ac05dfa4c8f3e19ea32cfbc5b4ce3af41ae8c131b9bd8d3de5ca5dfb897fd"
+}

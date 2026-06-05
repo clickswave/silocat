@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, share_type, link_downloads, link_max_downloads FROM folders WHERE share_token = $1 AND share_type != 'off'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "share_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "link_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "link_max_downloads",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "37677062b016ff9221610a6d378721f1859e93c89ea286ac0163302c5f3dda21"
+}
