@@ -37,37 +37,6 @@ services:
       - clickswave_network
 
   # -----------------------------------------
-  # - ADMIN DASHBOARD (SVELTEKIT)
-  # -----------------------------------------
-  sc_admin_dashboard:
-    container_name: sc_admin_dashboard
-    # restart: always
-    tty: true
-    # Override dev script to use host and specific port
-    command: sh -c "npm i --verbose && npm run dev -- --host --port 12002"
-
-    build:
-      context: ../services/admin_dashboard
-      dockerfile: Dockerfile
-
-    volumes:
-      - ../services/admin_dashboard:/root/codebase:rw
-
-    ports:
-      - "12002:12002"
-
-    environment:
-      INTERNAL_API_URL: ${INTERNAL_API_URL}
-      AUTHORITY_SIGN: ${AUTHORITY_SIGN}
-      JWT_SECRET: ${JWT_SECRET}
-
-    depends_on:
-      - sc_api_switch
-
-    networks:
-      - clickswave_network
-
-  # -----------------------------------------
   # - API SWITCH (AXUM)
   # DB is core's `silocat` database (DATABASE_URL points at core_postgres).
   # api_switch runs its own sqlx migrations against it.
