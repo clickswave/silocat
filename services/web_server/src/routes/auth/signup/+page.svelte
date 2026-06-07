@@ -135,8 +135,14 @@
 
 		<div class="form-group">
 			<label for="inviteCode">
-				Invite Code <span class="required">(Required)</span>
-				<span class="request-link"> — <a href="/early-access">Request one</a></span>
+				Invite Code
+				{#if data.inviteOnly}
+					<span class="required">(Required)</span>
+					<span class="request-link"> — <a href="/early-access">Request one</a></span>
+				{:else}
+					<span class="optional">(Optional)</span>
+					<span class="request-link"> · unlocks bonus storage / Pro</span>
+				{/if}
 			</label>
 			<div class="input-wrapper">
 				<Icon icon="ri:ticket-line" class="input-icon" width="18" />
@@ -146,7 +152,7 @@
 					type="text"
 					placeholder="INV-XXXX"
 					bind:value={form.inviteCode}
-					required
+					required={data.inviteOnly}
 				/>
 			</div>
 		</div>

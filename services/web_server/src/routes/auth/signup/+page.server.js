@@ -8,6 +8,12 @@ import { validateTurnstileToken } from '$lib/turnstile.js';
 import { env } from '$env/dynamic/public';
 const { PUBLIC_TURNSTILE_KEY } = env;
 
+// Mirrors the api_switch SILOCAT_INVITE_ONLY gate so the form matches the
+// backend. Set PUBLIC_SIGNUP_INVITE_ONLY=false to make invite codes optional.
+const inviteOnly = !['false', '0', 'no'].includes(
+	(env.PUBLIC_SIGNUP_INVITE_ONLY ?? 'true').trim().toLowerCase()
+);
+
 /** @satisfies {import('./$types').Load} */
 export const load = async ({ locals }) => {
 	let session = await locals.session.get();
@@ -18,6 +24,7 @@ export const load = async ({ locals }) => {
 
 	return {
 		session,
+		inviteOnly,
 		turnstileSiteKey: PUBLIC_TURNSTILE_KEY };
 };
 

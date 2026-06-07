@@ -69,7 +69,17 @@ pub async fn handle(
         None => None,
     };
 
-    if valid_invite_code.is_none() {
+    // Signup gate. Invite-only by default; set SILOCAT_INVITE_ONLY=false to open
+    // public registration. Invites still grant their benefits when supplied —
+    // they just stop being mandatory once signup is public.
+    let invite_only = std::env::var("SILOCAT_INVITE_ONLY")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            !(v == "false" || v == "0" || v == "no")
+        })
+        .unwrap_or(true);
+
+    if invite_only && valid_invite_code.is_none() {
         return respond(
             400,
             "Invite code required",

@@ -82,5 +82,11 @@ export const handle = async ({ event, resolve }) => {
 		...session, user: sessionUser, subscription: sessionSubscription
 	};
 
-	return await resolve(event);
+	const response = await resolve(event);
+	// Staging is gated by Cloudflare Access; this is a belt-and-suspenders
+	// backstop so the pre-prod site is never indexed even if a link leaks.
+	if (event.url.hostname.startsWith('staging.')) {
+		response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+	}
+	return response;
 };
