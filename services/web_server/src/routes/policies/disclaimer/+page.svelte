@@ -1,6 +1,16 @@
-<svelte:head>
-	<title>Disclaimer - SiloCat</title>
-</svelte:head>
+<script>
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
+</script>
+
+<Seo
+	title="Disclaimer | SiloCat"
+	description="Legal disclaimer for SiloCat encrypted file sharing and cloud storage."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'Disclaimer', path: '/policies/disclaimer' }
+	])}
+/>
 
 <div class="policy-document">
 	<h1>Disclaimer</h1>

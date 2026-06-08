@@ -1,6 +1,16 @@
-<svelte:head>
-	<title>Acceptable Use Policy - SiloCat</title>
-</svelte:head>
+<script>
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
+</script>
+
+<Seo
+	title="Acceptable Use Policy | SiloCat"
+	description="SiloCat's Acceptable Use Policy: what is and isn't allowed, and how we keep the platform safe while preserving your privacy."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'Acceptable Use Policy', path: '/policies/acceptable-use' }
+	])}
+/>
 
 <div class="policy-document">
 	<h1>Acceptable Use Policy</h1>

@@ -1,5 +1,7 @@
 <script>
 	import Icon from '@iconify/svelte';
+	import Seo from '$lib/components/Seo.svelte';
+	import { softwareApplicationSchema, breadcrumbSchema } from '$lib/seo.js';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 
@@ -72,18 +74,17 @@
 	];
 </script>
 
-<svelte:head>
-	<title>SiloCat Pricing - Simple, Transparent, Secure</title>
-	<meta
-		name="description"
-		content="Flexible plans for anonymous and power users. Kitty powered E2E encrypted anonymous file-sharing and cloud storage."
-	/>
-	<meta property="og:title" content="SiloCat Pricing - Simple, Transparent, Secure" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-</svelte:head>
+<Seo
+	title="Pricing: Simple, transparent, secure | SiloCat"
+	description="Flexible SiloCat plans for anonymous and power users. Zero-knowledge end-to-end encrypted file sharing and cloud storage, with a free tier and affordable upgrades."
+	schema={[
+		softwareApplicationSchema(),
+		breadcrumbSchema([
+			{ name: 'Home', path: '/' },
+			{ name: 'Pricing', path: '/pricing' }
+		])
+	]}
+/>
 
 <div class="page-container">
 	<Navbar />

@@ -36,6 +36,11 @@
 	});
 </script>
 
+<svelte:head>
+	<title>Signing you in - SiloCat</title>
+	<meta name="robots" content="noindex, nofollow" />
+</svelte:head>
+
 <div class="callback-container">
 	<div class="loader"></div>
 	<p>Authenticating with Google...</p>

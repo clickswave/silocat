@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { loadRazorpay } from '$lib/loadRazorpay.js';
 
 	let { data } = $props();
 	let isPro = $derived(data.user?.subscription?.name === 'Pro');
@@ -204,7 +205,8 @@
 					}
 				};
 
-				const rzp = new window.Razorpay(options);
+				const Razorpay = await loadRazorpay();
+				const rzp = new Razorpay(options);
 				rzp.open();
 			} else {
 				toast.info('This gateway is coming soon!');

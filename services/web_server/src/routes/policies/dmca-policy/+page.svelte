@@ -1,6 +1,16 @@
-<svelte:head>
-	<title>DMCA Policy - SiloCat</title>
-</svelte:head>
+<script>
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
+</script>
+
+<Seo
+	title="DMCA Policy | SiloCat"
+	description="SiloCat's DMCA policy and copyright takedown process for reporting infringing content."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'DMCA Policy', path: '/policies/dmca-policy' }
+	])}
+/>
 
 <div class="policy-document">
 	<h1>DMCA Policy</h1>

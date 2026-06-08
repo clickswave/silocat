@@ -1,3 +1,8 @@
-# allow crawling everything by default
+# SiloCat robots policy
 User-agent: *
-Disallow:
+Disallow: /home
+Disallow: /auth
+Disallow: /s/
+Disallow: /api/v1/
+
+Sitemap: https://silo.cat/sitemap.xml

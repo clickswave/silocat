@@ -2,6 +2,8 @@
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import Icon from '@iconify/svelte';
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
 	import { slide } from 'svelte/transition';
 
 	let expandedEndpoint = $state(null);
@@ -289,9 +291,14 @@
 	];
 </script>
 
-<svelte:head>
-	<title>API Documentation | SiloCat</title>
-</svelte:head>
+<Seo
+	title="API documentation | SiloCat"
+	description="Integrate SiloCat's encrypted storage into your apps. Programmatic, zero-knowledge file upload, sharing, and download via the SiloCat API."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'API', path: '/api' }
+	])}
+/>
 
 <div class="api-page">
 	<Navbar />

@@ -278,6 +278,12 @@
 	}
 </script>
 
+<svelte:head>
+	<title>Secure Download - SiloCat</title>
+	<!-- Private share link: never index or follow. -->
+	<meta name="robots" content="noindex, nofollow" />
+</svelte:head>
+
 <div class="page-container">
 	<div class="center-card">
 		{#if loading}

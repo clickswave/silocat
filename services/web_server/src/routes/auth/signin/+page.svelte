@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import Seo from '$lib/components/Seo.svelte';
 	import { toast } from 'svelte-sonner';
 	import SiloCatLogo from '$lib/assets/silo-cat.png';
 	import { Turnstile } from 'svelte-turnstile';
@@ -121,18 +122,11 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Sign In - SiloCat Sanctum Access</title>
-	<meta
-		name="description"
-		content="Access your encrypted SiloCat vault. Secure, anonymous, and encrypted file management. Kitty powered E2E encryption."
-	/>
-	<meta property="og:title" content="Sign In - SiloCat Sanctum" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-</svelte:head>
+<Seo
+	title="Sign in | SiloCat"
+	description="Access your encrypted SiloCat vault."
+	noindex
+/>
 
 <section class="auth-card card">
 	<div class="card-header">

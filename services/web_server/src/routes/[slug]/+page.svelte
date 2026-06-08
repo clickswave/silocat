@@ -367,19 +367,8 @@
 	<title>
 		{fileMeta ? fileMeta.name : folderMeta ? folderMeta.name : 'Secure Download'} - SiloCat
 	</title>
-	<meta
-		name="description"
-		content="Download {fileMeta
-			? fileMeta.name
-			: folderMeta
-				? folderMeta.name
-				: 'files'} securely from SiloCat. Kitty powered E2E encrypted anonymous file-sharing."
-	/>
-	<meta property="og:title" content="Secure Download - SiloCat" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
+	<!-- Private share link: never index or follow. -->
+	<meta name="robots" content="noindex, nofollow" />
 </svelte:head>
 
 <div class="landing-page">

@@ -1,15 +1,16 @@
-<svelte:head>
-	<title>Terms of Service - SiloCat</title>
-	<meta
-		name="description"
-		content="Read our Terms of Service. Fair use, abuse prevention, and your rights on SiloCat. Kitty powered E2E encrypted anonymous file-sharing."
-	/>
-	<meta property="og:title" content="Terms of Service - SiloCat" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-</svelte:head>
+<script>
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
+</script>
+
+<Seo
+	title="Terms of Service | SiloCat"
+	description="SiloCat's Terms of Service: fair use, abuse prevention, and your rights on our zero-knowledge encrypted storage platform."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'Terms of Service', path: '/policies/terms-of-service' }
+	])}
+/>
 
 <div class="policy-document">
 	<h1>Terms of Service</h1>

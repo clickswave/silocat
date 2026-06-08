@@ -1,6 +1,6 @@
 <script>
-	import favicon from '$lib/assets/silo-cat.png';
 	import { browser } from '$app/environment';
+	import { SITE, organizationSchema, websiteSchema } from '$lib/seo.js';
 	import { Toaster } from 'svelte-sonner';
 	import { QueryClientProvider, QueryClient } from '@tanstack/svelte-query';
 	import '$lib/global.scss';
@@ -38,8 +38,9 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
-	<title>SiloCat</title>
+	<title>{SITE.defaultTitle}</title>
+	{@html `<script type="application/ld+json">${JSON.stringify(organizationSchema())}<\/script>`}
+	{@html `<script type="application/ld+json">${JSON.stringify(websiteSchema())}<\/script>`}
 </svelte:head>
 
 <Toaster position="top-center" richColors theme="dark" />

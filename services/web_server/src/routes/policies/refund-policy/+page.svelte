@@ -1,6 +1,16 @@
-<svelte:head>
-	<title>Refund Policy - SiloCat</title>
-</svelte:head>
+<script>
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
+</script>
+
+<Seo
+	title="Refund Policy | SiloCat"
+	description="SiloCat's refund policy for subscriptions and add-ons."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'Refund Policy', path: '/policies/refund-policy' }
+	])}
+/>
 
 <div class="policy-document">
 	<h1>Refund Policy</h1>

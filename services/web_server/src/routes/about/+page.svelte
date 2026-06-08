@@ -1,20 +1,18 @@
 <script>
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
 </script>
 
-<svelte:head>
-	<title>About SiloCat - Cat powered file sharing and storage platform</title>
-	<meta
-		name="description"
-		content="Learn about SiloCat's mission to provide the most secure file sharing platform. Kitty powered E2E encrypted anonymous file-sharing."
-	/>
-	<meta property="og:title" content="About SiloCat - Kitty Powered Secure Storage" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-</svelte:head>
+<Seo
+	title="About SiloCat: Privacy-first encrypted storage"
+	description="SiloCat's mission is private, zero-knowledge file sharing and cloud storage. Learn how end-to-end encryption keeps your files yours, and yours alone."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'About', path: '/about' }
+	])}
+/>
 
 <div class="page-container">
 	<Navbar />

@@ -1,15 +1,16 @@
-<svelte:head>
-	<title>Privacy Policy - SiloCat</title>
-	<meta
-		name="description"
-		content="Review our privacy policy. We operate on a Zero Knowledge basis—your data is yours alone. Kitty powered E2E encrypted anonymous file-sharing."
-	/>
-	<meta property="og:title" content="Privacy Policy - SiloCat" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-</svelte:head>
+<script>
+	import Seo from '$lib/components/Seo.svelte';
+	import { breadcrumbSchema } from '$lib/seo.js';
+</script>
+
+<Seo
+	title="Privacy Policy | SiloCat"
+	description="SiloCat's privacy policy. We operate on a zero-knowledge basis: your files are end-to-end encrypted and your data is yours alone."
+	schema={breadcrumbSchema([
+		{ name: 'Home', path: '/' },
+		{ name: 'Privacy Policy', path: '/policies/privacy-policy' }
+	])}
+/>
 
 <div class="policy-document">
 	<h1>Privacy Policy</h1>

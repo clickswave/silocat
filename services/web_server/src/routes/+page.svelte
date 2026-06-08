@@ -1,5 +1,7 @@
 <script>
 	import Icon from '@iconify/svelte';
+	import Seo from '$lib/components/Seo.svelte';
+	import { softwareApplicationSchema } from '$lib/seo.js';
 	import SiloCatLogo from '$lib/assets/silo-cat.png';
 	import ClickswaveLogo from '$lib/assets/clickswave_transparent.webp';
 	import { fade } from 'svelte/transition';
@@ -554,23 +556,12 @@
 	}
 </script>
 
-<svelte:head>
-	<title>SiloCat - Cat powered file sharing and storage platform</title>
-	<meta
-		name="description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads. Zero-knowledge, built for the paranoid."
-	/>
-	<meta
-		name="keywords"
-		content="encrypted file sharing, secure storage, zero knowledge, end-to-end encryption, anonymous file share, parallel downloads"
-	/>
-	<meta property="og:title" content="SiloCat - Anonymous Encrypted File Sharing" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-	<meta property="og:type" content="website" />
-</svelte:head>
+<Seo
+	title="SiloCat: End-to-end encrypted file sharing & cloud storage"
+	description="Zero-knowledge, end-to-end encrypted file sharing and cloud storage. Upload up to 20 GB, share an anonymous link with parallel downloads, and keep full control of your data."
+	keywords="encrypted file sharing, secure cloud storage, zero knowledge storage, end-to-end encryption, anonymous file share, send large files, private file sharing"
+	schema={softwareApplicationSchema()}
+/>
 
 <div class="landing-page">
 	<Navbar />

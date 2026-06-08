@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import Seo from '$lib/components/Seo.svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import SiloCatLogo from '$lib/assets/silo-cat.png';
@@ -47,18 +48,11 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Join the Watch - Create Secure Account | SiloCat</title>
-	<meta
-		name="description"
-		content="Create your anonymous, encrypted vault. Join the SiloCat watch. Kitty powered E2E encrypted anonymous file-sharing."
-	/>
-	<meta property="og:title" content="Join the Watch - SiloCat" />
-	<meta
-		property="og:description"
-		content="Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel downloads."
-	/>
-</svelte:head>
+<Seo
+	title="Create your account | SiloCat"
+	description="Create your anonymous, encrypted SiloCat vault."
+	noindex
+/>
 
 <section class="auth-card card">
 	<div class="card-header">
