@@ -11,6 +11,20 @@
 			} catch (e) {}
 		</script>
 
+		<!-- Google Analytics (gtag.js) — production host only, so dev/staging traffic is excluded -->
+		<script>
+			if (location.hostname === 'silo.cat') {
+				var gaScript = document.createElement('script');
+				gaScript.async = true;
+				gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=G-8L85JCPKJ3';
+				document.head.appendChild(gaScript);
+				window.dataLayer = window.dataLayer || [];
+				function gtag() { dataLayer.push(arguments); }
+				gtag('js', new Date());
+				gtag('config', 'G-8L85JCPKJ3');
+			}
+		</script>
+
 		<!-- Icons & PWA -->
 		<link rel="icon" href="/favicon.ico" sizes="any" />
 		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
