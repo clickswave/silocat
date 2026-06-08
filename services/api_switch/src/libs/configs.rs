@@ -35,9 +35,9 @@ pub fn smtp_config() -> anyhow::Result<SmtpConfig> {
             address: "smtp.postmarkapp.com".to_string(),
             username: username?,
             password: password?,
-            from_name: "Support".to_string(),
+            from_name: "SiloCat".to_string(),
             from_email: "support@silo.cat".to_string(),
-            reply_to_name: "Support".to_string(),
+            reply_to_name: "SiloCat Support".to_string(),
             reply_to_email: "support@silo.cat".to_string(),
         })
 
