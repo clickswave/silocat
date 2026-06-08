@@ -37,13 +37,13 @@
 <div class="country-select" use:clickOutside={() => closeDropdown()}>
 	<button type="button" class="select-trigger" onclick={toggleDropdown}>
 		<span class="text">{selectedCountryName || 'Select a country'}</span>
-		<Icon icon="ri:arrow-down-s-line" class="arrow {isOpen ? 'open' : ''}" />
+		<span class="arrow" class:open={isOpen}><Icon icon="ri:arrow-down-s-line" /></span>
 	</button>
 
 	{#if isOpen}
 		<div class="dropdown-menu">
 			<div class="search-box">
-				<Icon icon="ri:search-line" class="search-icon" />
+				<span class="search-icon"><Icon icon="ri:search-line" /></span>
 				<input
 					bind:this={inputElement}
 					type="text"
@@ -62,7 +62,7 @@
 						>
 							{country.name}
 							{#if value === country.code}
-								<Icon icon="ri:check-line" class="check-icon" />
+								<span class="check-icon"><Icon icon="ri:check-line" /></span>
 							{/if}
 						</button>
 					</li>
@@ -109,6 +109,8 @@
 		}
 
 		.arrow {
+			display: inline-flex;
+			align-items: center;
 			color: var(--text-muted);
 			transition: transform 0.2s;
 			&.open {
@@ -140,6 +142,9 @@
 				left: var(--space-2);
 				top: 50%;
 				transform: translateY(-50%);
+				display: flex;
+				align-items: center;
+				font-size: 1rem;
 				color: var(--text-muted);
 				pointer-events: none;
 			}
@@ -217,6 +222,8 @@
 				}
 
 				.check-icon {
+					display: inline-flex;
+					align-items: center;
 					color: var(--primary);
 				}
 			}

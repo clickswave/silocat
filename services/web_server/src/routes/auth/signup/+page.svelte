@@ -60,8 +60,8 @@
 			<img src={SiloCatLogo} alt="SiloCat Logo" />
 		</div>
 		<div class="title-group">
-			<h1>Join the Watch</h1>
-			<p>Secure your digital footprint.</p>
+			<h1>Create your encrypted vault</h1>
+			<p>Zero-knowledge by design. Only you hold the keys.</p>
 		</div>
 	</div>
 

@@ -4,6 +4,13 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
+		<!-- Apply the saved theme before first paint (avoids flash + dark-on-refresh) -->
+		<script>
+			try {
+				document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+			} catch (e) {}
+		</script>
+
 		<!-- Icons & PWA -->
 		<link rel="icon" href="/favicon.ico" sizes="any" />
 		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
