@@ -8,12 +8,16 @@ use crate::libs;
 #[derive(Deserialize)]
 pub struct GoogleAuthInput {
     pub code: String,
+    // The frontend sends the exact redirect_uri it used (origin-derived), so this
+    // works across dev / staging / prod. Google validates it against the URIs
+    // registered in the OAuth client, so accepting it from the client is safe.
+    pub redirect_uri: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct GoogleTokenResponse {
     pub access_token: String,
-    pub id_token: String, // We might need id_token for parsing, but access_token matches userinfo.
+    pub id_token: Option<String>, // present only when scope includes openid; unused (we use access_token).
     pub expires_in: i64,
     pub token_type: String,
     pub scope: String,
@@ -30,17 +34,23 @@ pub struct GoogleUserInfo {
 }
 
 pub async fn handle(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<GoogleAuthInput>,
 ) -> impl IntoResponse {
     let client_id = &axum_state.google_oauth.client_id;
     let client_secret = &axum_state.google_oauth.client_secret;
-    // Redirect URI must match what frontend used.
-    // For local dev, usually http://localhost:5173/auth/callback
-    // I will hardcode for now based on typical setup or read from env if I added it. I didn't add it to config yet, checking configs.rs...
-    // I didn't add redirect_url to config struct. I'll assume standard frontend path.
-    // Assuming: http://localhost:5173/auth/callback
-    let redirect_uri = "http://localhost:5173/auth/callback"; 
+    // Use the redirect_uri the frontend used (must match the one in the auth
+    // request and be registered in the Google OAuth client). Falls back to the
+    // GOOGLE_REDIRECT_URI env var, then a local-dev default.
+    let redirect_uri: String = payload
+        .redirect_uri
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("GOOGLE_REDIRECT_URI").ok())
+        .unwrap_or_else(|| "http://localhost:5173/auth/callback".to_string());
+    let redirect_uri = redirect_uri.as_str();
 
     let client = reqwest::Client::new();
 
@@ -115,8 +125,51 @@ pub async fn handle(
             return respond(200, "Login successful", vec![], json!(token_data));
         },
         Ok(None) => {
-            // User does not exist, and we do not allow signup via Google Auth.
-            return respond(403, "Account not found. Please sign up first.", vec!["User does not exist".to_string()], json!({}));
+            // First Google sign-in: create the account. Google already verified the
+            // email; there is no password (login is via Google). Default 50GB storage.
+            let base: String = google_user
+                .name
+                .to_lowercase()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect();
+            let base = if base.is_empty() {
+                google_user.email.split('@').next().unwrap_or("user").to_string()
+            } else {
+                base
+            };
+            let username = format!("{}{}", base, libs::rng::number(4));
+            let user_id = libs::rng::uuid();
+            let api_key = libs::rng::uuid();
+            let geo_country = axum_state
+                .geoip
+                .as_ref()
+                .and_then(|r| libs::geoip::country_code(r, &libs::geoip::client_ip(&headers, addr)));
+
+            let created = sqlx::query_as::<_, User>(
+                "INSERT INTO users \
+                 (id, username, email, password_hash, otp, api_key, account_type, default_storage_bytes, email_verified, profile_image, country) \
+                 VALUES ($1, $2, $3, '', '', $4, 'personal', $5, true, $6, $7) RETURNING *",
+            )
+            .bind(&user_id)
+            .bind(&username)
+            .bind(&google_user.email)
+            .bind(&api_key)
+            .bind(53687091200_i64)
+            .bind(&google_user.picture)
+            .bind(&geo_country)
+            .fetch_one(&axum_state.pg_pool)
+            .await;
+
+            match created {
+                Ok(user) => {
+                    let token_data = crate::models::token_data(user, None);
+                    return respond(200, "Signup successful", vec![], json!(token_data));
+                }
+                Err(e) => {
+                    return respond(500, "Could not create account", vec![e.to_string()], json!({}));
+                }
+            }
         },
         Err(e) => {
              return respond(500, "Database error", vec![e.to_string()], json!({}));

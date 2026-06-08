@@ -39,7 +39,9 @@ async function validateRequest({ request }) {
 	};
 	console.log("[payload]", { payload });
 	try {
-		let validate = await ApiServerClient.post(ApiServerRoutes.validateShadowUser, payload).then(res => res.data);
+		let validate = await ApiServerClient.post(ApiServerRoutes.validateShadowUser, payload, {
+			headers: { 'CF-Connecting-IP': clientIp }
+		}).then(res => res.data);
 		let { user } = validate;
 		return { success: true, user };
 	} catch (e) {
@@ -91,10 +93,15 @@ export async function POST({ request, locals }) {
 	}
 
 	try {
-		let response = await ApiServerClient.post(ApiServerRoutes.createFile, body).then(res => res.data);
+		const clientIp = getClientIp(request.headers) || '127.0.0.1';
+		let response = await ApiServerClient.post(ApiServerRoutes.createFile, body, {
+			headers: { 'CF-Connecting-IP': clientIp }
+		}).then(res => res.data);
 		return json(response);
 	} catch (err) {
-		console.error('[CREATE_FILE_METADATA]', err);
-		return json({ error: 'Failed to create file metadata' }, { status: 500 });
+		console.error('[CREATE_FILE_METADATA]', err?.response?.status, err?.response?.data || err.message);
+		// Pass through upstream errors (e.g. 403 "You are banned") so the UI can react.
+		const up = err?.response?.data;
+		return json({ error: up?.message || 'Failed to create file metadata', banned: up?.data?.banned }, { status: err?.response?.status || 500 });
 	}
 }

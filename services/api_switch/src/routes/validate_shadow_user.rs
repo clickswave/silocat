@@ -1,39 +1,56 @@
 use axum::{extract::State, Json, response::IntoResponse};
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use serde_json::{json};
-use crate::{libs, models};
+use serde::Deserialize;
+use serde_json::json;
+use crate::libs;
 use crate::routes::respond;
 
-#[derive(Deserialize, Serialize, Debug)]
-struct GeoInfo {
-    country: String,
-    region: String,
-    city: String,
-    latitude: String,
-    longitude: String,
-    asn: String,
-    isp: String,
-}
-
+// Client may still send extra fields (ip/geo); they're ignored — the server is
+// authoritative for IP + geolocation (client-reported values are spoofable).
 #[derive(Deserialize, Debug)]
 pub struct Payload {
     pub api_key: String,
+    #[serde(default)]
     pub user_agent: String,
-    pub ip: String,
-    pub geo: GeoInfo,
 }
 
 pub async fn handle(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
+    // Server-observed client IP + MaxMind geolocation.
+    let ip = libs::geoip::client_ip(&headers, addr);
 
-    println!("HIT VALIDATE SHADOW USER");
+    // Anonymous IP ban: refuse the session so the client surfaces a "banned" toast.
+    if let Some(ban) = libs::bans::ip_ban(&axum_state.pg_pool, &ip).await {
+        return respond(
+            403,
+            "You are banned",
+            vec![ban
+                .reason
+                .clone()
+                .unwrap_or_else(|| "Your access has been banned.".to_string())],
+            json!({ "banned": true, "reason": ban.reason, "until": ban.until }),
+        );
+    }
 
-    let geo_json = serde_json::to_value(&payload.geo).unwrap_or(json!({}));
+    let user_agent = if !payload.user_agent.trim().is_empty() {
+        payload.user_agent.clone()
+    } else {
+        headers
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    };
+    let geo_json = axum_state
+        .geoip
+        .as_ref()
+        .and_then(|r| libs::geoip::lookup(r, &ip))
+        .unwrap_or_else(|| json!({}));
 
-    // Insert or Update anonymous user
+    // Insert or update the anonymous user keyed by browser api_key.
     let insert_query = sqlx::query!(
         "INSERT INTO anonymous_users (api_key, ip_address, user_agent, geo_location, last_seen)
          VALUES ($1, $2, $3, $4, NOW())
@@ -43,8 +60,8 @@ pub async fn handle(
          user_agent = EXCLUDED.user_agent,
          geo_location = EXCLUDED.geo_location",
         payload.api_key,
-        payload.ip,
-        payload.user_agent,
+        ip,
+        user_agent,
         geo_json
     )
     .execute(&axum_state.pg_pool)
@@ -52,13 +69,8 @@ pub async fn handle(
 
     if let Err(e) = insert_query {
         println!("Error tracking anonymous user: {:?}", e);
-        // We don't block the request, just log error
+        // Best-effort: never block the request on tracking.
     }
 
-    respond(
-        200,
-        "Shadow user validated",
-        vec![],
-        json!({}),
-    )
+    respond(200, "Shadow user validated", vec![], json!({}))
 }

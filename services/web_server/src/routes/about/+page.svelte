@@ -20,30 +20,33 @@
 	<Navbar />
 
 	<main class="content">
-		<div class="hero">
-			<h1>We are <span class="text-gradient">SiloCat</span></h1>
-			<p class="subtitle">Redefining secure, anonymous file sharing for the modern web.</p>
-		</div>
+		<section class="section">
+			<div class="container">
+				<div class="hero">
+					<span class="eyebrow">about silocat</span>
+					<h1>We are <span class="text-gradient">SiloCat</span></h1>
+					<p class="subtitle">Redefining secure, anonymous file sharing for the modern web.</p>
+				</div>
 
-		<section class="mission">
-			<div class="text-block">
-				<h2>Built for the <span style="color: var(--primary, #ff4655);">Digital Feline</span></h2>
-				<p>
-					SiloCat operates in the shadows. We are built for those who value agility, silence, and
-					absolute control. Whether you're a developer moving artifacts or a researcher sharing
-					samples, our infrastructure is designed to be as elusive as a cat in the night.
-				</p>
-				<p>
-					We operate under the vigilant eye of <strong style="color: white;">WatchCat</strong>, our
-					internal storage sentinel. WatchCat ensures your data lands in the optimal encrypted vault
-					(R2 or B2) while remaining completely invisible to the outside world.
-				</p>
-				<p>
-					However, we are not lawless. We strictly adhere to DMCA and government compliance
-					regulations. We protect your privacy against prying eyes, not against the law. If you
-					abuse the platform, the cat bites back.
-				</p>
-			</div>
+				<section class="mission">
+					<div class="text-block">
+						<h2>Built for the <span class="accent">Digital Feline</span></h2>
+						<p>
+							SiloCat operates in the shadows. We are built for those who value agility, silence, and
+							absolute control. Whether you're a developer moving artifacts or a researcher sharing
+							samples, our infrastructure is designed to be as elusive as a cat in the night.
+						</p>
+						<p>
+							We operate under the vigilant eye of <strong>WatchCat</strong>, our
+							internal storage sentinel. WatchCat ensures your data lands in the optimal encrypted vault
+							(R2 or B2) while remaining completely invisible to the outside world.
+						</p>
+						<p>
+							However, we are not lawless. We strictly adhere to DMCA and government compliance
+							regulations. We protect your privacy against prying eyes, not against the law. If you
+							abuse the platform, the cat bites back.
+						</p>
+					</div>
 			<div class="stats-grid">
 				<div class="stat">
 					<span class="value">Zero</span>
@@ -54,9 +57,11 @@
 					<span class="label">Sentinel</span>
 				</div>
 				<div class="stat">
-					<span class="value">R2 / B2</span>
-					<span class="label">Multi-Cloud</span>
+						<span class="value">R2 / B2</span>
+						<span class="label">Multi-Cloud</span>
+					</div>
 				</div>
+			</section>
 			</div>
 		</section>
 	</main>
@@ -69,13 +74,6 @@
 </div>
 
 <style lang="scss">
-	:global(body) {
-		margin: 0;
-		background-color: #0b0b0d;
-		color: white;
-		font-family: 'Outfit', sans-serif;
-	}
-
 	.page-container {
 		min-height: 100vh;
 		position: relative;
@@ -85,33 +83,27 @@
 	}
 
 	.content {
-		padding: 4rem 2rem;
 		position: relative;
 		z-index: 10;
-		max-width: 1000px;
-		margin: 0 auto;
 		flex: 1;
 	}
 
 	.hero {
 		text-align: center;
-		margin-bottom: 6rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-4);
+		margin-bottom: var(--space-12);
 
 		h1 {
-			font-size: 4rem;
-			font-weight: 800;
-			margin-bottom: 1rem;
-
-			.text-gradient {
-				background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
-				-webkit-background-clip: text;
-				-webkit-text-fill-color: transparent;
-			}
+			font-size: var(--fs-display);
+			font-weight: var(--fw-black);
 		}
 
 		.subtitle {
-			font-size: 1.5rem;
-			color: #a1a1aa;
+			font-size: var(--fs-lg);
+			color: var(--text-secondary);
 			max-width: 600px;
 			margin: 0 auto;
 		}
@@ -120,57 +112,65 @@
 	.mission {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 4rem;
+		gap: var(--space-8);
 		align-items: center;
 
 		@media (max-width: 768px) {
 			grid-template-columns: 1fr;
-			gap: 3rem;
+			gap: var(--space-6);
 		}
 
 		.text-block {
 			h2 {
-				font-size: 2rem;
-				margin-bottom: 1.5rem;
-				color: var(--primary, #ff4655);
+				font-size: var(--fs-h2);
+				margin-bottom: var(--space-5);
+
+				.accent {
+					color: var(--primary);
+				}
 			}
 			p {
-				color: #d4d4d8;
-				line-height: 1.7;
-				margin-bottom: 1.5rem;
-				font-size: 1.1rem;
+				color: var(--text-secondary);
+				line-height: var(--lh-normal);
+				margin-bottom: var(--space-5);
+				font-size: var(--fs-lg);
+
+				strong {
+					color: var(--text-primary);
+				}
 			}
 		}
 
 		.stats-grid {
 			display: grid;
 			grid-template-columns: 1fr;
-			gap: 2rem;
+			gap: var(--space-5);
 
 			.stat {
-				background: rgba(255, 255, 255, 0.03);
-				border: 1px solid rgba(255, 255, 255, 0.1);
-				padding: 2rem;
-				border-radius: 16px;
+				background: var(--bg-card);
+				border: 1px solid var(--border-default);
+				box-shadow: var(--shadow-card);
+				padding: var(--space-6);
+				border-radius: var(--radius-md);
 				text-align: center;
-				transition: transform 0.2s;
+				transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease);
 
 				&:hover {
-					transform: translateY(-5px);
-					background: rgba(255, 255, 255, 0.05);
+					transform: translateY(-2px);
+					border-color: var(--border-strong);
 				}
 
 				.value {
 					display: block;
-					font-size: 2.5rem;
-					font-weight: 800;
-					margin-bottom: 0.5rem;
-					color: white;
+					font-size: var(--fs-h2);
+					font-weight: var(--fw-black);
+					margin-bottom: var(--space-2);
+					color: var(--text-primary);
 				}
 
 				.label {
-					color: #a1a1aa;
-					font-weight: 500;
+					color: var(--text-secondary);
+					font-weight: var(--fw-medium);
 				}
 			}
 		}

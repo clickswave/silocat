@@ -27,27 +27,3 @@
 		</p>
 	</section>
 </div>
-
-<style>
-	.policy-document h1 {
-		font-size: 2.5rem;
-		margin-bottom: 0.5rem;
-	}
-	.policy-document .last-updated {
-		color: #71717a;
-		margin-bottom: 3rem;
-	}
-	section {
-		margin-bottom: 3rem;
-	}
-	section h2 {
-		color: var(--primary, #ff4655);
-		font-size: 1.5rem;
-		margin-bottom: 1rem;
-	}
-	section p {
-		color: #d4d4d8;
-		line-height: 1.7;
-		margin-bottom: 1rem;
-	}
-</style>

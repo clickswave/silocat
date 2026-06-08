@@ -6,14 +6,16 @@
 <style>
 	div {
 		position: absolute;
-		bottom: 0.5rem;
-		right: 0.5rem;
-		font-size: 0.75rem;
-		color: rgba(255, 255, 255, 0.45);
-		background: var(--color-bg-accent);
-		padding: 0.25rem 0.5rem;
-		border-radius: 0.25rem;
-		box-shadow: var(--shadow-sm);
+		bottom: var(--space-2);
+		right: var(--space-2);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--text-muted);
+		background: var(--tint-soft);
+		border: 1px solid var(--border-default);
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-sm);
+		box-shadow: var(--shadow-card);
 		z-index: 1000;
 	}
 </style>

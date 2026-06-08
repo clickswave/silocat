@@ -24,7 +24,7 @@
 		<button onclick={onstar} aria-label="Star">
 			<Icon
 				icon={starred ? 'ri:star-fill' : 'ri:star-line'}
-				color={starred ? '#eab308' : 'inherit'}
+				color={starred ? 'var(--warning)' : 'inherit'}
 			/>
 		</button>
 		<button onclick={ondownload} aria-label="Download"><Icon icon="ri:download-line" /></button>
@@ -39,11 +39,11 @@
 		display: grid;
 		grid-template-columns: 2fr 1fr 1fr auto;
 		align-items: center;
-		padding: 12px 16px;
+		padding: var(--space-3) var(--space-4);
 		border-radius: var(--radius-md);
 		background-color: var(--bg-card);
 		border-bottom: 1px solid var(--border-default);
-		transition: background-color 0.2s;
+		transition: background-color var(--dur) var(--ease);
 		cursor: pointer;
 
 		&:hover {
@@ -53,64 +53,57 @@
 		.file-main {
 			display: flex;
 			align-items: center;
-			gap: 12px;
+			gap: var(--space-3);
 
 			.file-icon {
 				width: 36px;
 				height: 36px;
-				border-radius: 8px;
+				border-radius: var(--radius-sm);
 				display: flex;
 				align-items: center;
 				justify-content: center;
-				font-size: 18px;
+				font-size: var(--fs-lg);
+				color: var(--text-secondary);
+				background: var(--tint-soft);
 
-				&.image {
-					background: rgba(74, 163, 226, 0.1);
-					color: #4aa3e2;
-				}
-				&.video {
-					background: rgba(255, 70, 85, 0.1);
-					color: #ff4655;
-				}
-				&.doc {
-					background: rgba(31, 122, 74, 0.1);
-					color: #1f7a4a;
-				}
-				&.audio {
-					background: rgba(245, 166, 35, 0.1);
-					color: #f5a623;
-				}
 			}
 
 			.file-name {
-				font-weight: 500;
+				font-weight: var(--fw-medium);
 				color: var(--text-primary);
 			}
 		}
 
 		.file-date,
 		.file-size {
-			font-size: 14px;
+			font-size: var(--fs-sm);
 			color: var(--text-muted);
 		}
 
 		.file-actions {
 			display: flex;
-			gap: 4px;
+			gap: var(--space-1);
 			opacity: 0;
-			transition: opacity 0.2s;
+			transition: opacity var(--dur) var(--ease);
 
 			button {
 				background: transparent;
 				border: none;
 				color: var(--text-muted);
-				padding: 8px;
-				border-radius: 50%;
+				padding: var(--space-2);
+				border-radius: var(--radius-sm);
 				cursor: pointer;
+				display: flex;
+				transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 
 				&:hover {
 					color: var(--text-primary);
 					background: var(--nav-hover);
+				}
+
+				&.delete-btn:hover {
+					color: var(--danger);
+					background: rgba(255, 70, 85, 0.1);
 				}
 			}
 		}

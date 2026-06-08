@@ -132,7 +132,7 @@
 						<Icon
 							icon={starred ? 'ri:star-fill' : 'ri:star-line'}
 							width="16"
-							color={starred ? '#eab308' : 'inherit'}
+							color={starred ? 'var(--warning)' : 'inherit'}
 						/>
 						{starred ? 'Unstar' : 'Star'}
 					</button>
@@ -154,16 +154,17 @@
 	.file-card {
 		background: var(--bg-card);
 		border: 1px solid var(--border-default);
-		border-radius: 16px;
-		padding: 16px;
+		border-radius: var(--radius-md);
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
 		justify-content: space-between;
 		position: relative;
 		cursor: pointer;
 		min-height: 160px;
-		backdrop-filter: blur(10px);
-		transition: all 0.2s ease-out;
+		box-shadow: var(--shadow-card);
+		transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+			box-shadow var(--dur) var(--ease);
 
 		&:hover {
 			background: var(--bg-card-hover);
@@ -179,46 +180,32 @@
 			display: flex;
 			flex-direction: column;
 			flex: 1;
-			gap: 16px;
+			gap: var(--space-4);
 		}
 
 		.icon-section {
 			display: flex;
 			align-items: flex-start;
 			justify-content: flex-start;
-			gap: 12px;
+			gap: var(--space-3);
 
 			.file-icon {
-				color: var(--text-muted);
-				transition: color 0.2s;
-				opacity: 0.8;
-
-				&.image {
-					color: #facc15;
-				} /* Yellow-ish */
-				&.video {
-					color: #f43f5e;
-				} /* Rose */
-				&.doc {
-					color: #60a5fa;
-				} /* Blue */
-				&.audio {
-					color: #a78bfa;
-				} /* Purple */
+				color: var(--text-secondary);
+				transition: color var(--dur) var(--ease);
 			}
 
 			.indicators {
 				display: flex;
-				gap: 4px;
+				gap: var(--space-1);
 				align-items: center;
 
 				.lock-indicator {
-					color: #facc15;
-					opacity: 0.8;
+					color: var(--warning);
+					opacity: 0.85;
 				}
 				.star-indicator {
-					color: #eab308;
-					opacity: 0.8;
+					color: var(--warning);
+					opacity: 0.85;
 				}
 			}
 		}
@@ -227,13 +214,13 @@
 			margin-top: auto;
 			display: flex;
 			flex-direction: column;
-			gap: 4px;
+			gap: var(--space-1);
 
 			.name {
-				font-size: 15px;
-				font-weight: 500;
+				font-size: var(--fs-sm);
+				font-weight: var(--fw-medium);
 				color: var(--text-primary);
-				line-height: 1.4;
+				line-height: var(--lh-snug);
 
 				/* Multi-line truncation logic */
 				display: -webkit-box;
@@ -246,16 +233,16 @@
 			.meta {
 				display: flex;
 				align-items: center;
-				gap: 8px;
-				font-size: 12px;
+				gap: var(--space-2);
+				font-size: var(--fs-xs);
 				color: var(--text-muted);
 			}
 		}
 
 		.menu-container {
 			position: absolute;
-			top: 12px;
-			right: 12px;
+			top: var(--space-3);
+			right: var(--space-3);
 
 			&.visible .menu-btn {
 				opacity: 1;
@@ -264,16 +251,16 @@
 			.menu-btn {
 				background: transparent;
 				border: none;
-				color: rgba(255, 255, 255, 0.4);
+				color: var(--text-muted);
 				cursor: pointer;
-				padding: 4px;
-				border-radius: 6px;
+				padding: var(--space-1);
+				border-radius: var(--radius-sm);
 				opacity: 0;
-				transition: all 0.2s;
+				transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 
 				&:hover {
-					color: white;
-					background: rgba(255, 255, 255, 0.1);
+					color: var(--text-primary);
+					background: var(--tint-softer);
 				}
 			}
 
@@ -281,42 +268,44 @@
 				position: absolute;
 				top: 100%;
 				right: 0;
-				background: #18181b;
-				border: 1px solid rgba(255, 255, 255, 0.1);
-				border-radius: 12px;
-				padding: 6px;
+				background: var(--bg-elevated);
+				border: 1px solid var(--border-default);
+				border-radius: var(--radius-md);
+				padding: var(--space-1);
 				min-width: 140px;
 				z-index: 100;
-				box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+				box-shadow: var(--shadow-lg);
 				display: flex;
 				flex-direction: column;
 				gap: 2px;
+				margin-top: var(--space-1);
 
 				.dropdown-item {
 					display: flex;
 					align-items: center;
-					gap: 10px;
-					padding: 8px 12px;
+					gap: var(--space-2);
+					padding: var(--space-2) var(--space-3);
 					background: transparent;
 					border: none;
-					color: #d4d4d8;
-					font-size: 13px;
+					color: var(--text-secondary);
+					font-family: inherit;
+					font-size: var(--fs-sm);
 					cursor: pointer;
-					border-radius: 8px;
+					border-radius: var(--radius-sm);
 					text-align: left;
 					width: 100%;
-					transition: all 0.1s;
-					font-weight: 500;
+					transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+					font-weight: var(--fw-medium);
 
 					&:hover {
-						background: rgba(255, 255, 255, 0.05);
-						color: white;
+						background: var(--tint-soft);
+						color: var(--text-primary);
 					}
 
 					&.danger {
-						color: #ef4444;
+						color: var(--danger);
 						&:hover {
-							background: rgba(239, 68, 68, 0.1);
+							background: rgba(255, 70, 85, 0.1);
 						}
 					}
 				}

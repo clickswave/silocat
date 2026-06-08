@@ -3,6 +3,7 @@ import { ApiServerClient, ApiServerRoutes, ApiServerError } from '$lib/network';
 import { redirect } from '@sveltejs/kit';
 import { validateTurnstileToken } from '$lib/turnstile.js';
 import { env } from '$env/dynamic/public';
+import { env as serverEnv } from '$env/dynamic/private';
 
 const { PUBLIC_TURNSTILE_KEY } = env;
 
@@ -13,7 +14,8 @@ export const load = async ({ locals }) => {
 	if (session) throw redirect(302, '/home');
 	return {
 		session,
-		turnstileSiteKey: PUBLIC_TURNSTILE_KEY
+		turnstileSiteKey: PUBLIC_TURNSTILE_KEY,
+		googleClientId: serverEnv.OAUTH_ID_GOOGLE
 	};
 };
 

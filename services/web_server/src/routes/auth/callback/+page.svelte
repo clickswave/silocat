@@ -14,7 +14,10 @@
 		}
 
 		try {
-			const res = await FrontendClient.post('/api/v1/user/google-auth', { code });
+			const res = await FrontendClient.post('/api/v1/user/google-auth', {
+				code,
+				redirect_uri: `${window.location.origin}/auth/callback`
+			});
 			// Backend returns standard response structure { status, message, data }
 			// Proxy returns that directly.
 			if (res.data.status === 200) {
@@ -44,18 +47,22 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		height: 100vh;
-		background-color: #09090b;
-		color: #fff;
+		min-height: 60vh;
+		gap: var(--space-4);
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+	}
+	.callback-container p {
+		margin: 0;
 	}
 	.loader {
-		border: 4px solid #333;
-		border-top: 4px solid #fff;
+		border: 3px solid var(--border-strong);
+		border-top-color: var(--primary);
 		border-radius: 50%;
 		width: 40px;
 		height: 40px;
 		animation: spin 1s linear infinite;
-		margin-bottom: 20px;
 	}
 	@keyframes spin {
 		0% {

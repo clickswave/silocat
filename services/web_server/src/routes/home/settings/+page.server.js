@@ -2,6 +2,20 @@
 import { fail } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network';
 
+export const load = async ({ locals }) => {
+	const sessionUser = await locals.session.user.get();
+	if (!sessionUser) return { usernameStatus: null };
+	try {
+		const res = await ApiServerClient.get('/user/username-status', {
+			headers: { 'X-Api-Key': sessionUser.api_key }
+		});
+		return { usernameStatus: res.data?.data ?? null };
+	} catch (err) {
+		console.error('username-status load error:', err?.response?.data || err.message);
+		return { usernameStatus: null };
+	}
+};
+
 export const actions = {
     saveProfile: async ({ request, locals }) => {
         const sessionUser = await locals.session.user.get();
@@ -17,7 +31,8 @@ export const actions = {
         try {
             const response = await ApiServerClient.post('/user/update-profile', {
                 country,
-                bio
+                bio,
+                username
             }, {
                 headers: { 'X-Api-Key': sessionUser.api_key }
             });

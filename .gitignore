@@ -1,3 +1,4 @@
 services/postgres/data
 .vscode
 .idea
+services/api_switch/GeoLite2-City.mmdb

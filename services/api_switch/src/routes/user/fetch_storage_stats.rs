@@ -20,16 +20,20 @@ pub async fn handle(
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
     
-    // 1. Get User's Total Storage Limit
-    let user = sqlx::query!(
-        "SELECT default_storage_bytes FROM users WHERE id = $1",
-        payload.user_id
+    // 1. Total storage limit = base (default_storage_bytes) + active, non-expired
+    //    subscription space (promos / Pro grants live here, so they auto-expire).
+    //    Runtime query (no macro) keeps the SQLX_OFFLINE prod build cache-free.
+    let limit = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT ((SELECT default_storage_bytes FROM users WHERE id = $1) \
+              + COALESCE((SELECT SUM(additional_space) FROM subscriptions \
+                          WHERE created_by = $1 AND expires_on > NOW()), 0))::BIGINT"
     )
-    .fetch_optional(&state.pg_pool)
+    .bind(&payload.user_id)
+    .fetch_one(&state.pg_pool)
     .await;
 
-    let default_storage = match user {
-        Ok(Some(u)) => u.default_storage_bytes,
+    let default_storage = match limit {
+        Ok(Some(total)) => total,
         Ok(None) => return respond(404, "User not found", vec![], json!({})),
         Err(e) => {
             println!("Error fetching user storage limit: {:?}", e);
@@ -44,18 +48,20 @@ pub async fn handle(
     // Current 'files' table 'size' is the logical size. 'chunks' table has 'size'.
     // Let's sum 'files.size' for simplicity as the primary metric.
     
-    let usage = sqlx::query!(
-        "SELECT COALESCE(SUM(size), 0)::BIGINT as used_bytes FROM files WHERE user_id = $1 AND deleted = false",
-        payload.user_id
+    // Only count COMPLETED uploads (uploaded_chunks >= total_chunks) so an
+    // abandoned, half-uploaded file does not inflate the user's used quota.
+    let usage = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT COALESCE(SUM(size), 0)::BIGINT FROM files          WHERE user_id = $1 AND deleted = false AND uploaded_chunks >= total_chunks"
     )
+    .bind(&payload.user_id)
     .fetch_one(&state.pg_pool)
     .await;
 
     let used_bytes = match usage {
-        Ok(rec) => rec.used_bytes.unwrap_or(0),
+        Ok(v) => v.unwrap_or(0),
         Err(e) => {
              println!("Error calculating storage usage: {:?}", e);
-             0 // Default to 0 on error? Or ret 500? Let's default 0 for robustness in UI
+             0 // Default to 0 on error for UI robustness
         }
     };
 

@@ -21,15 +21,18 @@
 	<Navbar />
 
 	<main class="content">
+		<section class="section">
+			<div class="container">
 		<div class="hero">
+			<span class="eyebrow">privacy</span>
 			<h1>Privacy at <span class="text-gradient">SILO.CAT</span></h1>
 			<p class="subtitle">
-				Your files are encrypted before they ever leave your device - only you hold the keys.
+				Your files are encrypted before they ever leave your device. Only you hold the keys.
 				Without the encryption key, no one can decrypt your files, not even us.
 			</p>
 			<p class="description">
-				We simply don’t have what we cannot give. Lose your keys, and the files are gone forever —
-				there’s no recovery, no backdoors, no exceptions.
+				We simply don't have what we cannot give. Lose your keys, and the files are gone forever.
+				There's no recovery, no backdoors, no exceptions.
 			</p>
 		</div>
 
@@ -82,7 +85,7 @@
 					<div class="col stage">Decryption</div>
 					<div class="col">
 						Decryption happens in the recipient’s browser using the key. Without the key, files
-						cannot be opened — not by us, not by anyone.
+						cannot be opened, not by us, not by anyone.
 					</div>
 					<div class="col access highlight">Only the Recipient with the Key</div>
 				</div>
@@ -91,13 +94,15 @@
 
 		<div class="cta-section">
 			<h2>Ready to share securely?</h2>
-			<a href="/" class="btn-primary">Start Uploading</a>
+			<a href="/" class="btn btn-primary btn-lg">Start Uploading</a>
 
 			<p class="legal-note">
 				For legal details, please consult our <a href="/policies/privacy-policy">Privacy Policy</a>
 				and <a href="/policies/terms-of-service">Terms of Service</a>.
 			</p>
 		</div>
+			</div>
+		</section>
 	</main>
 
 	<Footer />
@@ -108,13 +113,6 @@
 </div>
 
 <style lang="scss">
-	:global(body) {
-		margin: 0;
-		background-color: #0b0b0d;
-		color: white;
-		font-family: 'Outfit', sans-serif;
-	}
-
 	.page-container {
 		min-height: 100vh;
 		display: flex;
@@ -124,9 +122,6 @@
 	}
 
 	.content {
-		padding: 4rem 2rem;
-		max-width: 1200px;
-		margin: 0 auto;
 		text-align: center;
 		flex: 1;
 		position: relative;
@@ -134,53 +129,50 @@
 	}
 
 	.hero {
-		margin-bottom: 4rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-4);
+		margin-bottom: var(--space-10);
 
 		h1 {
-			font-size: 3rem;
-			font-weight: 800;
-			margin-bottom: 1.5rem;
-			line-height: 1.2;
-
-			.text-gradient {
-				background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
-				-webkit-background-clip: text;
-				-webkit-text-fill-color: transparent;
-			}
+			font-size: var(--fs-h1);
+			font-weight: var(--fw-black);
 		}
 
 		.subtitle {
-			font-size: 1.25rem;
-			color: #e4e4e7;
+			font-size: var(--fs-lg);
+			color: var(--text-primary);
 			max-width: 800px;
-			margin: 0 auto 1.5rem;
-			line-height: 1.6;
+			margin: 0 auto;
+			line-height: var(--lh-normal);
 		}
 
 		.description {
-			font-size: 1.1rem;
-			color: #a1a1aa;
+			font-size: var(--fs-body);
+			color: var(--text-secondary);
 			max-width: 700px;
 			margin: 0 auto;
-			line-height: 1.6;
+			line-height: var(--lh-normal);
 		}
 	}
 
 	.lifecycle-section {
-		margin-bottom: 5rem;
+		margin-bottom: var(--space-12);
 		text-align: left;
 
 		h2 {
 			text-align: center;
-			font-size: 2rem;
-			margin-bottom: 2rem;
-			color: var(--primary, #ff4655);
+			font-size: var(--fs-h2);
+			margin-bottom: var(--space-6);
+			color: var(--primary);
 		}
 
 		.lifecycle-table {
-			background: rgba(255, 255, 255, 0.03);
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			border-radius: 16px;
+			background: var(--bg-card);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			box-shadow: var(--shadow-card);
 			overflow: hidden;
 			display: flex;
 			flex-direction: column;
@@ -188,13 +180,13 @@
 			.table-header {
 				display: grid;
 				grid-template-columns: 1fr 2fr 1.5fr;
-				padding: 1rem 1.5rem;
-				background: rgba(255, 255, 255, 0.05);
-				border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-				font-weight: 700;
-				color: white;
+				padding: var(--space-4) var(--space-5);
+				background: var(--tint-soft);
+				border-bottom: 1px solid var(--border-default);
+				font-weight: var(--fw-bold);
+				color: var(--text-primary);
 				text-transform: uppercase;
-				font-size: 0.9rem;
+				font-size: var(--fs-sm);
 				letter-spacing: 0.05em;
 
 				@media (max-width: 768px) {
@@ -205,9 +197,9 @@
 			.table-row {
 				display: grid;
 				grid-template-columns: 1fr 2fr 1.5fr;
-				padding: 1.5rem;
-				border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-				gap: 1rem;
+				padding: var(--space-5);
+				border-bottom: 1px solid var(--hairline);
+				gap: var(--space-4);
 				align-items: center;
 
 				&:last-child {
@@ -218,27 +210,27 @@
 					display: flex;
 					flex-direction: column;
 					align-items: flex-start;
-					gap: 0.5rem;
+					gap: var(--space-2);
 				}
 
 				.col {
-					color: #d4d4d8;
-					line-height: 1.5;
-					font-size: 0.95rem;
+					color: var(--text-secondary);
+					line-height: var(--lh-snug);
+					font-size: var(--fs-sm);
 
 					&.stage {
-						color: var(--primary, #ff4655);
-						font-weight: 600;
-						font-size: 1rem;
+						color: var(--primary);
+						font-weight: var(--fw-semibold);
+						font-size: var(--fs-body);
 					}
 
 					&.access {
-						font-family: monospace;
-						font-size: 0.9rem;
-						color: #a1a1aa;
+						font-family: var(--font-mono);
+						font-size: var(--fs-sm);
+						color: var(--text-secondary);
 
 						&.highlight {
-							color: #4ade80;
+							color: var(--success);
 						}
 					}
 				}
@@ -247,39 +239,26 @@
 	}
 
 	.cta-section {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-5);
+
 		h2 {
-			font-size: 2rem;
-			margin-bottom: 2rem;
-		}
-
-		.btn-primary {
-			background: var(--primary, #ff4655);
-			color: white;
-			text-decoration: none;
-			padding: 1rem 2.5rem;
-			border-radius: 12px;
-			font-weight: 600;
-			font-size: 1.1rem;
-			display: inline-block;
-			transition: all 0.2s;
-
-			&:hover {
-				background: #e03e4b;
-				box-shadow: 0 0 20px rgba(255, 70, 85, 0.4);
-			}
+			font-size: var(--fs-h2);
 		}
 
 		.legal-note {
-			margin-top: 2rem;
-			color: #52525b;
-			font-size: 0.9rem;
+			margin-top: var(--space-2);
+			color: var(--text-muted);
+			font-size: var(--fs-sm);
 
 			a {
-				color: #71717a;
+				color: var(--text-secondary);
 				text-decoration: none;
 				&:hover {
 					text-decoration: underline;
-					color: #a1a1aa;
+					color: var(--text-primary);
 				}
 			}
 		}

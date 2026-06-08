@@ -97,6 +97,31 @@
         "ordinal": 18,
         "name": "otp_last_sent_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 19,
+        "name": "username_change_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 20,
+        "name": "username_change_window_start",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 21,
+        "name": "is_banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
+        "name": "banned_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 23,
+        "name": "ban_reason",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -120,6 +145,11 @@
       false,
       false,
       true,
+      true,
+      true,
+      false,
+      true,
+      false,
       true,
       true
     ]

@@ -7,8 +7,10 @@ use aws_sdk_s3::presigning::PresigningConfig;
 pub struct R2 {
     shadow_client: Client,
     sanctum_client: Client,
+    dp_client: Client,
     shadow_bucket: String,
     sanctum_bucket: String,
+    dp_bucket: String,
 }
 
 /// Build an S3 client for one R2 bucket with its OWN credentials, so shadow and
@@ -55,7 +57,41 @@ impl R2 {
             &region, &sanctum_bucket,
         );
 
-        Self { shadow_client, sanctum_client, shadow_bucket, sanctum_bucket }
+        // Display-picture bucket (avatars). dev + staging share one bucket; prod
+        // has its own. Keys may be the same as sanctum's (granted bucket access).
+        let dp_bucket = std::env::var("CF_R2_DP_BUCKET").unwrap_or_else(|_| "silocat-dp-staging".to_string());
+        let dp_client = build_client(
+            "CF_R2_DP_API_URL", "CF_R2_DP_ACCESS_ID", "CF_R2_DP_ACCESS_SECRET",
+            &region, &dp_bucket,
+        );
+
+        Self { shadow_client, sanctum_client, dp_client, shadow_bucket, sanctum_bucket, dp_bucket }
+    }
+
+    /// Upload bytes directly (server-side put). Used for normalized display
+    /// pictures, which are small and produced in-process.
+    pub async fn put_object(
+        &self,
+        storage: &str,
+        key: &str,
+        bytes: Vec<u8>,
+        content_type: &str,
+    ) -> anyhow::Result<()> {
+        let (client, bucket) = match storage {
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str()),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str()),
+            "dp" => (&self.dp_client, self.dp_bucket.as_str()),
+            _ => return Err(anyhow::anyhow!("Invalid storage option")),
+        };
+        client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(aws_sdk_s3::primitives::ByteStream::from(bytes))
+            .content_type(content_type)
+            .send()
+            .await?;
+        Ok(())
     }
 
     /// Generate a pre-signed URL for uploading a file
@@ -96,6 +132,7 @@ impl R2 {
         let (client, bucket, time) = match storage {
             "shadow" => (&self.shadow_client, self.shadow_bucket.as_str(), 24),
             "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str(), 24),
+            "dp" => (&self.dp_client, self.dp_bucket.as_str(), 24),
             _ => return Err(anyhow::anyhow!("Invalid storage option")),
         };
 
@@ -112,6 +149,31 @@ impl R2 {
             .await?;
 
         Ok(presigned_req.uri().to_string())
+    }
+
+    /// Download an object's full bytes (used for admin file downloads).
+    pub async fn get_object(&self, storage: &str, key: &str) -> anyhow::Result<Vec<u8>> {
+        let (client, bucket) = match storage {
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str()),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str()),
+            "dp" => (&self.dp_client, self.dp_bucket.as_str()),
+            _ => return Err(anyhow::anyhow!("Invalid storage option")),
+        };
+        let resp = client.get_object().bucket(bucket).key(key).send().await?;
+        let data = resp.body.collect().await?.into_bytes();
+        Ok(data.to_vec())
+    }
+
+    /// Delete an object. Idempotent: deleting a missing key is not an error.
+    pub async fn delete_object(&self, storage: &str, key: &str) -> anyhow::Result<()> {
+        let (client, bucket) = match storage {
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str()),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str()),
+            "dp" => (&self.dp_client, self.dp_bucket.as_str()),
+            _ => return Err(anyhow::anyhow!("Invalid storage option")),
+        };
+        client.delete_object().bucket(bucket).key(key).send().await?;
+        Ok(())
     }
 
     /// Calculate bucket usage (object count and total size)

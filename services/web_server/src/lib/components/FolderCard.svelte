@@ -123,7 +123,7 @@
 						<Icon
 							icon={starred ? 'ri:star-fill' : 'ri:star-line'}
 							width="16"
-							color={starred ? '#eab308' : 'inherit'}
+							color={starred ? 'var(--warning)' : 'inherit'}
 						/>
 						{starred ? 'Unstar' : 'Star'}
 					</button>
@@ -147,29 +147,30 @@
 	.folder-card {
 		background: var(--bg-card);
 		border: 1px solid var(--border-default);
-		border-radius: 16px;
-		padding: 16px;
+		border-radius: var(--radius-md);
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
 		justify-content: space-between;
 		position: relative;
 		cursor: pointer;
-		transition: all 0.2s ease-out;
+		transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+			box-shadow var(--dur) var(--ease);
 		min-height: 160px;
-		backdrop-filter: blur(10px);
+		box-shadow: var(--shadow-card);
 
 		&.compact {
 			flex-direction: row;
 			align-items: center;
 			min-height: auto;
-			padding: 12px 16px;
-			gap: 12px;
-			border-radius: 12px;
+			padding: var(--space-3) var(--space-4);
+			gap: var(--space-3);
+			border-radius: var(--radius-md);
 
 			.folder-content {
 				flex-direction: row;
 				align-items: center;
-				gap: 12px;
+				gap: var(--space-3);
 			}
 
 			.folder-info {
@@ -190,7 +191,7 @@
 		.folder-content {
 			display: flex;
 			flex-direction: column;
-			gap: 16px;
+			gap: var(--space-4);
 			flex: 1;
 		}
 
@@ -200,17 +201,16 @@
 			justify-content: flex-start;
 			position: relative;
 
-			gap: 12px;
+			gap: var(--space-3);
 
 			.folder-icon {
-				color: var(--primary, #ff4655);
-				filter: drop-shadow(0 4px 12px rgba(255, 70, 85, 0.3));
+				color: var(--primary);
 				opacity: 0.9;
 			}
 
 			.star-indicator {
-				color: #eab308;
-				opacity: 0.8;
+				color: var(--warning);
+				opacity: 0.85;
 				display: flex;
 				align-items: center;
 				justify-content: center;
@@ -220,11 +220,11 @@
 		.folder-info {
 			display: flex;
 			flex-direction: column;
-			gap: 4px;
+			gap: var(--space-1);
 
 			.name {
-				font-size: 15px;
-				font-weight: 500;
+				font-size: var(--fs-sm);
+				font-weight: var(--fw-medium);
 				color: var(--text-primary);
 				white-space: nowrap;
 				overflow: hidden;
@@ -233,15 +233,15 @@
 			}
 
 			.count {
-				font-size: 12px;
+				font-size: var(--fs-xs);
 				color: var(--text-muted);
 			}
 		}
 
 		.menu-container {
 			position: absolute;
-			top: 12px;
-			right: 12px;
+			top: var(--space-3);
+			right: var(--space-3);
 
 			&.visible .menu-btn {
 				opacity: 1;
@@ -252,10 +252,10 @@
 				border: none;
 				color: var(--text-muted);
 				cursor: pointer;
-				padding: 4px;
-				border-radius: 6px;
+				padding: var(--space-1);
+				border-radius: var(--radius-sm);
 				opacity: 0; /* Hidden by default */
-				transition: all 0.2s;
+				transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 
 				&:hover {
 					color: var(--text-primary);
@@ -267,39 +267,40 @@
 				position: absolute;
 				top: 100%;
 				right: 0;
-				background: var(--bg-card);
+				background: var(--bg-elevated);
 				border: 1px solid var(--border-default);
-				border-radius: 12px;
-				padding: 6px;
+				border-radius: var(--radius-md);
+				padding: var(--space-1);
 				min-width: 160px;
 				z-index: 100;
-				box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+				box-shadow: var(--shadow-lg);
 				display: flex;
 				flex-direction: column;
 				gap: 2px;
-				margin-top: 4px;
+				margin-top: var(--space-1);
 
 				.divider {
 					height: 1px;
 					background: var(--border-default);
-					margin: 4px 0;
+					margin: var(--space-1) 0;
 				}
 
 				.dropdown-item {
 					display: flex;
 					align-items: center;
-					gap: 10px;
-					padding: 8px 12px;
+					gap: var(--space-2);
+					padding: var(--space-2) var(--space-3);
 					background: transparent;
 					border: none;
 					color: var(--text-secondary);
-					font-size: 13px;
+					font-family: inherit;
+					font-size: var(--fs-sm);
 					cursor: pointer;
-					border-radius: 8px;
+					border-radius: var(--radius-sm);
 					text-align: left;
 					width: 100%;
-					transition: all 0.1s;
-					font-weight: 500;
+					transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+					font-weight: var(--fw-medium);
 
 					&:hover {
 						background: var(--nav-hover);
@@ -307,9 +308,9 @@
 					}
 
 					&.danger {
-						color: #ef4444;
+						color: var(--danger);
 						&:hover {
-							background: rgba(239, 68, 68, 0.1);
+							background: rgba(255, 70, 85, 0.1);
 						}
 					}
 				}

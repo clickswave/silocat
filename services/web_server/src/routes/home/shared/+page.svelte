@@ -183,27 +183,25 @@
 
 <style lang="scss">
 	.page-container {
-		padding: 40px;
-		max-width: 1600px;
+		width: 100%;
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 32px;
+		gap: var(--space-6);
 		color: var(--text-primary);
-		margin: 0 auto;
 	}
 
 	.page-header {
 		.title-group {
 			h1 {
-				font-size: 24px;
-				font-weight: 600;
-				margin: 0 0 8px 0;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-semibold);
+				margin: 0 0 var(--space-1) 0;
 			}
 			p {
 				color: var(--text-muted);
 				margin: 0;
-				font-size: 16px;
+				font-size: var(--fs-sm);
 			}
 		}
 	}
@@ -211,8 +209,8 @@
 	.resource-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: 24px;
-		padding-bottom: 40px;
+		gap: var(--space-5);
+		padding-bottom: var(--space-8);
 
 		.empty-state {
 			grid-column: 1 / -1;
@@ -220,19 +218,26 @@
 			flex-direction: column;
 			align-items: center;
 			justify-content: center;
-			padding: 80px 0;
-			gap: 16px;
-			color: var(--text-muted);
+			padding: var(--space-10) 0;
+			gap: var(--space-4);
+			color: var(--text-secondary);
 
 			p {
-				font-size: 18px;
-				font-weight: 500;
+				font-size: var(--fs-lg);
+				font-weight: var(--fw-medium);
 				margin: 0;
 			}
 			.sub-text {
-				font-size: 14px;
-				opacity: 0.7;
+				font-size: var(--fs-sm);
+				color: var(--text-muted);
 			}
+		}
+	}
+
+	@media (max-width: 600px) {
+		.resource-grid {
+			grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+			gap: var(--space-3);
 		}
 	}
 </style>

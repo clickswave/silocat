@@ -42,6 +42,9 @@ pub fn respond(
         401 => status_code = StatusCode::UNAUTHORIZED,
         403 => status_code = StatusCode::FORBIDDEN,
         404 => status_code = StatusCode::NOT_FOUND,
+        409 => status_code = StatusCode::CONFLICT,
+        413 => status_code = StatusCode::PAYLOAD_TOO_LARGE,
+        429 => status_code = StatusCode::TOO_MANY_REQUESTS,
         // server error
         500 => status_code = StatusCode::INTERNAL_SERVER_ERROR,
         _ => status_code = StatusCode::INTERNAL_SERVER_ERROR,

@@ -85,20 +85,20 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 10px 14px;
-		background: rgba(255, 255, 255, 0.03);
+		padding: 0.75rem 0.95rem;
+		background: var(--bg-input);
 		border: 1px solid var(--border-default);
-		border-radius: 8px;
+		border-radius: var(--radius-sm);
 		color: var(--text-primary);
 		font-family: inherit;
-		font-size: 0.95rem;
+		font-size: var(--fs-body);
 		cursor: pointer;
-		transition: all 0.2s;
+		transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 		text-align: left;
 
 		&:hover {
-			background: rgba(255, 255, 255, 0.05);
-			border-color: var(--border-hover, #52525b);
+			background: var(--bg-card-hover);
+			border-color: var(--border-strong);
 		}
 
 		.text {
@@ -119,25 +119,25 @@
 
 	.dropdown-menu {
 		position: absolute;
-		top: calc(100% + 4px);
+		top: calc(100% + var(--space-1));
 		left: 0;
 		width: 100%;
-		background: var(--bg-card);
+		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
-		border-radius: 8px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-lg);
 		z-index: 50;
 		overflow: hidden;
-		padding: 8px;
+		padding: var(--space-2);
 		box-sizing: border-box;
 
 		.search-box {
 			position: relative;
-			margin-bottom: 8px;
+			margin-bottom: var(--space-2);
 
 			.search-icon {
 				position: absolute;
-				left: 8px;
+				left: var(--space-2);
 				top: 50%;
 				transform: translateY(-50%);
 				color: var(--text-muted);
@@ -146,18 +146,24 @@
 
 			input {
 				width: 100%;
-				padding: 8px 8px 8px 32px;
-				background: rgba(255, 255, 255, 0.05);
-				border: 1px solid transparent;
-				border-radius: 6px;
+				padding: var(--space-2) var(--space-2) var(--space-2) var(--space-6);
+				background: var(--bg-input);
+				border: 1px solid var(--border-default);
+				border-radius: var(--radius-sm);
 				color: var(--text-primary);
-				font-size: 0.9rem;
+				font-family: inherit;
+				font-size: var(--fs-sm);
 				box-sizing: border-box;
+				transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+
+				&::placeholder {
+					color: var(--text-muted);
+				}
 
 				&:focus {
 					outline: none;
-					background: rgba(255, 255, 255, 0.08);
 					border-color: var(--primary);
+					box-shadow: 0 0 0 3px var(--primary-glow);
 				}
 			}
 		}
@@ -177,8 +183,8 @@
 				background: transparent;
 			}
 			&::-webkit-scrollbar-thumb {
-				background: var(--border-default);
-				border-radius: 3px;
+				background: var(--border-strong);
+				border-radius: var(--radius-pill);
 			}
 
 			li {
@@ -190,18 +196,19 @@
 				display: flex;
 				justify-content: space-between;
 				align-items: center;
-				padding: 8px 10px;
+				padding: var(--space-2) var(--space-3);
 				background: transparent;
 				border: none;
 				color: var(--text-primary);
-				border-radius: 4px;
+				font-family: inherit;
+				border-radius: var(--radius-sm);
 				cursor: pointer;
 				text-align: left;
-				font-size: 0.9rem;
-				transition: background 0.15s;
+				font-size: var(--fs-sm);
+				transition: background var(--dur) var(--ease);
 
 				&:hover {
-					background: rgba(255, 255, 255, 0.05);
+					background: var(--tint-soft);
 				}
 
 				&.selected {
@@ -215,10 +222,10 @@
 			}
 
 			.no-results {
-				padding: 12px;
+				padding: var(--space-3);
 				text-align: center;
 				color: var(--text-muted);
-				font-size: 0.85rem;
+				font-size: var(--fs-sm);
 			}
 		}
 	}

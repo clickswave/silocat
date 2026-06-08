@@ -1,9 +1,12 @@
+use crate::libs;
 use crate::models;
 use crate::routes::respond;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
+use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::json;
+use std::net::SocketAddr;
 
 #[derive(serde::Deserialize, Debug)]
 pub struct ChunkData {
@@ -46,11 +49,46 @@ pub struct PayloadBody {
 }
 
 pub async fn handle(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: HeaderMap,
     Json(payload): Json<PayloadBody>,
 ) -> impl IntoResponse {
 
     dbg!(&payload);
+
+    // Ban / restrict gate before any upload metadata is created.
+    match &payload.user_id {
+        Some(uid) => {
+            if let Some(ban) = libs::bans::user_ban(&axum_state.pg_pool, uid).await {
+                return respond(
+                    403,
+                    "Account banned",
+                    vec![ban.reason.clone().unwrap_or_else(|| "Your account has been banned.".to_string())],
+                    json!({ "banned": true, "reason": ban.reason, "until": ban.until }),
+                );
+            }
+            if libs::bans::user_restricted(&axum_state.pg_pool, uid).await {
+                return respond(
+                    403,
+                    "Account restricted",
+                    vec!["Your account is restricted; uploads are disabled.".to_string()],
+                    json!({ "restricted": true }),
+                );
+            }
+        }
+        None => {
+            let ip = libs::geoip::client_ip(&headers, addr);
+            if let Some(ban) = libs::bans::ip_ban(&axum_state.pg_pool, &ip).await {
+                return respond(
+                    403,
+                    "You are banned",
+                    vec![ban.reason.clone().unwrap_or_else(|| "Your access has been banned.".to_string())],
+                    json!({ "banned": true, "reason": ban.reason, "until": ban.until }),
+                );
+            }
+        }
+    }
 
     let file = match payload.user_id {
         // linked uploads

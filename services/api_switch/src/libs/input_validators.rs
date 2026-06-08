@@ -86,6 +86,30 @@ pub fn name(name: &str) -> Result<(), Vec<String>> {
 }
 
 
+pub fn username(username: &str) -> Result<(), Vec<String>> {
+    let mut errors = vec![];
+
+    if username.is_empty() {
+        errors.push("Username cannot be left blank".to_string());
+        return Err(errors);
+    }
+    if username.len() < 3 {
+        errors.push(String::from("Username is too short, minimum length is 3"));
+    }
+    if username.len() > 30 {
+        errors.push(String::from("Username is too long, maximum length is 30"));
+    }
+    // Letters, digits, and . _ - ; must start with a letter or digit.
+    if !Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$").unwrap().is_match(username) {
+        errors.push(String::from(
+            "Username can only contain letters, numbers, dots, underscores and hyphens, and must start with a letter or number",
+        ));
+    }
+
+    if !errors.is_empty() { return Err(errors); }
+    Ok(())
+}
+
 pub fn mobile_number(number: &str) -> Result<(), &str> {
 
     // password length can not be less than 8

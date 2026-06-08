@@ -6,13 +6,8 @@ import {
 import { redirect } from '@sveltejs/kit';
 import { validateTurnstileToken } from '$lib/turnstile.js';
 import { env } from '$env/dynamic/public';
+import { env as serverEnv } from '$env/dynamic/private';
 const { PUBLIC_TURNSTILE_KEY } = env;
-
-// Mirrors the api_switch SILOCAT_INVITE_ONLY gate so the form matches the
-// backend. Set PUBLIC_SIGNUP_INVITE_ONLY=false to make invite codes optional.
-const inviteOnly = !['false', '0', 'no'].includes(
-	(env.PUBLIC_SIGNUP_INVITE_ONLY ?? 'true').trim().toLowerCase()
-);
 
 /** @satisfies {import('./$types').Load} */
 export const load = async ({ locals }) => {
@@ -24,8 +19,8 @@ export const load = async ({ locals }) => {
 
 	return {
 		session,
-		inviteOnly,
-		turnstileSiteKey: PUBLIC_TURNSTILE_KEY };
+		turnstileSiteKey: PUBLIC_TURNSTILE_KEY,
+		googleClientId: serverEnv.OAUTH_ID_GOOGLE };
 };
 
 /** @satisfies {import('./$types').Actions} */
@@ -37,7 +32,7 @@ export const actions = {
 		let username = data.get('username')?.trim();
 		let email = data.get('email')?.trim();
 		let password = data.get('password')?.trim();
-		let inviteCode = data.get('inviteCode')?.trim();
+		let promoCode = data.get('promoCode')?.trim();
 
 		let turnstile_token = data.get('cf-turnstile-response');
 		let { success } = await validateTurnstileToken(turnstile_token);
@@ -56,7 +51,7 @@ export const actions = {
 				username: username,
 				email: email,
 				password: password,
-				invite_code: inviteCode || null
+				promo_code: promoCode || null
 			};
 			let response = await ApiServerClient.post(ApiServerRoutes.registerPersonal, payload).then((res) => res.data);
 			await locals.session.user.set(response.data.user);

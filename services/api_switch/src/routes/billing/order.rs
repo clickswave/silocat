@@ -197,6 +197,19 @@ pub async fn handle(
     }))
 }
 
+/// Real prices only in production. In dev/staging we charge the smallest valid
+/// amount so live payment flows can be exercised end to end without spending real
+/// money. Driven by APP_ENV; defaults to prod when unset so a misconfigured prod
+/// box never silently under-charges.
+fn is_production() -> bool {
+    std::env::var("APP_ENV")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            v == "prod" || v == "production"
+        })
+        .unwrap_or(true)
+}
+
 // Helper for pricing
 fn calculate_price(order_type: &str, identifier: &str, currency: &str) -> anyhow::Result<(i64, String)> {
     let multiplier = 100; // Cents or Paise
@@ -225,6 +238,12 @@ fn calculate_price(order_type: &str, identifier: &str, currency: &str) -> anyhow
 
         _ => return Err(anyhow::anyhow!("Unknown item or currency"))
     };
+
+    // Floor the charge to a near-zero amount outside production. 100 (= 1 whole
+    // unit: ₹1 / $1 / €1) clears Razorpay's per-currency minimum order amount.
+    if !is_production() {
+        return Ok((100, format!("{} {} (test)", identifier, order_type)));
+    }
 
     Ok((amount, format!("{} {}", identifier, order_type)))
 }

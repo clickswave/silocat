@@ -237,9 +237,7 @@
 
 <style lang="scss">
 	.billing-page {
-		padding: 2rem;
-		max-width: 1200px;
-		margin: 0 auto;
+		width: 100%;
 		animation: fade-in 0.3s ease-out;
 	}
 
@@ -255,25 +253,25 @@
 	}
 
 	.page-header {
-		margin-bottom: 2rem;
+		margin-bottom: var(--space-6);
 
 		h1 {
-			font-size: 2rem;
-			font-weight: 700;
-			margin-bottom: 0.5rem;
+			font-size: var(--fs-h3);
+			font-weight: var(--fw-semibold);
+			margin-bottom: var(--space-1);
 			color: var(--text-primary);
 		}
 
 		.subtitle {
 			color: var(--text-muted);
-			font-size: 1rem;
+			font-size: var(--fs-sm);
 		}
 	}
 
 	.billing-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 1.5rem;
+		gap: var(--space-5);
 
 		@media (max-width: 900px) {
 			grid-template-columns: 1fr;
@@ -283,31 +281,32 @@
 	.card {
 		background: var(--bg-card);
 		border: 1px solid var(--border-default);
-		border-radius: 16px;
-		padding: 1.5rem;
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-card);
+		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
 
 		.card-header {
 			display: flex;
 			align-items: center;
-			gap: 1rem;
-			margin-bottom: 1.5rem;
+			gap: var(--space-4);
+			margin-bottom: var(--space-5);
 
 			.header-icon {
 				width: 40px;
 				height: 40px;
-				border-radius: 10px;
-				background: rgba(255, 70, 85, 0.1);
-				color: var(--primary, #ff4655);
+				border-radius: var(--radius-sm);
+				background: var(--tint-soft);
+				color: var(--primary);
 				display: flex;
 				align-items: center;
 				justify-content: center;
 			}
 
 			h2 {
-				font-size: 1.25rem;
-				font-weight: 600;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-semibold);
 				margin: 0;
 				flex: 1;
 				color: var(--text-primary);
@@ -319,48 +318,49 @@
 	.plan-card {
 		.status-badge {
 			background: rgba(61, 220, 151, 0.15);
-			color: #059669;
-			padding: 0.25rem 0.75rem;
-			border-radius: 20px;
-			font-size: 0.8rem;
-			font-weight: 600;
+			color: var(--success);
+			padding: var(--space-1) var(--space-3);
+			border-radius: var(--radius-pill);
+			font-size: var(--fs-xs);
+			font-weight: var(--fw-semibold);
 			text-transform: uppercase;
 		}
 
 		.plan-details {
-			margin-bottom: 2rem;
+			margin-bottom: var(--space-6);
 
 			.plan-name {
-				font-size: 1.1rem;
-				color: var(--text-muted);
-				margin-bottom: 0.5rem;
+				font-size: var(--fs-lg);
+				color: var(--text-secondary);
+				margin-bottom: var(--space-2);
 			}
 
 			.plan-price {
 				display: flex;
 				align-items: baseline;
-				gap: 0.25rem;
-				margin-bottom: 1rem;
+				gap: var(--space-1);
+				margin-bottom: var(--space-4);
 
 				.currency {
-					font-size: 2.5rem;
-					font-weight: 700;
+					font-size: var(--fs-h1);
+					font-weight: var(--fw-bold);
+					font-family: var(--font-mono);
 					color: var(--text-primary);
 				}
 
 				.period {
 					color: var(--text-muted);
-					font-size: 1rem;
+					font-size: var(--fs-body);
 				}
 			}
 
 			.next-billing {
 				color: var(--text-muted);
-				font-size: 0.9rem;
+				font-size: var(--fs-sm);
 
 				span {
 					color: var(--text-primary);
-					font-weight: 500;
+					font-weight: var(--fw-medium);
 				}
 			}
 		}
@@ -368,7 +368,7 @@
 		.card-actions {
 			margin-top: auto;
 			display: flex;
-			gap: 1rem;
+			gap: var(--space-4);
 		}
 	}
 
@@ -377,34 +377,7 @@
 		.usage-stats {
 			display: flex;
 			flex-direction: column;
-			gap: 1.5rem;
-			flex: 1;
-		}
-		/* ... skipped usage card stuff as it was handled ... wait, I need to match the StartLine properly so I don't overwrite if I don't include it. */
-		/* Ah, I can just target the plan-card text logic specifically if I narrow the range */
-		/* But I see Button styles at the bottom too. Let's do two chunks if needed or just one huge one? */
-		/* The previous tool call ended at 472. */
-		/* I'll just do the plan-card details and buttons. */
-		/* Wait, Plan Card was around 328. Buttons around 529. */
-		/* I'll use multi_replace for efficiency or just target them. */
-		/* Let's double check line numbers. */
-		/* Plan Card details: 328 to 365 */
-		/* Buttons: 543 to 551 */
-		/* I'll use replace_file_content for Plan Card first since it's cleaner. */
-
-		.card-actions {
-			margin-top: auto;
-			display: flex;
-			gap: 1rem;
-		}
-	}
-
-	/* Usage Card */
-	.usage-card {
-		.usage-stats {
-			display: flex;
-			flex-direction: column;
-			gap: 1.5rem;
+			gap: var(--space-5);
 			flex: 1;
 		}
 
@@ -412,26 +385,28 @@
 			.stat-header {
 				display: flex;
 				justify-content: space-between;
-				font-size: 0.9rem;
-				color: var(--text-muted);
-				margin-bottom: 0.5rem;
+				font-size: var(--fs-sm);
+				color: var(--text-secondary);
+				margin-bottom: var(--space-2);
 
 				.value {
 					color: var(--text-primary);
-					font-weight: 500;
+					font-weight: var(--fw-medium);
+					font-family: var(--font-mono);
 				}
 			}
 
 			.progress-bar {
 				height: 8px;
 				background: var(--bg-input);
-				border-radius: 4px;
+				border-radius: var(--radius-pill);
 				overflow: hidden;
 
 				.fill {
 					height: 100%;
-					background: var(--primary, #ff4655);
-					border-radius: 4px;
+					background: var(--accent-gradient);
+					border-radius: var(--radius-pill);
+					transition: width var(--dur) var(--ease);
 				}
 			}
 		}
@@ -440,17 +415,17 @@
 			margin-top: auto;
 			display: flex;
 			flex-direction: column;
-			gap: 0.75rem;
+			gap: var(--space-3);
 
 			.feature {
 				display: flex;
 				align-items: center;
-				gap: 0.75rem;
-				color: var(--text-muted);
-				font-size: 0.9rem;
+				gap: var(--space-3);
+				color: var(--text-secondary);
+				font-size: var(--fs-sm);
 
 				.check-icon {
-					color: var(--primary, #ff4655);
+					color: var(--primary);
 				}
 			}
 		}
@@ -472,31 +447,32 @@
 		.empty-state {
 			color: var(--text-muted);
 			text-align: center;
-			padding: 2rem;
-			font-style: italic;
+			padding: var(--space-6);
 		}
 
 		.invoices-table {
 			width: 100%;
 			border-collapse: collapse;
-			font-size: 0.95rem;
+			font-size: var(--fs-sm);
 
 			th {
 				text-align: left;
-				padding: 1rem;
-				color: var(--text-muted);
-				font-weight: 500;
-				font-size: 0.85rem;
+				padding: var(--space-4);
+				color: var(--text-secondary);
+				font-weight: var(--fw-medium);
+				font-size: var(--fs-xs);
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
 				border-bottom: 1px solid var(--border-default);
 			}
 
 			td {
-				padding: 1rem;
+				padding: var(--space-4);
 				color: var(--text-secondary);
-				border-bottom: 1px solid var(--border-default);
+				border-bottom: 1px solid var(--hairline);
 
 				&.id {
-					font-family: monospace;
+					font-family: var(--font-mono);
 					color: var(--text-primary);
 				}
 
@@ -510,32 +486,32 @@
 			}
 
 			.status-pill {
-				padding: 0.25rem 0.75rem;
-				border-radius: 20px;
-				font-size: 0.8rem;
-				font-weight: 500;
-				text-transform: capitalization;
-				background: rgba(255, 255, 255, 0.05);
-				color: var(--text-muted);
+				padding: var(--space-1) var(--space-3);
+				border-radius: var(--radius-pill);
+				font-size: var(--fs-xs);
+				font-weight: var(--fw-medium);
+				text-transform: capitalize;
+				background: var(--tint-soft);
+				color: var(--text-secondary);
 
 				&.completed {
-					background: rgba(61, 220, 151, 0.1);
-					color: #059669;
+					background: rgba(61, 220, 151, 0.12);
+					color: var(--success);
 				}
 
 				&.paid {
-					background: rgba(61, 220, 151, 0.1);
-					color: #059669;
+					background: rgba(61, 220, 151, 0.12);
+					color: var(--success);
 				}
 
 				&.pending {
-					background: rgba(253, 224, 71, 0.1);
-					color: #d97706;
+					background: rgba(242, 201, 76, 0.12);
+					color: var(--warning);
 				}
 
 				&.failed {
-					background: rgba(239, 68, 68, 0.1);
-					color: #dc2626;
+					background: rgba(255, 70, 85, 0.12);
+					color: var(--danger);
 				}
 			}
 
@@ -544,8 +520,8 @@
 				border: none;
 				color: var(--text-muted);
 				cursor: pointer;
-				padding: 0.25rem;
-				transition: color 0.2s;
+				padding: var(--space-1);
+				transition: color var(--dur) var(--ease);
 
 				&:hover {
 					color: var(--text-primary);
@@ -556,34 +532,34 @@
 
 	/* Buttons */
 	.btn {
-		padding: 0.75rem 1.5rem;
-		border-radius: 8px;
-		font-weight: 500;
+		padding: 0.7rem 1.25rem;
+		border-radius: var(--radius-pill);
+		font-weight: var(--fw-semibold);
 		cursor: pointer;
-		transition: all 0.2s;
-		font-size: 0.9rem;
+		transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+		font-size: var(--fs-sm);
 
 		&.small {
-			padding: 0.5rem 1rem;
-			font-size: 0.85rem;
+			padding: var(--space-2) var(--space-4);
+			font-size: var(--fs-sm);
 		}
 	}
 
 	.btn-outline {
-		background: transparent;
+		background: var(--tint-soft);
 		border: 1px solid var(--border-default);
 		color: var(--text-primary);
 
 		&:hover {
-			border-color: var(--text-primary);
-			background: var(--nav-hover);
+			border-color: var(--border-strong);
+			background: var(--tint-softer);
 		}
 	}
 
 	.btn-text {
 		background: transparent;
 		border: none;
-		color: #ef4444;
+		color: var(--danger);
 
 		&:hover {
 			text-decoration: underline;

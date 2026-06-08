@@ -16,10 +16,79 @@
 
 	let user = $derived(data.user || defaultUser);
 
+	// Username change limit (max 2 per rolling 30 days), surfaced from the load.
+	let usernameStatus = $derived(data.usernameStatus);
+	let usernameLocked = $derived(!!usernameStatus && usernameStatus.remaining <= 0);
+	function fmtDate(iso) {
+		try {
+			return new Date(iso).toLocaleDateString(undefined, {
+				month: 'short',
+				day: 'numeric',
+				year: 'numeric'
+			});
+		} catch {
+			return '';
+		}
+	}
+
 	let theme = $state('dark');
 	let emailNotifications = $state(true);
 	let pushNotifications = $state(false);
 	let saving = $state(false);
+
+	// Display picture. Works for both Google avatars (absolute http URLs) and
+	// uploaded avatars (relative proxy URL with a ?v= cache-buster).
+	let fileInput = $state(null);
+	let avatarBusy = $state(false);
+	let currentAvatar = $state(data.user?.profile_image || null);
+
+	async function onAvatarPick(e) {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		if (file.size > 1024 * 1024) {
+			alert('Image must be 1 MB or smaller.');
+			e.target.value = '';
+			return;
+		}
+		avatarBusy = true;
+		try {
+			const res = await fetch('/api/v1/user/avatar', {
+				method: 'POST',
+				headers: { 'Content-Type': file.type || 'application/octet-stream' },
+				body: file
+			});
+			const result = await res.json();
+			if (!res.ok) {
+				alert(result.error || 'Upload failed');
+			} else {
+				currentAvatar = result.profile_image;
+			}
+		} catch (err) {
+			console.error(err);
+			alert('Upload failed');
+		} finally {
+			avatarBusy = false;
+			if (e.target) e.target.value = '';
+		}
+	}
+
+	async function removeAvatar() {
+		if (avatarBusy) return;
+		avatarBusy = true;
+		try {
+			const res = await fetch('/api/v1/user/avatar', { method: 'DELETE' });
+			if (res.ok) {
+				currentAvatar = null;
+			} else {
+				alert('Failed to remove display picture');
+			}
+		} catch (err) {
+			console.error(err);
+			alert('Failed to remove display picture');
+		} finally {
+			avatarBusy = false;
+		}
+	}
 
 	let profileForm = $state({
 		username: user.username,
@@ -66,8 +135,44 @@
 		};
 	};
 
-	function handlePasswordChange() {
-		alert('Password reset link sent to your email.');
+	// Password: "set" for Google accounts without one, "change" otherwise.
+	let hasPassword = $state(data.user?.password_set ?? true);
+	let pwForm = $state({ current: '', next: '', confirm: '' });
+	let pwBusy = $state(false);
+
+	async function submitPassword(e) {
+		e?.preventDefault?.();
+		if (pwForm.next !== pwForm.confirm) {
+			alert('New passwords do not match');
+			return;
+		}
+		if (hasPassword && !pwForm.current) {
+			alert('Enter your current password');
+			return;
+		}
+		pwBusy = true;
+		try {
+			const body = { new_password: pwForm.next };
+			if (hasPassword) body.current_password = pwForm.current;
+			const res = await fetch('/api/v1/user/change-password', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			const d = await res.json();
+			if (!res.ok) {
+				alert(d.error || (d.errors && d.errors.join(', ')) || 'Could not update password');
+			} else {
+				alert(hasPassword ? 'Password updated' : 'Password set');
+				pwForm = { current: '', next: '', confirm: '' };
+				hasPassword = true;
+			}
+		} catch (err) {
+			console.error(err);
+			alert('Could not update password');
+		} finally {
+			pwBusy = false;
+		}
 	}
 </script>
 
@@ -150,16 +255,28 @@
 
 			<div class="profile-header">
 				<div class="avatar-wrapper">
-					{#if user.avatar_url}
-						<img src={user.avatar_url} alt="avatar" />
+					{#if currentAvatar}
+						<img src={currentAvatar} alt="avatar" referrerpolicy="no-referrer" />
 					{:else}
 						<div class="avatar-placeholder">
 							<Icon icon="ri:user-smile-line" width="40" />
 						</div>
 					{/if}
-					<button class="edit-avatar" title="Change Avatar">
-						<Icon icon="ri:camera-line" />
+					<button
+						class="edit-avatar"
+						title="Change display picture"
+						onclick={() => fileInput?.click()}
+						disabled={avatarBusy}
+					>
+						<Icon icon={avatarBusy ? 'svg-spinners:ring-resize' : 'ri:camera-line'} />
 					</button>
+					<input
+						bind:this={fileInput}
+						type="file"
+						accept="image/png,image/jpeg,image/webp,image/gif"
+						class="avatar-input"
+						onchange={onAvatarPick}
+					/>
 				</div>
 				<div class="user-meta">
 					<h3>{user.username}</h3>
@@ -167,6 +284,11 @@
 					<span class="country-badge" title="Country">
 						{getCountryName(user.country)}
 					</span>
+					{#if currentAvatar}
+						<button class="remove-avatar" onclick={removeAvatar} disabled={avatarBusy}>
+							Remove picture
+						</button>
+					{/if}
 				</div>
 			</div>
 
@@ -179,9 +301,25 @@
 						name="username"
 						bind:value={profileForm.username}
 						placeholder="Enter username"
-						readonly
-						disabled
+						minlength="3"
+						maxlength="30"
+						autocomplete="off"
+						disabled={usernameLocked}
 					/>
+					{#if usernameStatus && usernameStatus.remaining > 0}
+						<span class="note">
+							You can change your username {usernameStatus.remaining}
+							more time{usernameStatus.remaining === 1 ? '' : 's'} this month.
+						</span>
+					{:else if usernameLocked}
+						<span class="note warn">
+							You've used both username changes for this month.{usernameStatus.next_change_at
+								? ` You can change it again on ${fmtDate(usernameStatus.next_change_at)}.`
+								: ''}
+						</span>
+					{:else}
+						<span class="note">You can change your username up to twice a month.</span>
+					{/if}
 				</div>
 
 				<div class="form-group">
@@ -214,11 +352,66 @@
 				</div>
 
 				<div class="form-actions">
-					<button type="button" class="btn secondary" onclick={handlePasswordChange}
-						>Change Password</button
-					>
 					<button type="submit" class="btn primary" disabled={saving}>
 						{saving ? 'Saving...' : 'Save Changes'}
+					</button>
+				</div>
+			</form>
+		</section>
+
+		<!-- Section: Security -->
+		<section class="card security-settings">
+			<div class="card-header">
+				<div class="header-icon">
+					<Icon icon="ri:lock-2-line" width="24" />
+				</div>
+				<h2>Security</h2>
+			</div>
+
+			<form class="profile-form" onsubmit={submitPassword}>
+				{#if hasPassword}
+					<div class="form-group">
+						<label for="current-password">Current password</label>
+						<input
+							type="password"
+							id="current-password"
+							bind:value={pwForm.current}
+							placeholder="••••••••"
+							autocomplete="current-password"
+						/>
+					</div>
+				{:else}
+					<p class="note">
+						You signed up with Google and don't have a password yet. Set one to also sign in with
+						email and password.
+					</p>
+				{/if}
+
+				<div class="form-group">
+					<label for="new-password">{hasPassword ? 'New password' : 'Password'}</label>
+					<input
+						type="password"
+						id="new-password"
+						bind:value={pwForm.next}
+						placeholder="••••••••"
+						autocomplete="new-password"
+					/>
+				</div>
+
+				<div class="form-group">
+					<label for="confirm-password">Confirm password</label>
+					<input
+						type="password"
+						id="confirm-password"
+						bind:value={pwForm.confirm}
+						placeholder="••••••••"
+						autocomplete="new-password"
+					/>
+				</div>
+
+				<div class="form-actions">
+					<button type="submit" class="btn primary" disabled={pwBusy}>
+						{pwBusy ? 'Saving...' : hasPassword ? 'Update password' : 'Set password'}
 					</button>
 				</div>
 			</form>
@@ -228,19 +421,20 @@
 
 <style lang="scss">
 	.settings-page {
-		max-width: 1000px;
-		margin: 0 auto;
-		padding-bottom: 4rem;
+		width: 100%;
+		padding-bottom: var(--space-10);
 
 		header {
-			margin-bottom: 2rem;
+			margin-bottom: var(--space-6);
 			h1 {
-				font-size: 2rem;
-				margin-bottom: 0.5rem;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-semibold);
+				margin-bottom: var(--space-1);
 				color: var(--text-primary);
 			}
 			.subtitle {
 				color: var(--text-muted);
+				font-size: var(--fs-sm);
 			}
 		}
 	}
@@ -248,38 +442,39 @@
 	.settings-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-		gap: 2rem;
+		gap: var(--space-6);
 	}
 
 	.card {
 		background: var(--bg-card);
 		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		padding: 24px;
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-card);
+		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: var(--space-5);
 
 		.card-header {
 			display: flex;
 			align-items: center;
-			gap: 12px;
-			padding-bottom: 16px;
-			border-bottom: 1px solid var(--border-default);
+			gap: var(--space-3);
+			padding-bottom: var(--space-4);
+			border-bottom: 1px solid var(--hairline);
 
 			.header-icon {
 				width: 40px;
 				height: 40px;
-				border-radius: 10px;
-				background: rgba(255, 70, 85, 0.1);
+				border-radius: var(--radius-sm);
+				background: var(--tint-soft);
 				color: var(--primary);
 				display: flex;
 				align-items: center;
 				justify-content: center;
 			}
 			h2 {
-				font-size: 1.1rem;
-				font-weight: 600;
+				font-size: var(--fs-lg);
+				font-weight: var(--fw-semibold);
 				margin: 0;
 				color: var(--text-primary);
 			}
@@ -291,46 +486,48 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 8px 0;
+		gap: var(--space-4);
+		padding: var(--space-2) 0;
 
 		.label {
 			display: flex;
 			flex-direction: column;
-			gap: 4px;
+			gap: var(--space-1);
 			.title {
-				font-weight: 500;
+				font-weight: var(--fw-medium);
 				color: var(--text-primary);
 			}
 			.desc {
-				font-size: 0.85rem;
+				font-size: var(--fs-sm);
 				color: var(--text-muted);
 			}
 		}
 
 		.controls {
 			display: flex;
-			gap: 8px;
+			gap: var(--space-2);
 			background: var(--bg-input);
-			padding: 4px;
-			border-radius: 8px;
+			padding: var(--space-1);
+			border-radius: var(--radius-sm);
+			flex-shrink: 0;
 
 			.toggle-btn {
 				background: transparent;
 				border: none;
 				color: var(--text-secondary);
-				padding: 6px 12px;
-				border-radius: 6px;
+				padding: var(--space-2) var(--space-3);
+				border-radius: var(--radius-sm);
 				cursor: pointer;
 				display: flex;
 				align-items: center;
-				gap: 6px;
-				font-size: 0.9rem;
-				transition: all 0.2s;
+				gap: var(--space-2);
+				font-size: var(--fs-sm);
+				transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 
 				&.active {
 					background: var(--bg-card);
 					color: var(--text-primary);
-					box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+					box-shadow: var(--shadow-card);
 				}
 			}
 		}
@@ -342,6 +539,7 @@
 		display: inline-block;
 		width: 44px;
 		height: 24px;
+		flex-shrink: 0;
 
 		input {
 			opacity: 0;
@@ -357,11 +555,11 @@
 			right: 0;
 			bottom: 0;
 			background-color: var(--bg-input);
-			transition: 0.4s;
+			transition: background 0.3s var(--ease);
 			border: 1px solid var(--border-default);
 
 			&.round {
-				border-radius: 24px;
+				border-radius: var(--radius-pill);
 			}
 			&.round:before {
 				border-radius: 50%;
@@ -374,8 +572,8 @@
 				width: 16px;
 				left: 3px;
 				bottom: 3px;
-				background-color: white;
-				transition: 0.4s;
+				background-color: #fff;
+				transition: transform 0.3s var(--ease);
 			}
 		}
 
@@ -393,13 +591,14 @@
 	.profile-header {
 		display: flex;
 		align-items: center;
-		gap: 20px;
-		margin-bottom: 10px;
+		gap: var(--space-5);
+		margin-bottom: var(--space-2);
 
 		.avatar-wrapper {
 			position: relative;
 			width: 80px;
 			height: 80px;
+			flex-shrink: 0;
 
 			img,
 			.avatar-placeholder {
@@ -422,7 +621,7 @@
 				right: 0;
 				background: var(--primary);
 				border: 2px solid var(--bg-card);
-				color: white;
+				color: #fff;
 				border-radius: 50%;
 				width: 28px;
 				height: 28px;
@@ -438,17 +637,22 @@
 
 		.user-meta {
 			h3 {
-				margin: 0 0 4px 0;
-				font-size: 1.25rem;
+				margin: 0 0 var(--space-1) 0;
+				font-size: var(--fs-h3);
 			}
 			.role {
-				background: rgba(255, 70, 85, 0.1);
+				background: var(--tint-soft);
 				color: var(--primary);
 				padding: 2px 8px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				font-weight: 600;
+				border-radius: var(--radius-sm);
+				font-size: var(--fs-xs);
+				font-weight: var(--fw-semibold);
 				text-transform: uppercase;
+			}
+			.country-badge {
+				color: var(--text-muted);
+				font-size: var(--fs-sm);
+				margin-left: var(--space-2);
 			}
 		}
 	}
@@ -456,33 +660,34 @@
 	.profile-form {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-4);
 
 		.form-group {
 			display: flex;
 			flex-direction: column;
-			gap: 8px;
+			gap: var(--space-2);
 
 			label {
-				font-size: 0.9rem;
-				font-weight: 500;
-				color: var(--text-muted);
+				font-size: var(--fs-sm);
+				font-weight: var(--fw-medium);
+				color: var(--text-secondary);
 			}
 
 			input,
 			textarea {
 				background: var(--bg-input);
 				border: 1px solid var(--border-default);
-				border-radius: 8px;
-				padding: 10px 14px;
+				border-radius: var(--radius-sm);
+				padding: 0.75rem 0.95rem;
 				color: var(--text-primary);
 				font-family: inherit;
-				font-size: 0.95rem;
-				transition: border-color 0.2s;
+				font-size: var(--fs-body);
+				transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 
 				&:focus {
 					outline: none;
 					border-color: var(--primary);
+					box-shadow: 0 0 0 3px var(--primary-glow);
 				}
 
 				&:disabled {
@@ -492,42 +697,88 @@
 			}
 
 			.note {
-				font-size: 0.75rem;
+				font-size: var(--fs-xs);
 				color: var(--text-muted);
 				font-style: italic;
+
+				&.warn {
+					color: var(--warning, #e0a800);
+					font-style: normal;
+				}
 			}
 		}
 
 		.form-actions {
 			display: flex;
 			justify-content: flex-end;
-			gap: 12px;
-			margin-top: 8px;
+			gap: var(--space-3);
+			margin-top: var(--space-2);
 		}
 	}
 
 	.btn {
-		padding: 10px 20px;
-		border-radius: 8px;
-		font-weight: 500;
+		padding: 0.7rem 1.25rem;
+		border-radius: var(--radius-pill);
+		font-weight: var(--fw-semibold);
 		cursor: pointer;
-		border: none;
-		font-size: 0.9rem;
+		border: 1px solid transparent;
+		font-size: var(--fs-sm);
+		transition: filter var(--dur) var(--ease), background var(--dur) var(--ease),
+			border-color var(--dur) var(--ease);
 
 		&.primary {
-			background: var(--primary);
-			color: white;
-			&:hover {
-				filter: brightness(1.1);
+			background: var(--accent-gradient);
+			color: #fff;
+			box-shadow: 0 6px 20px -6px var(--primary-glow);
+			&:hover:not(:disabled) {
+				filter: brightness(1.06);
+			}
+			&:disabled {
+				opacity: 0.55;
+				cursor: not-allowed;
 			}
 		}
 		&.secondary {
-			background: transparent;
-			border: 1px solid var(--border-default);
+			background: var(--tint-soft);
+			border-color: var(--border-default);
 			color: var(--text-primary);
 			&:hover {
-				background: var(--nav-hover);
+				background: var(--tint-softer);
+				border-color: var(--border-strong);
 			}
 		}
+	}
+
+	@media (max-width: 600px) {
+		.settings-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	/* Display-picture controls */
+	.avatar-input {
+		display: none;
+	}
+	.edit-avatar:disabled {
+		opacity: 0.7;
+		cursor: default;
+	}
+	.remove-avatar {
+		display: block;
+		margin-top: var(--space-2);
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--text-muted);
+		font-size: var(--fs-xs);
+		cursor: pointer;
+		text-decoration: underline;
+	}
+	.remove-avatar:hover {
+		color: var(--primary);
+	}
+	.remove-avatar:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 </style>

@@ -14,12 +14,22 @@ pub struct RegisterAccountInput {
     pub email: String,
     pub password: String,
     pub invite_code: Option<String>,
+    pub promo_code: Option<String>,
 }
 
 pub async fn handle(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<RegisterAccountInput>,
 ) -> impl IntoResponse {
+    // Default the new user's country from the IP they register from (best-effort;
+    // None for unresolvable/private IPs, e.g. local dev).
+    let registration_ip = libs::geoip::client_ip(&headers, addr);
+    let geo_country = axum_state
+        .geoip
+        .as_ref()
+        .and_then(|r| libs::geoip::country_code(r, &registration_ip));
     // input validation
     let mut validation_errors = vec![];
     // validate email
@@ -72,12 +82,14 @@ pub async fn handle(
     // Signup gate. Invite-only by default; set SILOCAT_INVITE_ONLY=false to open
     // public registration. Invites still grant their benefits when supplied —
     // they just stop being mandatory once signup is public.
+    // Public signup by default now (promo codes replaced the invite requirement).
+    // Set SILOCAT_INVITE_ONLY=true to re-gate signup behind an invite code.
     let invite_only = std::env::var("SILOCAT_INVITE_ONLY")
         .map(|v| {
             let v = v.trim().to_ascii_lowercase();
-            !(v == "false" || v == "0" || v == "no")
+            v == "true" || v == "1" || v == "yes"
         })
-        .unwrap_or(true);
+        .unwrap_or(false);
 
     if invite_only && valid_invite_code.is_none() {
         return respond(
@@ -130,10 +142,11 @@ pub async fn handle(
              team_id,
              subscription_id,
              account_type,
-             default_storage_bytes
+             default_storage_bytes,
+             country
             )
         VALUES
-            ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *
         "
     )
@@ -147,11 +160,52 @@ pub async fn handle(
     .bind(None::<String>)
     .bind("personal")
     .bind(initial_storage_bytes)
+    .bind(&geo_country)
     .fetch_one(&axum_state.pg_pool)
     .await;
 
     match user {
         Ok(user) => {
+            // Redeem an optional signup promo: grants bonus storage for a duration
+            // (recorded as a subscription so fetch_storage_stats counts it until it
+            // expires). Indefinite = ~100 years. Best-effort: never fails signup.
+            if let Some(ref pc) = payload.promo_code {
+                let code = pc.trim();
+                if !code.is_empty() {
+                    let promo = sqlx::query_as::<_, (i64, Option<i32>, Option<i32>, i32)>(
+                        "SELECT bonus_bytes, duration_days, max_uses, uses_count \
+                         FROM signup_promos WHERE code = $1 AND active = TRUE",
+                    )
+                    .bind(code)
+                    .fetch_optional(&axum_state.pg_pool)
+                    .await
+                    .ok()
+                    .flatten();
+
+                    if let Some((bonus, duration_days, max_uses, uses_count)) = promo {
+                        let has_room = max_uses.map(|m| uses_count < m).unwrap_or(true);
+                        if has_room && bonus > 0 {
+                            // duration_days comes from our own DB as an integer, safe to inline
+                            let days = duration_days.unwrap_or(36500).max(0);
+                            let insert_sub = format!(
+                                "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) \
+                                 VALUES ('Promo', $1, $2, NOW() + INTERVAL '{} days', TRUE)",
+                                days
+                            );
+                            let _ = sqlx::query(&insert_sub)
+                                .bind(bonus)
+                                .bind(&user.id)
+                                .execute(&axum_state.pg_pool)
+                                .await;
+                            let _ = sqlx::query("UPDATE signup_promos SET uses_count = uses_count + 1 WHERE code = $1")
+                                .bind(code)
+                                .execute(&axum_state.pg_pool)
+                                .await;
+                        }
+                    }
+                }
+            }
+
             let mut created_subscription: Option<models::Subscription> = None;
 
             // Apply Subscription Benefits

@@ -64,22 +64,23 @@
 
 		input {
 			width: 100%;
-			background: rgba(255, 255, 255, 0.05);
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			border-radius: 8px;
-			padding: 12px 16px;
-			color: #fff;
-			font-size: 16px;
+			background: var(--bg-input);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-sm);
+			padding: 0.75rem 0.95rem;
+			color: var(--text-primary);
+			font-family: inherit;
+			font-size: var(--fs-body);
 			outline: none;
-			transition: all 0.2s;
+			transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 
 			&:focus {
-				border-color: #3b82f6;
-				background: rgba(59, 130, 246, 0.1);
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px var(--primary-glow);
 			}
 
 			&::placeholder {
-				color: rgba(255, 255, 255, 0.3);
+				color: var(--text-muted);
 			}
 		}
 	}
@@ -87,40 +88,44 @@
 	.actions {
 		display: flex;
 		justify-content: flex-end;
-		gap: 12px;
-		margin-top: 8px;
+		gap: var(--space-3);
+		margin-top: var(--space-2);
 
 		button {
-			padding: 10px 20px;
-			border-radius: 8px;
-			font-size: 14px;
-			font-weight: 500;
+			padding: 0.7rem 1.25rem;
+			border-radius: var(--radius-pill);
+			font-family: inherit;
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
 			cursor: pointer;
-			transition: all 0.2s;
-			border: none;
+			transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+				filter var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+			border: 1px solid transparent;
 		}
 
 		.btn-cancel {
-			background: transparent;
-			color: rgba(255, 255, 255, 0.6);
-			border: 1px solid rgba(255, 255, 255, 0.1);
+			background: var(--tint-soft);
+			color: var(--text-primary);
+			border-color: var(--border-default);
 
 			&:hover {
-				background: rgba(255, 255, 255, 0.05);
-				color: #fff;
+				background: var(--tint-softer);
+				border-color: var(--border-strong);
 			}
 		}
 
 		.btn-submit {
-			background: #3b82f6;
+			background: var(--accent-gradient);
 			color: #fff;
+			box-shadow: 0 6px 20px -6px var(--primary-glow);
 
 			&:hover {
-				background: #2563eb;
+				filter: brightness(1.06);
+				box-shadow: 0 10px 28px -6px var(--primary-glow);
 			}
 
 			&:disabled {
-				opacity: 0.5;
+				opacity: 0.55;
 				cursor: not-allowed;
 			}
 		}

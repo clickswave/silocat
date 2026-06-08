@@ -116,12 +116,24 @@
 	}
 </script>
 
-<div class="dashboard-overview">
+<div class="view dashboard">
+	<header class="page-head">
+		<div>
+			<h1 class="page-title">Overview</h1>
+			<p class="page-subtitle">
+				Welcome back{data?.user?.username ? `, ${data.user.username}` : ''}.
+			</p>
+		</div>
+		<a href="/home/files" class="btn btn-primary upload-cta">
+			<Icon icon="ri:upload-cloud-2-line" width="18" /> Upload files
+		</a>
+	</header>
+
 	<!-- Section 1: Subscription & Quota -->
 	<div class="stats-section">
 		<div class="card subscription-card">
 			<div class="card-header">
-				<Icon icon="ri:vip-crown-fill" width="24" color="#FFD700" />
+				<Icon icon="ri:vip-crown-fill" width="24" color="var(--warning)" />
 				<h3>Your Subscription</h3>
 			</div>
 			<div class="card-body">
@@ -136,7 +148,7 @@
 						Upgrade to Pro for more storage and features.
 					{/if}
 				</p>
-				<button class="btn secondary" onclick={() => (window.location.href = '/home/subscription')}
+				<button class="btn btn-ghost" onclick={() => (window.location.href = '/home/subscription')}
 					>Manage Subscription</button
 				>
 			</div>
@@ -144,7 +156,7 @@
 
 		<div class="card quota-card">
 			<div class="card-header">
-				<Icon icon="ri:hard-drive-2-line" width="24" color="var(--primary-color)" />
+				<Icon icon="ri:hard-drive-2-line" width="24" color="var(--primary)" />
 				<h3>Storage Quota</h3>
 			</div>
 			<div class="card-body">
@@ -166,8 +178,8 @@
 	<!-- Section 2: Recent Activity -->
 	<div class="recent-section">
 		<div class="section-header">
-			<h2>Recent Activity</h2>
-			<a href="/home/files" class="view-all">View All Files <Icon icon="ri:arrow-right-line" /></a>
+			<h2 class="section-title">Recent activity</h2>
+			<a href="/home/files" class="view-all">View all files <Icon icon="ri:arrow-right-line" /></a>
 		</div>
 
 		<div class="folders-grid">
@@ -195,7 +207,7 @@
 			{#if recentFiles.length === 0 && rootFolders.length === 0}
 				<div class="empty-state">
 					<p>No recent files or folders.</p>
-					<a href="/home/files" class="btn primary">Go to Files</a>
+					<a href="/home/files" class="btn btn-primary">Go to Files</a>
 				</div>
 			{/if}
 		</div>
@@ -203,45 +215,43 @@
 </div>
 
 <style lang="scss">
-	.dashboard-overview {
-		padding: 32px;
-		max-width: 1200px;
-		margin: 0 auto;
-		display: flex;
-		flex-direction: column;
-		gap: 40px;
+	/* .dashboard uses the global .view rhythm (column, gap: space-6). */
+	.upload-cta {
+		white-space: nowrap;
+		align-self: center;
 	}
 
 	.stats-section {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-		gap: 24px;
+		gap: var(--space-4);
 	}
 
 	.card {
 		background: var(--bg-card);
 		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		padding: 24px;
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-card);
+		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-4);
 
 		.card-header {
 			display: flex;
 			align-items: center;
-			gap: 12px;
+			gap: var(--space-3);
 			h3 {
 				margin: 0;
-				font-size: 18px;
-				font-weight: 600;
+				font-size: var(--fs-lg);
+				font-weight: var(--fw-semibold);
 			}
 		}
 
 		.card-body {
 			display: flex;
 			flex-direction: column;
-			gap: 12px;
+			gap: var(--space-3);
 		}
 	}
 
@@ -251,24 +261,30 @@
 			align-items: center;
 			justify-content: space-between;
 			.plan-name {
-				font-size: 20px;
-				font-weight: 700;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-bold);
 				color: var(--text-primary);
 			}
 			.plan-status {
-				background: rgba(31, 122, 74, 0.2);
-				color: #4ade80;
-				padding: 4px 12px;
-				border-radius: 12px;
-				font-size: 12px;
-				font-weight: 600;
+				background: rgba(61, 220, 151, 0.15);
+				color: var(--success);
+				padding: var(--space-1) var(--space-3);
+				border-radius: var(--radius-pill);
+				font-size: var(--fs-xs);
+				font-weight: var(--fw-semibold);
 			}
 		}
 		.plan-desc {
-			color: var(--text-muted);
-			font-size: 14px;
+			color: var(--text-secondary);
+			font-size: var(--fs-sm);
 			margin: 0;
 		}
+	}
+
+	.subscription-card .btn,
+	.empty-state .btn {
+		align-self: flex-start;
+		margin-top: var(--space-2);
 	}
 
 	.quota-card {
@@ -277,29 +293,31 @@
 			justify-content: space-between;
 			align-items: baseline;
 			.used {
-				font-size: 24px;
-				font-weight: 700;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-bold);
 				color: var(--text-primary);
+				font-family: var(--font-mono);
 			}
 			.total {
 				color: var(--text-muted);
-				font-size: 14px;
+				font-size: var(--fs-sm);
 			}
 		}
 		.progress-bar {
 			height: 8px;
 			background: var(--bg-input);
-			border-radius: 4px;
+			border-radius: var(--radius-pill);
 			overflow: hidden;
 			.progress-fill {
 				height: 100%;
-				background: var(--primary-color);
-				border-radius: 4px;
+				background: var(--accent-gradient);
+				border-radius: var(--radius-pill);
+				transition: width var(--dur) var(--ease);
 			}
 		}
 		.free-space {
 			color: var(--text-muted);
-			font-size: 12px;
+			font-size: var(--fs-xs);
 			text-align: right;
 			margin: 0;
 		}
@@ -308,7 +326,7 @@
 	.recent-section {
 		display: flex;
 		flex-direction: column;
-		gap: 20px;
+		gap: var(--space-4);
 
 		.section-header {
 			display: flex;
@@ -316,17 +334,19 @@
 			align-items: center;
 			h2 {
 				margin: 0;
-				font-size: 20px;
+				font-size: var(--fs-lg);
+				font-weight: var(--fw-semibold);
 			}
 			.view-all {
-				color: var(--primary-color);
+				color: var(--primary);
 				text-decoration: none;
-				font-size: 14px;
+				font-size: var(--fs-sm);
+				font-weight: var(--fw-medium);
 				display: flex;
 				align-items: center;
-				gap: 4px;
+				gap: var(--space-1);
 				&:hover {
-					text-decoration: underline;
+					color: var(--primary-hover);
 				}
 			}
 		}
@@ -334,51 +354,39 @@
 
 	.folders-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 16px;
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-3);
 	}
 
 	.files-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 16px;
-	}
-
-	.btn {
-		padding: 10px 16px;
-		border-radius: 8px;
-		font-weight: 500;
-		cursor: pointer;
-		border: none;
-		font-size: 14px;
-		text-align: center;
-		text-decoration: none;
-		display: inline-block;
-
-		&.primary {
-			background: var(--primary-color);
-			color: white;
-		}
-		&.secondary {
-			background: transparent;
-			border: 1px solid var(--border-default);
-			color: var(--text-primary);
-			&:hover {
-				background: rgba(255, 255, 255, 0.05);
-			}
-		}
+		grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+		gap: var(--space-3);
 	}
 
 	.empty-state {
 		grid-column: 1 / -1;
 		text-align: center;
-		padding: 40px;
+		padding: var(--space-5);
 		background: var(--bg-card);
-		border-radius: 12px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 16px;
-		color: var(--text-muted);
+		gap: var(--space-4);
+		color: var(--text-secondary);
+
+		.btn {
+			align-self: center;
+		}
+	}
+
+	@media (max-width: 600px) {
+		.folders-grid,
+		.files-grid {
+			grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+			gap: var(--space-3);
+		}
 	}
 </style>

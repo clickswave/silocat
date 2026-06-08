@@ -70,45 +70,45 @@
 		flex-direction: column;
 		align-items: center;
 		text-align: center;
-		gap: 24px;
-		padding: 8px;
+		gap: var(--space-5);
+		padding: var(--space-2);
 	}
 
 	.icon-wrapper {
 		width: 64px;
 		height: 64px;
-		border-radius: 50%;
-		background: rgba(59, 130, 246, 0.1);
-		color: #3b82f6;
+		border-radius: var(--radius-pill);
+		background: var(--tint-softer);
+		color: var(--text-secondary);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin-bottom: -8px;
+		margin-bottom: calc(-1 * var(--space-2));
 
 		&.danger {
-			background: rgba(239, 68, 68, 0.1);
-			color: #ef4444;
+			background: rgba(255, 70, 85, 0.1);
+			color: var(--danger);
 		}
 	}
 
 	.text-content {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: var(--space-2);
 
 		h3 {
-			font-size: 20px;
-			font-weight: 600;
-			color: #fff;
+			font-size: var(--fs-h3);
+			font-weight: var(--fw-semibold);
+			color: var(--text-primary);
 			margin: 0;
 		}
 
 		.message {
-			color: var(--text-muted, rgba(255, 255, 255, 0.6));
-			font-size: 15px;
-			line-height: 1.5;
+			color: var(--text-secondary);
+			font-size: var(--fs-sm);
+			line-height: var(--lh-normal);
 			margin: 0;
-			max-width: 300px;
+			max-width: 320px;
 		}
 	}
 
@@ -116,48 +116,48 @@
 		display: flex;
 		width: 100%;
 		justify-content: center;
-		gap: 12px;
-		margin-top: 8px;
+		gap: var(--space-3);
+		margin-top: var(--space-2);
 
 		button {
-			padding: 10px 24px;
-			border-radius: 10px;
-			font-size: 14px;
-			font-weight: 500;
+			padding: 0.7rem 1.25rem;
+			border-radius: var(--radius-pill);
+			font-family: inherit;
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
 			cursor: pointer;
-			transition: all 0.2s;
-			border: none;
-			min-width: 100px;
+			transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+				filter var(--dur) var(--ease), transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+			border: 1px solid transparent;
+			min-width: 110px;
 		}
 
 		.btn-cancel {
-			background: transparent;
-			color: rgba(255, 255, 255, 0.7);
-			border: 1px solid rgba(255, 255, 255, 0.1);
+			background: var(--tint-soft);
+			color: var(--text-primary);
+			border-color: var(--border-default);
 
 			&:hover {
-				background: rgba(255, 255, 255, 0.05);
-				color: #fff;
-				border-color: rgba(255, 255, 255, 0.2);
+				background: var(--tint-softer);
+				border-color: var(--border-strong);
 			}
 		}
 
 		.btn-confirm {
-			background: #3b82f6;
+			background: var(--accent-gradient);
 			color: #fff;
-			box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+			box-shadow: 0 6px 20px -6px var(--primary-glow);
 
 			&:hover {
-				background: #2563eb;
-				transform: translateY(-1px);
+				filter: brightness(1.06);
+				box-shadow: 0 10px 28px -6px var(--primary-glow);
 			}
 
 			&.danger {
-				background: #ef4444;
-				box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+				background: var(--accent-gradient);
 
 				&:hover {
-					background: #dc2626;
+					filter: brightness(1.06);
 				}
 			}
 		}

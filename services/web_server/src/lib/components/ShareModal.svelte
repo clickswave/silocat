@@ -207,67 +207,70 @@
 		left: 0;
 		width: 100vw;
 		height: 100vh;
-		background: rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(4px);
+		background: rgba(0, 0, 0, 0.65);
+		backdrop-filter: blur(8px);
 		z-index: 1000;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		padding: var(--gutter);
 	}
 
 	.modal {
-		background: #18181b;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 16px;
-		width: 90%;
+		background: var(--bg-elevated);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		width: 100%;
 		max-width: 480px;
-		box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+		box-shadow: var(--shadow-lg);
 		overflow: hidden;
 	}
 
 	.modal-header {
-		padding: 20px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		padding: var(--space-5);
+		border-bottom: 1px solid var(--hairline);
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 
 		h3 {
 			margin: 0;
-			font-size: 18px;
-			font-weight: 600;
-			color: #eee;
+			font-size: var(--fs-h3);
+			font-weight: var(--fw-semibold);
+			color: var(--text-primary);
 		}
 
 		.close-btn {
 			background: transparent;
 			border: none;
-			color: #999;
+			color: var(--text-muted);
 			cursor: pointer;
-			padding: 4px;
-			border-radius: 4px;
+			padding: var(--space-1);
+			border-radius: var(--radius-sm);
+			display: flex;
+			transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 
 			&:hover {
-				color: #fff;
-				background: rgba(255, 255, 255, 0.1);
+				color: var(--text-primary);
+				background: var(--tint-softer);
 			}
 		}
 	}
 
 	.modal-body {
-		padding: 24px;
+		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5);
 
 		.loading {
 			display: flex;
 			justify-content: center;
-			padding: 20px;
+			padding: var(--space-5);
 
 			.spinner {
 				animation: spin 1s linear infinite;
-				color: var(--primary, #ff4655);
+				color: var(--primary);
 			}
 		}
 	}
@@ -275,56 +278,58 @@
 	.section {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-3);
 	}
 
 	.option-row {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 16px;
+		gap: var(--space-4);
 
 		.info {
 			display: flex;
 			flex-direction: column;
-			gap: 4px;
+			gap: var(--space-1);
 
 			.label {
-				color: #eee;
-				font-weight: 500;
+				color: var(--text-primary);
+				font-weight: var(--fw-medium);
 			}
 			.desc {
-				font-size: 13px;
-				color: #888;
+				font-size: var(--fs-sm);
+				color: var(--text-muted);
 			}
 		}
 
 		.toggles {
 			display: flex;
-			background: rgba(255, 255, 255, 0.05);
-			padding: 4px;
-			border-radius: 8px;
-			gap: 2px;
+			background: var(--tint-soft);
+			border: 1px solid var(--border-default);
+			padding: var(--space-1);
+			border-radius: var(--radius-md);
+			gap: var(--space-1);
 
 			.toggle-btn {
 				background: transparent;
 				border: none;
-				color: #888;
-				padding: 6px 12px;
-				border-radius: 6px;
-				font-size: 13px;
+				color: var(--text-secondary);
+				padding: var(--space-2) var(--space-3);
+				border-radius: var(--radius-sm);
+				font-family: inherit;
+				font-size: var(--fs-sm);
 				cursor: pointer;
-				transition: all 0.2s;
-				font-weight: 500;
+				transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+				font-weight: var(--fw-medium);
 
 				&.active {
-					background: rgba(255, 255, 255, 0.1);
-					color: white;
-					box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+					background: var(--accent-gradient);
+					color: #fff;
+					box-shadow: 0 4px 12px -4px var(--primary-glow);
 				}
 
 				&:hover:not(.active) {
-					color: #ccc;
+					color: var(--text-primary);
 				}
 			}
 		}
@@ -332,58 +337,60 @@
 
 	.input-group {
 		display: flex;
-		gap: 8px;
+		gap: var(--space-2);
 
 		input {
 			flex: 1;
-			background: rgba(0, 0, 0, 0.3);
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			border-radius: 8px;
-			padding: 10px 14px;
-			color: #ccc;
-			font-size: 14px;
-			font-family: 'JetBrains Mono', monospace;
+			background: var(--bg-input);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-sm);
+			padding: 0.75rem 0.95rem;
+			color: var(--text-secondary);
+			font-size: var(--fs-sm);
+			font-family: var(--font-mono);
 
 			&:focus {
 				outline: none;
-				border-color: var(--primary, #ff4655);
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px var(--primary-glow);
 			}
 		}
 
 		.actions {
 			display: flex;
-			gap: 4px;
+			gap: var(--space-1);
 		}
 
 		.action-btn {
-			background: rgba(255, 255, 255, 0.05);
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			color: #ccc;
+			background: var(--tint-soft);
+			border: 1px solid var(--border-default);
+			color: var(--text-secondary);
 			width: 42px;
-			border-radius: 8px;
+			border-radius: var(--radius-sm);
 			cursor: pointer;
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			transition: all 0.2s;
+			transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+				border-color var(--dur) var(--ease);
 
 			&:hover {
-				background: rgba(255, 255, 255, 0.1);
-				color: white;
+				background: var(--tint-softer);
+				color: var(--text-primary);
 			}
 
 			&.copy {
 				&:hover {
-					color: #10b981;
-					border-color: #10b981;
-					background: rgba(16, 185, 129, 0.1);
+					color: var(--success);
+					border-color: var(--success);
+					background: rgba(61, 220, 151, 0.1);
 				}
 			}
 			&.regen {
 				&:hover {
-					color: #f59e0b;
-					border-color: #f59e0b;
-					background: rgba(245, 158, 11, 0.1);
+					color: var(--warning);
+					border-color: var(--warning);
+					background: rgba(242, 201, 76, 0.1);
 				}
 			}
 		}
@@ -392,10 +399,10 @@
 	.stats {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		font-size: 13px;
-		color: #ef4444; /* Warning color for 'Once' limits */
-		padding-left: 4px;
+		gap: var(--space-2);
+		font-size: var(--fs-sm);
+		color: var(--danger); /* Warning color for 'Once' limits */
+		padding-left: var(--space-1);
 	}
 
 	@keyframes spin {

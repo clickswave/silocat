@@ -4,7 +4,10 @@
 	import Icon from '@iconify/svelte';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { onMount } from 'svelte';
-	import { fly, fade } from 'svelte/transition';
+	import { fly } from 'svelte/transition';
+
+	// `open` only matters on mobile, where the sidebar is an off-canvas drawer.
+	let { open = false, onclose } = $props();
 
 	const menuItems = [
 		{ icon: 'ri:dashboard-line', label: 'Dashboard', href: '/home' },
@@ -18,7 +21,6 @@
 
 	let storage = $state({ used: 0, total: 0 });
 	let user = $derived($page.data.user || {});
-	let isExpanded = $state(true); // Default to expanded
 
 	onMount(async () => {
 		try {
@@ -46,37 +48,28 @@
 		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
 		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 	}
-
-	function toggleSidebar() {
-		isExpanded = !isExpanded;
-	}
 </script>
 
-<aside class="aside" class:expanded={isExpanded}>
+<aside class="aside" class:open>
 	<div class="header">
-		<div class="logo-container">
+		<a href="/home" class="logo-container" title="Home">
 			<img src={SiloCatLogo} alt="logo" class="logo-img" />
-			{#if isExpanded}
-				<span class="logo-text" transition:fade={{ duration: 200 }}>SILO.CAT</span>
-			{/if}
-		</div>
+			<span class="logo-text">SILO.CAT</span>
+		</a>
+		<button class="nav-close" onclick={onclose} aria-label="Close menu">
+			<Icon icon="ri:close-line" width="22" />
+		</button>
 	</div>
 
 	<div class="divider"></div>
 
 	<nav>
 		{#each menuItems as item}
-			<a
-				href={item.href}
-				class:active={$page.url.pathname === item.href}
-				title={!isExpanded ? item.label : ''}
-			>
+			<a href={item.href} class:active={$page.url.pathname === item.href}>
 				<div class="icon-wrapper">
 					<Icon icon={item.icon} width="22" class="nav-icon" />
 				</div>
-				{#if isExpanded}
-					<span class="label" transition:fade={{ duration: 150 }}>{item.label}</span>
-				{/if}
+				<span class="label">{item.label}</span>
 				{#if $page.url.pathname === item.href}
 					<div class="active-indicator" transition:fly={{ x: -10, duration: 200 }}></div>
 				{/if}
@@ -84,105 +77,89 @@
 		{/each}
 	</nav>
 
-	<div class="footer-action">
-		<button
-			class="sidebar-toggle-btn"
-			class:compact={!isExpanded}
-			onclick={toggleSidebar}
-			title={isExpanded ? 'Collapse Menu' : 'Expand Menu'}
-		>
-			<Icon icon={isExpanded ? 'ri:menu-fold-line' : 'ri:menu-unfold-line'} width="24" />
-			{#if isExpanded}
-				<span class="label" transition:fade={{ duration: 150 }}>Collapse Menu</span>
-			{/if}
-		</button>
-	</div>
+	<div class="divider divider-foot"></div>
 
 	<div class="user-section">
 		<div class="user-info">
 			<div class="avatar">
-				{#if user.avatar_url}
-					<img src={user.avatar_url} alt="User" />
+				{#if user.profile_image}
+					<img src={user.profile_image} alt="User" referrerpolicy="no-referrer" />
 				{:else}
 					<Icon icon="ri:user-smile-line" width="24" color="#a1a1aa" />
 				{/if}
 			</div>
-			{#if isExpanded}
-				<div class="details" transition:fade={{ duration: 150 }}>
-					<span class="username">{user.username || 'User'}</span>
-					<span class="email" title={user.email}>{user.email || ''}</span>
-				</div>
-				<form action="/auth/logout" method="POST" class="logout-form">
-					<button type="submit" class="logout-btn" title="Logout">
-						<Icon icon="ri:logout-box-r-line" width="18" />
-					</button>
-				</form>
-			{/if}
-		</div>
-		{#if isExpanded}
-			<div class="storage-bar-container" transition:fade={{ duration: 150 }}>
-				<div class="storage-info">
-					<span>{formatSize(storage.used)} / {formatSize(storage.total)}</span>
-				</div>
-				<div class="progress-bar">
-					<div
-						class="fill"
-						style="width: {storage.total
-							? Math.min((storage.used / storage.total) * 100, 100)
-							: 0}%"
-					></div>
-				</div>
+			<div class="details">
+				<span class="username">{user.username || 'User'}</span>
+				<span class="email" title={user.email}>{user.email || ''}</span>
 			</div>
-		{/if}
+			<form action="/auth/logout" method="POST" class="logout-form">
+				<button type="submit" class="logout-btn" title="Logout">
+					<Icon icon="ri:logout-box-r-line" width="18" />
+				</button>
+			</form>
+		</div>
+		<div class="storage-bar-container">
+			<div class="storage-info">
+				<span>{formatSize(storage.used)} / {formatSize(storage.total)}</span>
+			</div>
+			<div class="progress-bar">
+				<div
+					class="fill"
+					style="width: {storage.total
+						? Math.min((storage.used / storage.total) * 100, 100)
+						: 0}%"
+				></div>
+			</div>
+		</div>
 	</div>
 </aside>
 
 <style lang="scss">
 	.aside {
-		width: 80px; /* Collapsed width */
+		width: 280px;
+		flex-shrink: 0;
 		background: var(--bg-sidebar-glass);
 		backdrop-filter: blur(20px);
 		-webkit-backdrop-filter: blur(20px);
 		display: flex;
 		flex-direction: column;
-		padding: 1.5rem 1rem;
-		border-radius: 20px;
-		height: calc(100vh - 40px);
+		padding: var(--space-5) var(--space-4);
+		border-radius: var(--radius-lg);
+		height: 100%;
 		box-sizing: border-box;
-		margin: 20px 0 20px 20px;
 		border: 1px solid var(--border-sidebar);
-		transition: width 0.3s cubic-bezier(0.2, 0, 0, 1);
 		overflow-x: hidden;
 		overflow-y: auto;
 		z-index: 100;
 		color: var(--text-primary);
-
-		&.expanded {
-			width: 280px;
-		}
 
 		/* Scrollbar Styling */
 		&::-webkit-scrollbar {
 			width: 4px;
 		}
 		&::-webkit-scrollbar-thumb {
-			background: rgba(255, 255, 255, 0.1);
-			border-radius: 2px;
+			background: var(--border-strong);
+			border-radius: var(--radius-pill);
 		}
 
 		.header {
 			display: flex;
+			flex-direction: row;
 			align-items: center;
 			justify-content: space-between;
-			margin-bottom: 2rem;
-			padding: 0 4px;
+			gap: var(--space-2);
+			margin-bottom: var(--space-6);
 			min-height: 40px;
+			padding: 0 var(--space-1);
 
 			.logo-container {
 				display: flex;
 				align-items: center;
 				gap: 12px;
 				overflow: hidden;
+				text-decoration: none;
+				color: inherit;
+				border-radius: var(--radius-sm);
 
 				.logo-img {
 					width: 36px;
@@ -192,26 +169,53 @@
 				}
 
 				.logo-text {
-					font-weight: 700;
-					font-size: 1.25rem;
-					letter-spacing: -0.02em;
+					font-weight: var(--fw-black);
+					font-size: var(--fs-lg);
+					letter-spacing: 0.03em;
 					white-space: nowrap;
+				}
+
+				&:hover .logo-text {
+					color: var(--primary);
 				}
 			}
 
-			/* toggle-btn removed */
+			/* Close button only shows in the mobile drawer. */
+			.nav-close {
+				display: none;
+				width: 36px;
+				height: 36px;
+				flex-shrink: 0;
+				align-items: center;
+				justify-content: center;
+				background: var(--bg-card);
+				border: 1px solid var(--border-sidebar);
+				border-radius: var(--radius-md);
+				color: var(--text-muted);
+				cursor: pointer;
+
+				&:hover {
+					background: var(--nav-hover);
+					color: var(--text-primary);
+				}
+			}
 		}
 
 		.divider {
 			height: 1px;
 			background: var(--border-sidebar);
-			margin: 0 -1rem 1.5rem -1rem;
+			margin: 0 calc(-1 * var(--space-4)) var(--space-5) calc(-1 * var(--space-4));
+		}
+
+		/* Same full-bleed rule between body and footer, with space above it too. */
+		.divider-foot {
+			margin-top: var(--space-5);
 		}
 
 		nav {
 			display: flex;
 			flex-direction: column;
-			gap: 0.5rem;
+			gap: var(--space-2);
 			flex: 1;
 
 			a {
@@ -221,9 +225,9 @@
 				display: flex;
 				align-items: center;
 				height: 48px;
-				border-radius: 12px;
-				transition: all 0.2s;
-				padding: 0 12px;
+				border-radius: var(--radius-md);
+				transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+				padding: 0 var(--space-3);
 				overflow: hidden;
 
 				.icon-wrapper {
@@ -235,9 +239,9 @@
 				}
 
 				.label {
-					margin-left: 12px;
-					font-weight: 500;
-					font-size: 0.95rem;
+					margin-left: var(--space-3);
+					font-weight: var(--fw-medium);
+					font-size: var(--fs-sm);
 					white-space: nowrap;
 				}
 
@@ -253,7 +257,7 @@
 						rgba(255, 70, 85, 0.15) 0%,
 						rgba(255, 70, 85, 0.05) 100%
 					);
-					border: 1px solid rgba(255, 70, 85, 0.1);
+					border: 1px solid rgba(255, 70, 85, 0.18);
 
 					:global(.nav-icon) {
 						color: var(--primary);
@@ -265,71 +269,30 @@
 						height: 20px;
 						width: 3px;
 						background: var(--primary);
-						border-radius: 0 4px 4px 0;
+						border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 					}
 				}
 			}
 		}
 
-		.footer-action {
-			margin-top: 2rem;
-
-			.sidebar-toggle-btn {
-				width: 100%;
-				height: 52px;
-				border-radius: 14px;
-				background: var(--bg-card); /* Neutral background */
-				border: 1px solid var(--border-sidebar);
-				color: var(--text-muted);
-				cursor: pointer;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				gap: 12px;
-				font-weight: 500;
-				font-size: 0.95rem;
-				transition: all 0.2s;
-				overflow: hidden;
-
-				&.compact {
-					width: 48px;
-					margin: 0 auto;
-					padding: 0;
-				}
-
-				&:hover {
-					background: var(--nav-hover);
-					color: var(--text-primary);
-					transform: translateY(-1px);
-				}
-
-				&:active {
-					transform: translateY(0);
-				}
-			}
-		}
-
 		.user-section {
-			margin-top: 2rem;
-			padding-top: 1.5rem;
-			border-top: 1px solid rgba(255, 255, 255, 0.1);
-
+			/* Separation comes from .divider-foot above, full-bleed like the header. */
 			.user-info {
 				display: flex;
 				align-items: center;
-				gap: 12px;
+				gap: var(--space-3);
 				min-height: 44px;
 
 				.avatar {
 					width: 40px;
 					height: 40px;
-					border-radius: 50%;
-					background: rgba(255, 255, 255, 0.05);
+					border-radius: var(--radius-pill);
+					background: var(--tint-soft);
 					display: flex;
 					align-items: center;
 					justify-content: center;
 					flex-shrink: 0;
-					border: 1px solid rgba(255, 255, 255, 0.1);
+					border: 1px solid var(--border-default);
 					overflow: hidden;
 
 					img {
@@ -347,13 +310,13 @@
 					white-space: nowrap;
 
 					.username {
-						font-weight: 600;
-						font-size: 0.95rem;
-						color: white;
+						font-weight: var(--fw-semibold);
+						font-size: var(--fs-sm);
+						color: var(--text-primary);
 					}
 
 					.email {
-						font-size: 0.8rem;
+						font-size: var(--fs-xs);
 						color: var(--text-muted);
 						text-overflow: ellipsis;
 						overflow: hidden;
@@ -369,9 +332,10 @@
 					border: none;
 					color: var(--text-muted);
 					cursor: pointer;
-					padding: 8px;
-					border-radius: 8px;
-					transition: all 0.2s;
+					padding: var(--space-2);
+					border-radius: var(--radius-sm);
+					display: flex;
+					transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 
 					&:hover {
 						color: var(--primary);
@@ -381,35 +345,55 @@
 			}
 
 			.storage-bar-container {
-				margin-top: 1rem;
-				background: rgba(0, 0, 0, 0.2);
-				border-radius: 12px;
-				padding: 12px;
-				border: 1px solid rgba(255, 255, 255, 0.05);
+				margin-top: var(--space-4);
+				background: var(--tint-soft);
+				border-radius: var(--radius-md);
+				padding: var(--space-3);
+				border: 1px solid var(--border-default);
 
 				.storage-info {
 					display: flex;
 					justify-content: space-between;
-					font-size: 0.8rem;
+					font-size: var(--fs-xs);
 					color: var(--text-muted);
-					margin-bottom: 8px;
-					font-weight: 500;
+					margin-bottom: var(--space-2);
+					font-weight: var(--fw-medium);
 				}
 
 				.progress-bar {
 					height: 6px;
-					background: rgba(255, 255, 255, 0.1);
-					border-radius: 3px;
+					background: var(--tint-softer);
+					border-radius: var(--radius-pill);
 					overflow: hidden;
 
 					.fill {
 						height: 100%;
-						background: var(--primary, #ff4655);
-						border-radius: 3px;
+						background: var(--accent-gradient);
+						border-radius: var(--radius-pill);
 						transition: width 0.5s ease-out;
 					}
 				}
 			}
+		}
+	}
+
+	/* Mobile: off-canvas drawer toggled by the top-bar hamburger. */
+	@media (max-width: 768px) {
+		.aside {
+			position: fixed;
+			top: 0.75rem;
+			left: 0.75rem;
+			bottom: 0.75rem;
+			height: auto;
+			transform: translateX(calc(-100% - 1rem));
+			transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1);
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+		}
+		.aside.open {
+			transform: none;
+		}
+		.aside .header .nav-close {
+			display: flex;
 		}
 	}
 </style>

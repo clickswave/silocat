@@ -39,6 +39,23 @@ pub async fn validate_token(
         _ => return unauthorized.into_response(),
     };
 
+    // Banned users cannot use any protected API. Active ban = is_banned and the
+    // (optional) expiry hasn't passed.
+    let ban_active =
+        user.is_banned && user.banned_until.map(|u| u > chrono::Utc::now()).unwrap_or(true);
+    if ban_active {
+        return respond(
+            403,
+            "Account banned",
+            vec![user
+                .ban_reason
+                .clone()
+                .unwrap_or_else(|| "Your account has been banned.".to_string())],
+            json!({ "banned": true, "reason": user.ban_reason, "until": user.banned_until }),
+        )
+        .into_response();
+    }
+
     let subscription = if let Some(sub_id) = &user.subscription_id {
         sqlx::query_as::<_, models::Subscription>("SELECT * FROM subscriptions WHERE id = $1")
             .bind(sub_id)

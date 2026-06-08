@@ -55,6 +55,20 @@ pub async fn handle(
         }
     };
 
+    // Banned accounts can't log in.
+    let ban_active =
+        user.is_banned && user.banned_until.map(|u| u > Utc::now()).unwrap_or(true);
+    if ban_active {
+        return respond(
+            403,
+            "Account banned",
+            vec![user
+                .ban_reason
+                .clone()
+                .unwrap_or_else(|| "Your account has been banned.".to_string())],
+            json!({ "banned": true, "reason": user.ban_reason, "until": user.banned_until }),
+        );
+    }
 
     let find_subscription_query = sqlx::query_as!(models::Subscription,
         "

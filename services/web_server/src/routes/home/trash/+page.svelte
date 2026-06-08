@@ -163,7 +163,7 @@
 			<h1>Trash</h1>
 			<p>Items are kept here until you permanently delete them.</p>
 		</div>
-		<button class="empty-btn" on:click={handleEmptyTrash}>Empty Trash</button>
+		<button class="btn btn-ghost" on:click={handleEmptyTrash}>Empty Trash</button>
 	</header>
 
 	{#if loading}
@@ -224,11 +224,11 @@
 
 <style lang="scss">
 	.page-container {
-		padding: 2rem;
+		width: 100%;
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 2rem;
+		gap: var(--space-6);
 		color: var(--text-primary);
 	}
 
@@ -236,33 +236,19 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-end;
+		gap: var(--space-4);
+		flex-wrap: wrap;
 
 		.title-group {
 			h1 {
-				font-size: 1.5rem;
-				font-weight: 600;
-				margin: 0 0 0.5rem 0;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-semibold);
+				margin: 0 0 var(--space-1) 0;
 			}
 			p {
 				color: var(--text-muted);
 				margin: 0;
-				font-size: 0.9rem;
-			}
-		}
-
-		.empty-btn {
-			background: var(--bg-input);
-			color: var(--text-primary);
-			border: 1px solid var(--border-default);
-			padding: 0.5rem 1rem;
-			border-radius: 8px;
-			font-weight: 500;
-			cursor: pointer;
-			transition: all 0.2s;
-
-			&:hover {
-				background: var(--bg-card-hover);
-				border-color: var(--border-active);
+				font-size: var(--fs-sm);
 			}
 		}
 	}
@@ -270,8 +256,8 @@
 	.grid-layout {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 1.5rem;
-		padding-bottom: 2rem;
+		gap: var(--space-5);
+		padding-bottom: var(--space-6);
 	}
 
 	.loading-state,
@@ -280,9 +266,9 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 4rem;
-		color: var(--text-muted);
-		gap: 1rem;
+		padding: var(--space-10);
+		color: var(--text-secondary);
+		gap: var(--space-4);
 
 		.spinner {
 			animation: spin 1s linear infinite;
@@ -292,6 +278,13 @@
 	@keyframes spin {
 		to {
 			transform: rotate(360deg);
+		}
+	}
+
+	@media (max-width: 600px) {
+		.grid-layout {
+			grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+			gap: var(--space-3);
 		}
 	}
 </style>

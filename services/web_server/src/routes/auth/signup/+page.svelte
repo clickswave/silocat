@@ -5,6 +5,7 @@
 	import SiloCatLogo from '$lib/assets/silo-cat.png';
 	import Icon from '@iconify/svelte';
 	import { Turnstile } from 'svelte-turnstile';
+	import { browser } from '$app/environment';
 
 	let { data } = $props();
 
@@ -13,8 +14,14 @@
 		username: '',
 		password: '',
 		confirmPassword: '',
-		inviteCode: ''
+		promoCode: ''
 	});
+
+	let googleAuthUrl = $derived(
+		browser
+			? `https://accounts.google.com/o/oauth2/v2/auth?client_id=${data.googleClientId}&redirect_uri=${window.location.origin}/auth/callback&response_type=code&scope=openid%20email%20profile`
+			: ''
+	);
 
 	let turnstileRef = $state(null);
 
@@ -53,49 +60,57 @@
 	/>
 </svelte:head>
 
-<section class="auth-card">
+<section class="auth-card card">
 	<div class="card-header">
 		<div class="logo">
 			<img src={SiloCatLogo} alt="SiloCat Logo" />
 		</div>
 		<div class="title-group">
 			<h1>Join the Watch</h1>
-			<p>Secure your digital footprint</p>
+			<p>Secure your digital footprint.</p>
 		</div>
 	</div>
 
-	<div class="divider"></div>
+	<a href={googleAuthUrl} class="btn btn-ghost btn-block google-btn">
+		<Icon icon="logos:google-icon" width="20" /> Continue with Google
+	</a>
+
+	<div class="or-divider"><span>or</span></div>
 
 	<form method="POST" use:enhance={handleSubmit}>
-		<div class="form-group">
-			<label for="email">Email</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:mail-line" class="input-icon" width="18" />
-				<input
-					id="email"
-					name="email"
-					type="email"
-					placeholder="name@example.com"
-					bind:value={form.email}
-					autocomplete="email"
-					required
-				/>
+		<div class="grid-row">
+			<div class="form-group">
+				<label for="username">Username</label>
+				<div class="input-wrapper">
+					<Icon icon="ri:user-line" class="input-icon" width="18" />
+					<input
+						id="username"
+						name="username"
+						type="text"
+						class="field"
+						placeholder="codename"
+						bind:value={form.username}
+						autocomplete="username"
+						required
+					/>
+				</div>
 			</div>
-		</div>
 
-		<div class="form-group">
-			<label for="username">Username</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:user-line" class="input-icon" width="18" />
-				<input
-					id="username"
-					name="username"
-					type="text"
-					placeholder="codename"
-					bind:value={form.username}
-					autocomplete="username"
-					required
-				/>
+			<div class="form-group">
+				<label for="email">Email</label>
+				<div class="input-wrapper">
+					<Icon icon="ri:mail-line" class="input-icon" width="18" />
+					<input
+						id="email"
+						name="email"
+						type="email"
+						class="field"
+						placeholder="name@example.com"
+						bind:value={form.email}
+						autocomplete="email"
+						required
+					/>
+				</div>
 			</div>
 		</div>
 
@@ -108,6 +123,7 @@
 						id="password"
 						name="password"
 						type="password"
+						class="field"
 						placeholder="••••••"
 						bind:value={form.password}
 						autocomplete="new-password"
@@ -124,6 +140,7 @@
 						id="confirmPassword"
 						name="confirmPassword"
 						type="password"
+						class="field"
 						placeholder="••••••"
 						bind:value={form.confirmPassword}
 						autocomplete="new-password"
@@ -134,34 +151,28 @@
 		</div>
 
 		<div class="form-group">
-			<label for="inviteCode">
-				Invite Code
-				{#if data.inviteOnly}
-					<span class="required">(Required)</span>
-					<span class="request-link"> — <a href="/early-access">Request one</a></span>
-				{:else}
-					<span class="optional">(Optional)</span>
-					<span class="request-link"> · unlocks bonus storage / Pro</span>
-				{/if}
+			<label for="promoCode">
+				Promo code
+				<span class="optional">Have a promo code? Unlock bonus storage.</span>
 			</label>
 			<div class="input-wrapper">
 				<Icon icon="ri:ticket-line" class="input-icon" width="18" />
 				<input
-					id="inviteCode"
-					name="inviteCode"
+					id="promoCode"
+					name="promoCode"
 					type="text"
-					placeholder="INV-XXXX"
-					bind:value={form.inviteCode}
-					required={data.inviteOnly}
+					class="field"
+					placeholder="Promo code (optional)"
+					bind:value={form.promoCode}
 				/>
 			</div>
 		</div>
 
-		<div class="form-group" style="align-items: center; margin-top: 0.5rem;">
+		<div class="form-group turnstile-group">
 			<Turnstile siteKey={data.turnstileSiteKey} bind:this={turnstileRef} theme="auto" />
 		</div>
 
-		<button type="submit" disabled={loading} class="submit-btn">
+		<button type="submit" disabled={loading} class="btn btn-primary btn-block submit-btn">
 			{#if loading}
 				<Icon icon="line-md:loading-loop" width="20" /> Initializing...
 			{:else}
@@ -177,21 +188,16 @@
 
 <style lang="scss">
 	.auth-card {
-		background: rgba(20, 20, 22, 0.6);
-		backdrop-filter: blur(24px);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		padding: 2.5rem;
-		border-radius: 24px;
 		width: 100%;
-		max-width: 460px;
-		box-shadow: 0 40px 80px rgba(0, 0, 0, 0.4);
+		max-width: 480px;
+		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;
-		gap: 2rem;
+		gap: var(--space-4);
 		position: relative;
 		overflow: hidden;
 
-		/* Top glowing edge */
+		/* Top accent edge */
 		&::before {
 			content: '';
 			position: absolute;
@@ -199,108 +205,98 @@
 			left: 0;
 			right: 0;
 			height: 1px;
-			background: linear-gradient(90deg, transparent, rgba(255, 70, 85, 0.5), transparent);
+			background: linear-gradient(90deg, transparent, var(--primary), transparent);
 		}
 	}
 
 	.card-header {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: var(--space-2);
 		align-items: center;
 
 		.logo {
-			width: 72px;
-			height: 72px;
-			background: radial-gradient(circle at center, rgba(255, 255, 255, 0.05), transparent);
-			border: 1px solid rgba(255, 255, 255, 0.1);
-			border-radius: 20px;
+			width: 48px;
+			height: 48px;
+			background: var(--tint-soft);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			box-shadow: 0 0 30px rgba(0, 0, 0, 0.2);
+			box-shadow: var(--shadow-glow);
 
 			img {
-				width: 36px;
-				height: 36px;
-				filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.1));
+				width: 26px;
+				height: 26px;
 			}
 		}
 
 		.title-group {
 			text-align: center;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: var(--space-1);
 
 			h1 {
-				margin: 0 0 0.5rem 0;
-				font-size: 1.75rem;
-				font-weight: 700;
-				color: white;
-				letter-spacing: -0.02em;
+				margin: 0;
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-bold);
 			}
 
 			p {
 				margin: 0;
-				color: #a1a1aa;
-				font-size: 1rem;
+				color: var(--text-secondary);
+				font-size: var(--fs-sm);
 			}
 		}
 	}
 
-	.divider {
-		height: 1px;
-		background: rgba(255, 255, 255, 0.05);
-		width: 100%;
+	.or-divider {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		color: var(--text-muted);
+		font-size: var(--fs-xs);
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+
+		&::before,
+		&::after {
+			content: '';
+			flex: 1;
+			height: 1px;
+			background: var(--hairline);
+		}
 	}
 
 	form {
 		display: flex;
 		flex-direction: column;
-		gap: 1.25rem;
+		gap: var(--space-3);
 	}
 
 	.grid-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
+		gap: var(--space-3);
 	}
 
 	.form-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: var(--space-2);
 
 		label {
-			font-size: 0.9rem;
-			font-weight: 500;
-			color: #d4d4d8;
-			margin-left: 2px;
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--text-secondary);
 
 			.optional {
-				font-size: 0.8rem;
-				color: #71717a;
-				font-weight: 400;
-			}
-			.required {
-				font-size: 0.8rem;
-				color: var(--primary, #ff4655);
-				font-weight: 500;
-			}
-
-			.request-link {
-				font-size: 0.8rem;
-				color: #71717a;
-				font-weight: 400;
-
-				a {
-					color: var(--primary, #ff4655);
-					text-decoration: none;
-					transition: color 0.2s;
-
-					&:hover {
-						text-decoration: underline;
-						color: #ff5f6d;
-					}
-				}
+				font-size: var(--fs-xs);
+				color: var(--text-muted);
+				font-weight: var(--fw-regular);
 			}
 		}
 
@@ -312,93 +308,56 @@
 
 			:global(.input-icon) {
 				position: absolute;
-				left: 1rem;
-				color: #71717a;
+				left: var(--space-3);
+				color: var(--text-muted);
 				pointer-events: none;
-				transition: color 0.2s;
+				transition: color var(--dur) var(--ease);
 			}
 
 			&:focus-within :global(.input-icon) {
-				color: var(--primary, #ff4655);
+				color: var(--primary);
 			}
 		}
 
-		input {
-			background: rgba(0, 0, 0, 0.2);
-			border: 1px solid rgba(255, 255, 255, 0.08);
-			padding: 1rem 1rem 1rem 2.75rem;
-			border-radius: 12px;
-			color: white;
-			font-size: 1rem;
-			outline: none;
-			transition: all 0.2s;
-			width: 100%;
-
-			&:focus {
-				border-color: var(--primary, #ff4655);
-				background: rgba(255, 70, 85, 0.05);
-				box-shadow: 0 0 0 1px var(--primary, #ff4655);
-			}
-
-			&::placeholder {
-				color: #3f3f46;
-			}
+		.field {
+			padding-left: 2.6rem;
 		}
 	}
 
-	.submit-btn {
-		background: var(--primary, #ff4655);
-		border: none;
-		padding: 1rem;
-		border-radius: 12px;
-		color: white;
-		font-weight: 600;
-		font-size: 1rem;
-		cursor: pointer;
-		transition: all 0.2s;
-		box-shadow: 0 4px 20px rgba(255, 70, 85, 0.3);
-		display: flex;
+	.turnstile-group {
 		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		margin-top: 0.5rem;
+		margin-top: var(--space-1);
+	}
 
-		&:hover {
-			background: #e03e4b;
-			transform: translateY(-2px);
-			box-shadow: 0 8px 25px rgba(255, 70, 85, 0.4);
-		}
-
-		&:active {
-			transform: translateY(0);
-		}
-
-		&:disabled {
-			opacity: 0.7;
-			cursor: not-allowed;
-			transform: none;
-		}
+	.submit-btn {
+		margin-top: var(--space-1);
 	}
 
 	.footer {
 		text-align: center;
 
 		p {
-			color: #71717a;
-			font-size: 0.9rem;
+			color: var(--text-muted);
+			font-size: var(--fs-sm);
 			margin: 0;
 
 			a {
-				color: white;
+				color: var(--text-primary);
 				text-decoration: none;
-				font-weight: 500;
-				transition: color 0.2s;
+				font-weight: var(--fw-medium);
+				transition: color var(--dur) var(--ease);
 
 				&:hover {
-					color: var(--primary, #ff4655);
+					color: var(--primary);
 					text-decoration: underline;
 				}
 			}
+		}
+	}
+
+	@media (max-width: 560px) {
+		.grid-row {
+			grid-template-columns: 1fr;
 		}
 	}
 </style>

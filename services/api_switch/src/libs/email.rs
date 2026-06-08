@@ -129,3 +129,55 @@ pub async fn send_verification_email(
 
     send(smtp_config, &email_data).await
 }
+
+pub async fn send_password_reset_email(
+    smtp_config: &SmtpConfig,
+    to_name: &str,
+    to_email: &str,
+    otp: &str,
+) -> anyhow::Result<Response, String> {
+    let email_body = format!(
+        r#"
+        <div style="font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #18181b; color: #e4e4e7; margin: 0; padding: 40px 20px;">
+            <div style="max-width: 500px; margin: 0 auto; background-color: #27272a; border-radius: 16px; border: 1px solid #3f3f46; overflow: hidden; padding: 40px 30px;">
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">SiloCat</h1>
+                    <p style="color: #ff4655; margin: 8px 0 0; font-size: 14px; font-weight: 500; letter-spacing: 0.5px; text-transform: lowercase;">moving mountains of data, securely</p>
+                </div>
+
+                <div style="text-align: center;">
+                    <p style="margin: 0 0 20px; font-size: 16px; color: #e4e4e7;">Hello <b>{}</b>,</p>
+                    <p style="margin: 0 0 30px; color: #a1a1aa; line-height: 1.6; font-size: 15px;">Use the code below to reset your password. Enter it on the sign-in screen to choose a new password.</p>
+
+                    <div style="background-color: #18181b; border: 1px solid #ff4655; border-radius: 12px; padding: 24px; display: inline-block; margin-bottom: 30px;">
+                        <span style="font-family: 'Courier New', monospace; font-size: 36px; font-weight: 700; color: #ffffff; letter-spacing: 8px;">{}</span>
+                    </div>
+
+                    <p style="margin: 0; color: #71717a; font-size: 13px;">This code will expire in 15 minutes.</p>
+                    <p style="margin: 5px 0 0; color: #71717a; font-size: 13px;">If you didn't request a password reset, you can safely ignore this email; your password will stay the same.</p>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 30px; font-size: 12px; color: #52525b;">
+                <p style="margin: 0 0 5px; font-weight: 600; color: #71717a;">&copy; 2026 silo.cat</p>
+                <p style="margin: 0;">Clickswave Labs Private Limited</p>
+            </div>
+        </div>
+        "#,
+        to_name,
+        otp
+    );
+
+    let email_data = EmailData {
+        to_name: to_name.to_string(),
+        to_email: to_email.to_string(),
+        from_name: smtp_config.from_name.clone(),
+        from_email: smtp_config.from_email.clone(),
+        reply_to_name: smtp_config.reply_to_name.clone(),
+        reply_to_email: smtp_config.reply_to_email.clone(),
+        email_subject: "Reset your SiloCat password".to_string(),
+        email_body,
+    };
+
+    send(smtp_config, &email_data).await
+}

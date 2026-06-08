@@ -542,7 +542,12 @@
 			if (successCount > 0) toast.success(`Upload complete! (${successCount} files)`);
 		} catch (e) {
 			console.error('Batch upload interrupted', e);
-			toast.error('Upload failed or interrupted');
+			const d = e?.response?.data;
+			if (e?.response?.status === 403 && (d?.banned || /banned/i.test(d?.error || ''))) {
+				toast.error(d?.error || 'You are banned from using SiloCat.');
+			} else {
+				toast.error('Upload failed or interrupted');
+			}
 		} finally {
 			isUploading = false;
 		}
@@ -572,11 +577,18 @@
 
 	<main class="hero">
 		<div class="hero-content">
-			<h1>Moving mountains of data,<br /><span class="text-gradient">securely.</span></h1>
+			<span class="eyebrow"><span class="paw">🐾</span> zero-knowledge file vault</span>
+			<h1 class="hero-title">Big files.<br /><span class="text-gradient">Zero knowledge.</span></h1>
 			<p class="subtitle">
-				Kitty powered E2E encrypted anonymous file-sharing and cloud storage platform with parallel
-				downloads.
+				Kitty-powered, end-to-end encrypted, anonymous file sharing. Drop up to 20&nbsp;GB, get a link,
+				and share it. We never see what's inside.
 			</p>
+			<div class="trust-row">
+				<span class="chip"><Icon icon="ri:lock-2-line" /> End-to-end encrypted</span>
+				<span class="chip"><Icon icon="ri:ghost-2-line" /> Anonymous</span>
+				<span class="chip"><Icon icon="ri:flashlight-line" /> Parallel downloads</span>
+				<span class="chip"><Icon icon="ri:hard-drive-2-line" /> 20GB free</span>
+			</div>
 
 			<div
 				class="upload-zone {isDragging ? 'dragging' : ''}"
@@ -910,6 +922,67 @@
 		</div>
 	</main>
 
+	<section class="section how">
+		<div class="container">
+			<span class="eyebrow">how it works</span>
+			<h2 class="section-title">Three steps. No account needed.</h2>
+			<div class="steps">
+				<div class="step">
+					<span class="step-n">01</span>
+					<div class="step-ic"><Icon icon="ri:upload-cloud-2-line" width="26" /></div>
+					<h3>Drop it</h3>
+					<p>Drag in a file or a whole folder. Up to 20GB anonymously, 50GB with a free account.</p>
+				</div>
+				<div class="step">
+					<span class="step-n">02</span>
+					<div class="step-ic"><Icon icon="ri:lock-2-line" width="26" /></div>
+					<h3>We encrypt it</h3>
+					<p>Optional password protection encrypts every chunk in your browser. The key never leaves your device.</p>
+				</div>
+				<div class="step">
+					<span class="step-n">03</span>
+					<div class="step-ic"><Icon icon="ri:links-line" width="26" /></div>
+					<h3>Share the link</h3>
+					<p>Get a clean link the moment upload starts. Anyone with it pulls the file at full speed.</p>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section class="section features">
+		<div class="container">
+			<span class="eyebrow">why silocat</span>
+			<h2 class="section-title">Built for the paranoid.</h2>
+			<div class="feature-grid">
+				<div class="feature"><div class="feature-ic"><Icon icon="ri:shield-keyhole-line" width="24" /></div><h3>Zero-knowledge</h3><p>Files are encrypted before they leave your browser. We store ciphertext, nothing else.</p></div>
+				<div class="feature"><div class="feature-ic"><Icon icon="ri:ghost-2-line" width="24" /></div><h3>Truly anonymous</h3><p>No email or signup required to send. No tracking, no profiling, no ads.</p></div>
+				<div class="feature"><div class="feature-ic"><Icon icon="ri:flashlight-line" width="24" /></div><h3>Parallel downloads</h3><p>Chunked storage saturates your connection instead of trickling one stream.</p></div>
+				<div class="feature"><div class="feature-ic"><Icon icon="ri:archive-2-line" width="24" /></div><h3>Big files, whole folders</h3><p>Send up to 50GB and drop entire directory trees with their structure intact.</p></div>
+				<div class="feature"><div class="feature-ic"><Icon icon="ri:key-2-line" width="24" /></div><h3>Password protection</h3><p>One toggle locks a file behind a generated key only your recipient holds.</p></div>
+				<div class="feature"><div class="feature-ic"><Icon icon="ri:eye-off-line" width="24" /></div><h3>No prying eyes</h3><p>Not us, not your ISP, not the host. The math keeps it shut, not a privacy policy.</p></div>
+			</div>
+		</div>
+	</section>
+
+	<section class="section security">
+		<div class="container narrow security-inner">
+			<div class="security-ic"><Icon icon="ri:shield-keyhole-line" width="34" /></div>
+			<h2 class="section-title">We literally can't read your files.</h2>
+			<p>Encryption happens client-side with libsodium. The decryption key is derived from your password and never touches our servers. If you lose it, even we can't recover the file. That is the point.</p>
+		</div>
+	</section>
+
+	<section class="section cta">
+		<div class="container narrow cta-inner">
+			<h2 class="section-title">Ready to send something?</h2>
+			<p>Drop a file above, or make a free account for 50GB, starred files, and a private dashboard.</p>
+			<div class="cta-actions">
+				<a href="/auth/signup" class="btn btn-primary btn-lg">Create free account</a>
+				<a href="/pricing" class="btn btn-ghost btn-lg">See pricing</a>
+			</div>
+		</div>
+	</section>
+
 	<Footer />
 </div>
 
@@ -919,756 +992,142 @@
 </div>
 
 <style lang="scss">
-	:global(body) {
-		margin: 0;
-		background-color: #0b0b0d;
-		color: white;
-		font-family: 'Outfit', sans-serif;
+	.landing-page { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+
+	/* ---------- hero ---------- */
+	.hero { display: flex; justify-content: center; padding: clamp(3rem, 9vw, 7rem) var(--gutter) clamp(2.5rem, 6vw, 4rem); }
+	.hero-content { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--space-5); }
+	.hero-title { font-size: var(--fs-display); font-weight: var(--fw-black); line-height: var(--lh-tight); letter-spacing: -0.03em; }
+	.paw { filter: saturate(1.2); }
+	.subtitle { font-size: var(--fs-lg); color: var(--text-secondary); max-width: 56ch; margin: 0 auto; }
+	.trust-row { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+
+	/* ---------- upload zone ---------- */
+	.upload-zone { width: 100%; max-width: 620px; margin-top: var(--space-3); background: var(--bg-card); border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg); padding: clamp(1.5rem, 4vw, 3rem); box-shadow: var(--shadow-lg); transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease); cursor: pointer; text-align: left; }
+	.upload-zone:hover { border-color: var(--text-muted); }
+	.upload-zone.dragging { border-color: var(--primary); background: rgba(255, 70, 85, 0.06); transform: scale(1.01); }
+
+	.upload-placeholder { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
+	.icon-circle { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.1); box-shadow: var(--shadow-glow); }
+	.upload-placeholder h3 { font-size: var(--fs-h3); }
+	.upload-placeholder p { color: var(--text-muted); }
+	.browse-btn { display: inline-flex; align-items: center; padding: 0.7rem 1.4rem; background: var(--text-primary); color: var(--bg-app); border-radius: var(--radius-pill); font-weight: var(--fw-semibold); cursor: pointer; transition: transform var(--dur) var(--ease); }
+	.browse-btn:hover { transform: translateY(-1px); }
+	.limit-badge { display: inline-flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); padding: 0.35rem 0.8rem; background: var(--tint-soft); border: 1px solid var(--border-default); border-radius: var(--radius-pill); font-size: var(--fs-sm); color: var(--text-secondary); }
+	.folder-upload-hint { font-size: var(--fs-sm); }
+	.folder-upload-hint .link-btn { color: var(--text-secondary); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+	.folder-upload-hint .link-btn:hover { color: var(--text-primary); }
+
+	.file-list { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
+	.file-item { display: flex; align-items: center; gap: var(--space-4); background: var(--tint-soft); border: 1px solid var(--hairline); padding: var(--space-3); border-radius: var(--radius-sm); }
+	.file-item .file-icon { color: var(--primary); font-size: 1.25rem; display: flex; }
+	.file-item .file-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+	.file-item .file-info .name { font-weight: var(--fw-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.file-item .file-info .path-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+	.file-item .file-info .size { font-size: var(--fs-sm); color: var(--text-secondary); }
+	.file-item .remove-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: var(--radius-sm); display: flex; }
+	.file-item .remove-btn:hover { background: var(--tint-softer); color: var(--text-primary); }
+
+	.encryption-section { background: var(--tint-soft); border: 1px solid var(--hairline); padding: var(--space-4); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: var(--space-4); }
+	.toggle-row { display: flex; align-items: center; gap: var(--space-3); }
+	.toggle-label { font-weight: var(--fw-medium); }
+	.password-input-group { display: flex; gap: var(--space-2); }
+	.password-field { flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border-default); color: var(--text-primary); padding: 0.7rem 0.9rem; border-radius: var(--radius-sm); font-family: var(--font-mono); outline: none; }
+	.password-field:focus { border-color: var(--primary); }
+	.regen-btn, .password-input-group .copy-btn { width: 44px; display: grid; place-items: center; background: var(--tint-softer); border: 1px solid var(--border-default); color: var(--text-primary); border-radius: var(--radius-sm); cursor: pointer; flex: none; }
+	.regen-btn:hover, .password-input-group .copy-btn:hover { background: var(--bg-card-hover); }
+
+	.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
+	.toggle-switch input { opacity: 0; width: 0; height: 0; }
+	.toggle-switch .slider { position: absolute; inset: 0; background: var(--border-strong); transition: 0.3s; border-radius: var(--radius-pill); cursor: pointer; }
+	.toggle-switch .slider:before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; transition: 0.3s; border-radius: 50%; }
+	.toggle-switch input:checked + .slider { background: var(--primary); }
+	.toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+
+	.warning-box { display: flex; align-items: center; gap: var(--space-2); color: var(--warning); font-size: var(--fs-sm); background: rgba(242, 201, 76, 0.1); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(242, 201, 76, 0.25); }
+
+	.upload-action-btn { display: flex; align-items: center; justify-content: center; gap: var(--space-2); background: var(--accent-gradient); color: #fff; border: none; padding: 0.9rem; border-radius: var(--radius-pill); font-weight: var(--fw-semibold); font-size: var(--fs-body); margin-top: var(--space-2); cursor: pointer; box-shadow: 0 6px 20px -6px var(--primary-glow); transition: filter var(--dur) var(--ease); }
+	.upload-action-btn:hover { filter: brightness(1.06); }
+	.upload-action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+	.add-more-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: var(--fs-sm); }
+	.add-more-btn:hover { color: var(--text-primary); }
+
+	/* ---------- progress ---------- */
+	.progress-section { width: 100%; display: flex; flex-direction: column; gap: var(--space-5); margin-top: var(--space-5); background: var(--bg-elevated); padding: var(--space-5); border-radius: var(--radius-md); border: 1px solid var(--border-default); }
+	.stats-row { display: flex; justify-content: space-between; padding-bottom: var(--space-3); border-bottom: 1px solid var(--hairline); }
+	.stats-row .stat { display: flex; flex-direction: column; gap: var(--space-1); }
+	.stats-row .label { font-size: var(--fs-xs); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: var(--fw-semibold); }
+	.stats-row .value { font-size: var(--fs-lg); font-weight: var(--fw-bold); font-family: var(--font-mono); }
+	.progress-item { display: flex; flex-direction: column; gap: var(--space-2); }
+	.progress-header { display: flex; justify-content: space-between; align-items: center; font-size: var(--fs-sm); }
+	.progress-header .label { color: var(--text-primary); font-weight: var(--fw-medium); }
+	.progress-header .label.trunc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+	.progress-header .percent { color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+	.progress-track { width: 100%; height: 10px; background: rgba(0, 0, 0, 0.4); border-radius: var(--radius-pill); overflow: hidden; }
+	.progress-item.compact .progress-track { height: 6px; }
+	.tiny-label { font-size: var(--fs-xs); color: var(--text-muted); }
+	.progress-fill { height: 100%; transition: width 0.3s var(--ease); }
+	.progress-fill.total { background: var(--accent-gradient); }
+	.progress-fill.file { background: linear-gradient(90deg, #4f46e5, #818cf8); }
+	.progress-fill.chunk { background: linear-gradient(90deg, #10b981, #34d399); }
+
+	/* ---------- success modal ---------- */
+	.success-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: var(--gutter); }
+	.success-card { background: var(--bg-elevated); border: 1px solid var(--border-default); padding: clamp(1.5rem, 4vw, 2.75rem); border-radius: var(--radius-lg); text-align: center; max-width: 500px; width: 100%; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; align-items: center; gap: var(--space-5); }
+	.success-icon { color: var(--success); font-size: 3.5rem; display: flex; }
+	.success-card h2 { font-size: var(--fs-h2); }
+	.success-card p { color: var(--text-secondary); }
+	.link-box { display: flex; gap: var(--space-2); background: var(--tint-soft); border: 1px solid var(--hairline); padding: var(--space-3); border-radius: var(--radius-sm); width: 100%; }
+	.link-box input { flex: 1; background: transparent; border: none; color: var(--text-secondary); padding: 0 var(--space-2); font-family: var(--font-mono); font-size: var(--fs-sm); outline: none; min-width: 0; }
+	.copy-link-btn { display: flex; align-items: center; gap: var(--space-2); background: var(--tint-softer); border: 1px solid var(--border-default); color: var(--text-primary); padding: 0.55rem 1rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
+	.copy-link-btn:hover { background: var(--bg-card-hover); }
+	.password-display-box { background: var(--tint-soft); border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: var(--space-4); text-align: left; width: 100%; }
+	.password-label { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--fs-sm); margin-bottom: var(--space-2); font-weight: var(--fw-medium); }
+	.password-value-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); background: var(--bg-input); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--hairline); }
+	.password-code { font-family: var(--font-mono); font-size: var(--fs-lg); color: var(--primary); word-break: break-all; }
+	.password-value-row .copy-btn { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; display: flex; }
+	.password-value-row .copy-btn:hover { color: var(--text-primary); }
+	.password-hint { margin-top: var(--space-2); font-size: var(--fs-xs); color: var(--text-muted); }
+	.action-buttons { width: 100%; }
+	.action-buttons .primary-btn { width: 100%; background: var(--accent-gradient); color: #fff; border: none; padding: 0.9rem; border-radius: var(--radius-pill); font-weight: var(--fw-semibold); font-size: var(--fs-body); cursor: pointer; transition: filter var(--dur) var(--ease); }
+	.action-buttons .primary-btn:hover { filter: brightness(1.06); }
+
+	/* ---------- sections ---------- */
+	.section-title { font-size: var(--fs-h2); margin-top: var(--space-2); }
+	.how .container, .features .container { display: flex; flex-direction: column; gap: var(--space-6); }
+
+	.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); }
+	.step { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); }
+	.step-n { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--primary); font-weight: var(--fw-semibold); }
+	.step-ic { width: 52px; height: 52px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.1); }
+	.step p { color: var(--text-secondary); }
+
+	.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-5); }
+	.feature { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease); }
+	.feature:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+	.feature-ic { width: 46px; height: 46px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.1); }
+	.feature p { color: var(--text-secondary); font-size: var(--fs-sm); }
+
+	.security-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-4); padding: clamp(2rem, 5vw, 3.5rem); background: linear-gradient(180deg, rgba(255, 70, 85, 0.07), var(--tint-soft)); border: 1px solid var(--border-default); border-radius: var(--radius-lg); }
+	.security-ic { width: 70px; height: 70px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.12); box-shadow: var(--shadow-glow); }
+	.security-inner p { color: var(--text-secondary); max-width: 60ch; }
+
+	.cta-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-5); }
+	.cta-inner p { color: var(--text-secondary); max-width: 52ch; }
+	.cta-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: center; }
+
+	/* ---------- background fx ---------- */
+	.bg-effects { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+	.glow-spot { position: absolute; width: 600px; height: 600px; filter: blur(110px); border-radius: 50%; }
+	.glow-spot.top { top: -22%; left: 12%; background: radial-gradient(circle, rgba(255, 70, 85, 0.16) 0%, transparent 70%); }
+	.glow-spot.bottom { bottom: -25%; right: 10%; background: radial-gradient(circle, rgba(74, 163, 226, 0.1) 0%, transparent 70%); }
+
+	/* ---------- responsive ---------- */
+	@media (max-width: 860px) {
+		.steps { grid-template-columns: 1fr; }
 	}
-
-	.landing-page {
-		min-height: 100vh;
-		position: relative;
-		overflow-y: auto; /* Enable scrolling if needed, though min-height usually handles naturally */
-		display: flex;
-		flex-direction: column;
-	}
-
-	.hero {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 10;
-		padding: 2rem;
-	}
-
-	.hero-content {
-		text-align: center;
-		max-width: 800px;
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1.5rem;
-
-		h1 {
-			font-size: 4rem; // Large hero text
-			font-weight: 800;
-			margin: 0;
-			line-height: 1.1;
-			letter-spacing: -0.02em;
-
-			.text-gradient {
-				background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
-				-webkit-background-clip: text;
-				-webkit-text-fill-color: transparent;
-			}
-		}
-
-		.subtitle {
-			font-size: 1.25rem;
-			color: #a1a1aa;
-			margin-bottom: 2rem;
-		}
-
-		.upload-zone {
-			background: rgba(20, 20, 22, 0.6);
-			backdrop-filter: blur(20px);
-			border: 2px dashed rgba(255, 255, 255, 0.1);
-			border-radius: 24px;
-			padding: 3rem;
-			width: 100%;
-			max-width: 600px;
-			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-			cursor: pointer;
-			box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-
-			&.dragging {
-				border-color: var(--primary, #ff4655);
-				background: rgba(255, 70, 85, 0.05);
-				transform: scale(1.02);
-			}
-
-			&:hover {
-				border-color: rgba(255, 255, 255, 0.2);
-			}
-
-			.upload-placeholder {
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				gap: 1rem;
-
-				.icon-circle {
-					width: 80px;
-					height: 80px;
-					background: rgba(255, 255, 255, 0.05);
-					border-radius: 50%;
-					display: flex;
-					align-items: center;
-					justify-content: center;
-					color: var(--primary, #ff4655);
-					margin-bottom: 0.5rem;
-				}
-
-				h3 {
-					margin: 0;
-					font-size: 1.5rem;
-					font-weight: 600;
-				}
-
-				p {
-					color: #71717a;
-					margin: 0;
-				}
-
-				.browse-btn {
-					background: white;
-					color: black;
-					padding: 0.75rem 1.5rem;
-					border-radius: 8px;
-					font-weight: 600;
-					cursor: pointer;
-					transition: transform 0.1s;
-					display: inline-block;
-
-					&:hover {
-						transform: scale(1.05);
-					}
-				}
-
-				.limit-badge {
-					margin-top: 1rem;
-					background: rgba(255, 255, 255, 0.05);
-					padding: 0.4rem 0.8rem;
-					border-radius: 20px;
-					font-size: 0.85rem;
-					color: #a1a1aa;
-					display: flex;
-					align-items: center;
-					gap: 0.4rem;
-				}
-
-				.folder-upload-hint {
-					margin-top: 0.5rem;
-					font-size: 0.9rem;
-
-					.link-btn {
-						color: #a1a1aa;
-						text-decoration: underline;
-						cursor: pointer;
-						&:hover {
-							color: white;
-						}
-					}
-				}
-			}
-
-			.file-list {
-				display: flex;
-				flex-direction: column;
-				gap: 0.75rem;
-				width: 100%;
-
-				.file-item {
-					display: flex;
-					align-items: center;
-					background: rgba(255, 255, 255, 0.05);
-					padding: 0.75rem;
-					border-radius: 12px;
-					gap: 1rem;
-
-					.file-icon {
-						color: var(--primary, #ff4655);
-						font-size: 1.25rem;
-					}
-
-					.file-info {
-						flex: 1;
-						display: flex;
-						flex-direction: column;
-
-						.name {
-							font-weight: 500;
-						}
-
-						.path-hint {
-							font-size: 0.75rem;
-							color: #71717a;
-						}
-
-						.size {
-							font-size: 0.85rem;
-							color: #a1a1aa;
-						}
-					}
-
-					.remove-btn {
-						background: none;
-						border: none;
-						color: #71717a;
-						cursor: pointer;
-						padding: 4px;
-						border-radius: 4px;
-
-						&:hover {
-							background: rgba(255, 255, 255, 0.1);
-							color: white;
-						}
-					}
-				}
-
-				.encryption-section {
-					background: rgba(255, 255, 255, 0.05);
-					padding: 1rem;
-					border-radius: 12px;
-					display: flex;
-					flex-direction: column;
-					gap: 1rem;
-					margin-top: 0.5rem;
-
-					.toggle-row {
-						display: flex;
-						align-items: center;
-						gap: 0.75rem;
-
-						.toggle-label {
-							font-weight: 500;
-							font-size: 0.95rem;
-						}
-					}
-
-					.password-input-group {
-						display: flex;
-						gap: 0.5rem;
-
-						.password-field {
-							flex: 1;
-							background: rgba(0, 0, 0, 0.3);
-							border: 1px solid rgba(255, 255, 255, 0.1);
-							color: white;
-							padding: 0.75rem 1rem;
-							border-radius: 8px;
-							font-family: monospace;
-							font-size: 1rem;
-							outline: none;
-
-							&:focus {
-								border-color: var(--primary, #ff4655);
-							}
-						}
-
-						.regen-btn,
-						.copy-btn {
-							background: rgba(255, 255, 255, 0.1);
-							border: none;
-							color: white;
-							width: 42px;
-							border-radius: 8px;
-							cursor: pointer;
-							display: flex;
-							align-items: center;
-							justify-content: center;
-
-							&:hover {
-								background: rgba(255, 255, 255, 0.2);
-							}
-						}
-					}
-				}
-
-				/* Switch Styling */
-				.toggle-switch {
-					position: relative;
-					display: inline-block;
-					width: 44px;
-					height: 24px;
-
-					input {
-						opacity: 0;
-						width: 0;
-						height: 0;
-					}
-
-					.slider {
-						position: absolute;
-						cursor: pointer;
-						top: 0;
-						left: 0;
-						right: 0;
-						bottom: 0;
-						background-color: #3a3a3c;
-						transition: 0.4s;
-						border-radius: 24px;
-
-						&:before {
-							position: absolute;
-							content: '';
-							height: 18px;
-							width: 18px;
-							left: 3px;
-							bottom: 3px;
-							background-color: white;
-							transition: 0.4s;
-							border-radius: 50%;
-						}
-					}
-
-					input:checked + .slider {
-						background-color: var(--primary, #ff4655);
-					}
-
-					input:checked + .slider:before {
-						transform: translateX(20px);
-					}
-				}
-
-				.warning-box {
-					display: flex;
-					align-items: center;
-					gap: 0.5rem;
-					color: #fbaceb; /* Amber/Warning Color */
-					font-size: 0.9rem;
-					background: rgba(251, 172, 235, 0.1);
-					padding: 0.75rem;
-					border-radius: 8px;
-					border: 1px solid rgba(251, 172, 235, 0.2);
-					margin-top: 0.5rem;
-				}
-
-				.upload-action-btn {
-					background: var(--primary, #ff4655);
-					color: white;
-					border: none;
-					padding: 1rem;
-					border-radius: 12px;
-					font-weight: 600;
-					font-size: 1rem;
-					margin-top: 1rem;
-					cursor: pointer;
-					display: flex;
-					align-items: center;
-					justify-content: center;
-					gap: 0.5rem;
-
-					&:hover {
-						background: #e03e4b;
-					}
-				}
-
-				.add-more-btn {
-					background: transparent;
-					border: none;
-					color: #71717a;
-					cursor: pointer;
-					font-size: 0.9rem;
-
-					&:hover {
-						color: white;
-					}
-				}
-			}
-			/* Upload Zone Responsive Fixes */
-			@media (max-width: 768px) {
-				/* Assuming the main upload zone container is the parent of .file-item, etc. */
-				/* This targets the container that holds all the upload form elements */
-				padding: 1.5rem !important; /* Force override if specificity issue */
-				border-radius: 16px !important;
-
-				.file-item {
-					padding: 0.65rem;
-					gap: 0.75rem;
-				}
-
-				.encryption-section {
-					padding: 0.85rem;
-					gap: 0.85rem;
-				}
-
-				.encryption-section .password-input-group .password-field {
-					padding: 0.65rem 0.85rem;
-					font-size: 0.9rem;
-				}
-
-				.encryption-section .password-input-group .regen-btn,
-				.encryption-section .password-input-group .copy-btn {
-					width: 38px;
-					height: 38px;
-				}
-
-				.upload-action-btn {
-					padding: 0.8rem;
-					font-size: 0.95rem;
-				}
-			}
-		}
-
-		.success-overlay {
-			position: fixed;
-			inset: 0;
-			background: rgba(0, 0, 0, 0.6);
-			backdrop-filter: blur(8px);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			z-index: 50;
-			padding: 2rem;
-
-			.success-card {
-				background: rgba(20, 20, 22, 0.85);
-				backdrop-filter: blur(24px);
-				border: 1px solid rgba(255, 255, 255, 0.1);
-				padding: 3rem;
-				border-radius: 24px;
-				text-align: center;
-				max-width: 500px;
-				width: 100%;
-				box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				gap: 1.5rem;
-
-				/* Mobile Optimization */
-				@media (max-width: 768px) {
-					padding: 1.5rem;
-					max-width: 90%;
-					width: auto;
-					border-radius: 20px;
-					gap: 1rem;
-				}
-
-				.success-icon {
-					color: #22c55e;
-					font-size: 4rem;
-					display: flex;
-
-					@media (max-width: 768px) {
-						font-size: 3rem;
-					}
-				}
-
-				h2 {
-					font-size: 1.8rem;
-					font-weight: 700;
-					margin: 0;
-					color: white;
-
-					@media (max-width: 768px) {
-						font-size: 1.4rem;
-					}
-				}
-
-				p {
-					color: #a1a1aa;
-					font-size: 1rem;
-					margin: 0;
-				}
-
-				.link-box {
-					display: flex;
-					gap: 0.5rem;
-					background: rgba(255, 255, 255, 0.05);
-					padding: 0.75rem;
-					border-radius: 12px;
-					width: 100%;
-					margin-top: 0.5rem;
-
-					@media (max-width: 768px) {
-						flex-direction: column;
-						gap: 0.8rem;
-					}
-
-					input {
-						flex: 1;
-						background: transparent;
-						border: none;
-						color: #a1a1aa;
-						padding: 0 0.5rem;
-						font-family: monospace;
-						font-size: 0.95rem;
-						outline: none;
-
-						@media (max-width: 768px) {
-							width: 100%;
-							text-align: center;
-							padding: 0.5rem 0;
-							border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-						}
-					}
-
-					.copy-link-btn {
-						background: rgba(255, 255, 255, 0.1);
-						border: none;
-						color: white;
-						padding: 0.6rem 1rem;
-						border-radius: 8px;
-						cursor: pointer;
-						display: flex;
-						align-items: center;
-						gap: 0.5rem;
-						font-weight: 600;
-						transition: all 0.2s;
-						font-size: 0.9rem;
-						justify-content: center; /* Center content especially for mobile stack */
-
-						&:hover {
-							background: rgba(255, 255, 255, 0.2);
-						}
-					}
-				}
-
-				.password-display-box {
-					background: rgba(255, 255, 255, 0.03);
-					border: 1px solid rgba(255, 255, 255, 0.1);
-					border-radius: 12px;
-					padding: 1rem;
-					margin-top: 1rem;
-					text-align: left;
-					width: 100%;
-					box-sizing: border-box;
-
-					.password-label {
-						display: flex;
-						align-items: center;
-						gap: 0.5rem;
-						color: #a1a1aa;
-						font-size: 0.9rem;
-						margin-bottom: 0.5rem;
-						font-weight: 500;
-					}
-
-					.password-value-row {
-						display: flex;
-						align-items: center;
-						justify-content: space-between;
-						background: rgba(0, 0, 0, 0.3);
-						border-radius: 8px;
-						padding: 0.5rem 0.75rem;
-						border: 1px solid rgba(255, 255, 255, 0.05);
-
-						.password-code {
-							font-family: 'JetBrains Mono', monospace;
-							font-size: 1.1rem;
-							color: var(--primary, #ff4655);
-							letter-spacing: 0.05em;
-							/* Ensure long passwords break or scroll on mobile */
-							overflow-wrap: break-word;
-							word-break: break-all;
-						}
-
-						.copy-btn {
-							background: transparent;
-							border: none;
-							color: #a1a1aa;
-							cursor: pointer;
-							transition: color 0.2s;
-							padding: 4px;
-							display: flex;
-							align-items: center;
-							justify-content: center;
-							font-size: 1.2rem;
-
-							&:hover {
-								color: white;
-							}
-						}
-					}
-
-					.password-hint {
-						margin: 0.5rem 0 0 0;
-						font-size: 0.8rem;
-						color: #71717a;
-					}
-				}
-
-				.action-buttons {
-					width: 100%;
-					.primary-btn {
-						background: var(--primary, #ff4655);
-						color: white;
-						border: none;
-						width: 100%;
-						padding: 1rem;
-						border-radius: 12px;
-						font-weight: 600;
-						font-size: 1rem;
-						cursor: pointer;
-						transition: all 0.2s;
-
-						&:hover {
-							background: #e03e4b;
-							transform: translateY(-2px);
-							box-shadow: 0 4px 12px rgba(224, 62, 75, 0.3);
-						}
-						@media (max-width: 768px) {
-							padding: 0.8rem;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	.bg-effects {
-		position: fixed; /* Fixed so it stays while scrolling */
-		inset: 0;
-		z-index: 0;
-		pointer-events: none;
-
-		.glow-spot {
-			position: absolute;
-			width: 600px;
-			height: 600px;
-			background: radial-gradient(circle, rgba(255, 70, 85, 0.15) 0%, transparent 70%);
-			filter: blur(100px);
-
-			&.top {
-				top: -20%;
-				left: 20%;
-			}
-
-			&.bottom {
-				bottom: -20%;
-				right: 20%;
-				background: radial-gradient(circle, rgba(50, 50, 255, 0.1) 0%, transparent 70%);
-			}
-		}
-	}
-
-	.progress-section {
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
-		margin-top: 1.5rem;
-		background: rgba(20, 20, 22, 0.6);
-		backdrop-filter: blur(12px);
-		padding: 1.5rem;
-		border-radius: 16px;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-
-		.stats-row {
-			display: flex;
-			justify-content: space-between;
-			margin-bottom: 0.25rem;
-			padding-bottom: 0.75rem;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-
-			.stat {
-				display: flex;
-				flex-direction: column;
-				gap: 0.35rem;
-
-				.label {
-					font-size: 0.7rem;
-					color: #a1a1aa;
-					text-transform: uppercase;
-					letter-spacing: 0.08em;
-					font-weight: 600;
-				}
-				.value {
-					font-size: 1.1rem;
-					font-weight: 700;
-					color: white;
-					text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
-					font-family: 'JetBrains Mono', monospace;
-				}
-			}
-		}
-
-		.progress-item {
-			display: flex;
-			flex-direction: column;
-			gap: 0.6rem;
-
-			&.compact {
-				gap: 0.3rem;
-				margin-top: 0.25rem;
-
-				.progress-header {
-					.label {
-						font-size: 0.75rem;
-						color: #71717a;
-					}
-					.percent {
-						font-size: 0.75rem;
-					}
-				}
-
-				.progress-track {
-					height: 6px;
-				}
-			}
-
-			.progress-header {
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				font-size: 0.9rem;
-
-				.label {
-					color: #e4e4e7;
-					font-weight: 500;
-
-					&.trunc {
-						white-space: nowrap;
-						overflow: hidden;
-						text-overflow: ellipsis;
-						max-width: 200px;
-					}
-				}
-				.percent {
-					color: #a1a1aa;
-					font-variant-numeric: tabular-nums;
-					font-family: 'JetBrains Mono', monospace;
-					font-size: 0.85rem;
-				}
-			}
-
-			.progress-track {
-				width: 100%;
-				height: 10px;
-				background: rgba(0, 0, 0, 0.4);
-				border-radius: 6px;
-				overflow: hidden;
-				position: relative;
-				box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
-
-				.progress-fill {
-					height: 100%;
-					transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-					position: relative;
-
-					// Glow overflow
-					&::after {
-						content: '';
-						position: absolute;
-						top: 0;
-						right: 0;
-						bottom: 0;
-						width: 10px;
-						background: white;
-						filter: blur(4px);
-						opacity: 0.5;
-					}
-
-					&.total {
-						background: linear-gradient(90deg, #ff4655, #ff8090);
-						box-shadow: 0 0 15px rgba(255, 70, 85, 0.5);
-					}
-					&.file {
-						background: linear-gradient(90deg, #4f46e5, #818cf8);
-						box-shadow: 0 0 15px rgba(79, 70, 229, 0.5);
-					}
-					&.chunk {
-						background: linear-gradient(90deg, #10b981, #34d399);
-						box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
-					}
-				}
-			}
-		}
+	@media (max-width: 768px) {
+		.progress-header .label.trunc { max-width: 140px; }
+		.link-box { flex-direction: column; }
 	}
 </style>

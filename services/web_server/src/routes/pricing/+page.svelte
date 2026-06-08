@@ -89,7 +89,10 @@
 	<Navbar />
 
 	<main class="content">
+		<section class="section">
+			<div class="container wide">
 		<div class="header">
+			<span class="eyebrow">pricing</span>
 			<h1>Simple, Transparent <span class="text-gradient">Pricing</span></h1>
 			<p>Choose the plan that fits your needs.</p>
 
@@ -140,12 +143,14 @@
 						{/each}
 					</ul>
 
-					<button class="cta-btn {plan.highlight ? 'primary' : 'secondary'}">
+					<button class="cta-btn btn btn-block {plan.highlight ? 'primary btn-primary' : 'secondary btn-ghost'}">
 						{plan.cta}
 					</button>
 				</div>
 			{/each}
 		</div>
+			</div>
+		</section>
 	</main>
 
 	<Footer />
@@ -156,13 +161,6 @@
 </div>
 
 <style lang="scss">
-	:global(body) {
-		margin: 0;
-		background-color: #0b0b0d;
-		color: white;
-		font-family: 'Outfit', sans-serif;
-	}
-
 	.page-container {
 		min-height: 100vh;
 		position: relative;
@@ -172,80 +170,75 @@
 	}
 
 	.content {
-		padding: 4rem 2rem;
 		position: relative;
 		z-index: 10;
-		max-width: 1600px;
-		margin: 0 auto;
 		flex: 1;
 
 		.header {
 			text-align: center;
-			margin-bottom: 4rem;
+			margin-bottom: var(--space-8);
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: var(--space-4);
 
 			h1 {
-				font-size: 3rem;
-				font-weight: 700;
-				margin-bottom: 1rem;
-
-				.text-gradient {
-					background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
-					-webkit-background-clip: text;
-					-webkit-text-fill-color: transparent;
-				}
+				font-size: var(--fs-h1);
+				font-weight: var(--fw-bold);
 			}
 
 			p {
-				color: #a1a1aa;
-				font-size: 1.2rem;
+				color: var(--text-secondary);
+				font-size: var(--fs-lg);
 			}
 
 			.currency-toggle {
-				margin: 2rem auto;
 				display: inline-flex;
-				background: rgba(255, 255, 255, 0.05);
-				padding: 4px;
-				border-radius: 12px;
-				border: 1px solid rgba(255, 255, 255, 0.1);
+				background: var(--tint-soft);
+				padding: var(--space-1);
+				border-radius: var(--radius-md);
+				border: 1px solid var(--border-default);
 
 				.toggle-btn {
 					background: transparent;
 					border: none;
-					color: #a1a1aa;
+					color: var(--text-secondary);
 					padding: 0.5rem 1.5rem;
-					border-radius: 8px;
+					border-radius: var(--radius-sm);
 					cursor: pointer;
-					font-weight: 600;
-					transition: all 0.2s;
+					font-weight: var(--fw-semibold);
+					font-family: inherit;
+					font-size: var(--fs-body);
+					transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 
 					&:hover {
-						color: white;
+						color: var(--text-primary);
 					}
 
 					&.active {
-						background: var(--primary, #ff4655);
-						color: white;
+						background: var(--accent-gradient);
+						color: #fff;
 					}
 				}
 			}
 
 			.storage-info {
-				margin-top: 1.5rem;
 				display: flex;
-				gap: 2rem;
+				flex-wrap: wrap;
+				gap: var(--space-5);
 				justify-content: center;
-				font-size: 0.95rem;
+				font-size: var(--fs-sm);
 
 				p {
 					margin: 0;
-					font-size: 0.9rem;
-					color: #d4d4d8;
+					font-size: var(--fs-sm);
+					color: var(--text-secondary);
 				}
 
 				.highlight {
-					color: var(--primary, #ff4655);
-					font-weight: 600;
-					margin-right: 0.25rem;
+					color: var(--primary);
+					font-weight: var(--fw-semibold);
+					margin-right: var(--space-1);
 				}
 			}
 		}
@@ -255,56 +248,65 @@
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: center;
-		gap: 2rem;
+		gap: var(--space-5);
+
+		@media (max-width: 768px) {
+			flex-direction: column;
+			align-items: stretch;
+		}
 
 		.plan-card {
 			flex: 1 1 300px;
 			max-width: 450px;
 			min-width: 280px;
-			background: rgba(255, 255, 255, 0.03);
-			border: 1px solid rgba(255, 255, 255, 0.08);
-			border-radius: 24px;
-			padding: 2.5rem;
+			background: var(--bg-card);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-md);
+			box-shadow: var(--shadow-card);
+			padding: var(--space-6);
 			display: flex;
 			flex-direction: column;
-			gap: 2rem;
-			transition: transform 0.3s;
+			gap: var(--space-6);
+			transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease);
+
+			@media (max-width: 768px) {
+				max-width: none;
+			}
 
 			&:hover {
-				transform: translateY(-5px);
-				background: rgba(255, 255, 255, 0.05);
+				transform: translateY(-2px);
+				border-color: var(--border-strong);
 			}
 
 			&.highlight {
-				background: linear-gradient(180deg, rgba(255, 70, 85, 0.1) 0%, rgba(20, 20, 22, 0.6) 100%);
+				background: linear-gradient(180deg, rgba(255, 70, 85, 0.1) 0%, var(--bg-card) 100%);
 				border-color: rgba(255, 70, 85, 0.3);
-				box-shadow: 0 0 40px rgba(255, 70, 85, 0.15);
+				box-shadow: var(--shadow-glow);
 			}
 
 			.plan-header {
 				h3 {
-					margin: 0;
-					font-size: 1.5rem;
-					margin-bottom: 0.5rem;
+					margin: 0 0 var(--space-2);
+					font-size: var(--fs-h3);
 				}
 				.price {
 					display: flex;
 					align-items: baseline;
-					gap: 0.25rem;
-					margin-bottom: 1rem;
+					gap: var(--space-1);
+					margin-bottom: var(--space-4);
 
 					.amount {
-						font-size: 2.5rem;
-						font-weight: 700;
+						font-size: var(--fs-h2);
+						font-weight: var(--fw-bold);
 					}
 					.period {
-						color: #a1a1aa;
+						color: var(--text-secondary);
 					}
 				}
 				.description {
 					margin: 0;
-					color: #a1a1aa;
-					line-height: 1.5;
+					color: var(--text-secondary);
+					line-height: var(--lh-snug);
 				}
 			}
 
@@ -314,45 +316,18 @@
 				margin: 0;
 				display: flex;
 				flex-direction: column;
-				gap: 1rem;
+				gap: var(--space-4);
 				flex: 1;
 
 				li {
 					display: flex;
-					gap: 0.75rem;
-					color: #d4d4d8;
+					gap: var(--space-3);
+					color: var(--text-secondary);
 
 					:global(.check-icon) {
-						color: var(--primary, #ff4655);
+						color: var(--primary);
 						flex-shrink: 0;
 						margin-top: 4px;
-					}
-				}
-			}
-
-			.cta-btn {
-				width: 100%;
-				padding: 1rem;
-				border-radius: 12px;
-				font-weight: 600;
-				font-size: 1rem;
-				cursor: pointer;
-				border: none;
-				transition: all 0.2s;
-
-				&.primary {
-					background: var(--primary, #ff4655);
-					color: white;
-					&:hover {
-						background: #e03e4b;
-					}
-				}
-
-				&.secondary {
-					background: rgba(255, 255, 255, 0.1);
-					color: white;
-					&:hover {
-						background: rgba(255, 255, 255, 0.2);
 					}
 				}
 			}

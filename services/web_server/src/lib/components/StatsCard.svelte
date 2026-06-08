@@ -49,8 +49,10 @@
 <style lang="scss">
 	.stats-card {
 		background-color: var(--bg-card);
-		border-radius: var(--radius-lg);
-		padding: 24px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-card);
+		padding: var(--space-5);
 		position: relative;
 		min-height: 380px;
 		display: flex;
@@ -59,25 +61,26 @@
 
 		h3 {
 			margin: 0;
-			font-size: 18px;
-			font-weight: 600;
+			font-size: var(--fs-h3);
+			font-weight: var(--fw-semibold);
 		}
 
 		.more-btn {
 			position: absolute;
-			top: 24px;
-			right: 24px;
+			top: var(--space-5);
+			right: var(--space-5);
 			background: transparent;
 			border: none;
 			color: var(--text-secondary);
 			cursor: pointer;
+			display: flex;
 		}
 
 		.chart-container {
 			position: relative;
 			width: 200px;
 			height: 200px;
-			margin: 20px auto;
+			margin: var(--space-5) auto;
 			display: flex;
 			align-items: center;
 			justify-content: center;
@@ -115,15 +118,15 @@
 				box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
 
 				.label {
-					font-size: 12px;
+					font-size: var(--fs-xs);
 					color: var(--text-muted);
 					text-transform: uppercase;
-					letter-spacing: 1px;
+					letter-spacing: 0.08em;
 				}
 
 				.value {
-					font-size: 24px;
-					font-weight: 700;
+					font-size: var(--fs-h3);
+					font-weight: var(--fw-bold);
 					color: var(--text-primary);
 				}
 			}
@@ -132,22 +135,22 @@
 		.storage-info {
 			display: flex;
 			justify-content: space-between;
-			margin: 20px 0;
-			padding: 0 10px;
+			margin: var(--space-5) 0;
+			padding: 0 var(--space-2);
 
 			.metric {
 				display: flex;
 				flex-direction: column;
 				align-items: center;
-				gap: 4px;
+				gap: var(--space-1);
 
 				.label {
-					font-size: 12px;
+					font-size: var(--fs-xs);
 					color: var(--text-muted);
 				}
 				.val {
-					font-size: 14px;
-					font-weight: 600;
+					font-size: var(--fs-sm);
+					font-weight: var(--fw-semibold);
 					color: var(--text-primary);
 				}
 			}
@@ -155,17 +158,21 @@
 
 		.upgrade-btn {
 			width: 100%;
-			padding: 12px;
-			background: var(--primary);
+			padding: 0.7rem 1.25rem;
+			background: var(--accent-gradient);
 			color: #fff;
-			border: none;
-			border-radius: var(--radius-md);
-			font-weight: 600;
+			border: 1px solid transparent;
+			border-radius: var(--radius-pill);
+			font-family: inherit;
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
 			cursor: pointer;
-			transition: opacity 0.2s;
+			box-shadow: 0 6px 20px -6px var(--primary-glow);
+			transition: filter var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 
 			&:hover {
-				opacity: 0.9;
+				filter: brightness(1.06);
+				box-shadow: 0 10px 28px -6px var(--primary-glow);
 			}
 		}
 	}

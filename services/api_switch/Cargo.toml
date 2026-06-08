@@ -28,4 +28,6 @@ serde_urlencoded = "0.7"
 hmac = "0.12.1"
 sha2 = "0.10.9"
 hex = "0.4.3"
+maxminddb = "0.24"
 validator = { version = "0.16", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }

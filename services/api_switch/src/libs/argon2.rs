@@ -17,8 +17,13 @@ pub fn hash(password: String) -> Result<String, ()> {
 }
 
 pub fn verify(password: &String, hash: String) -> bool {
-    // parse hash from string to usable format
-    let parsed_hash = PasswordHash::new(&hash).expect("Exception while trying to hash password");
+    // Parse the stored PHC hash. An empty or malformed hash (e.g. a Google
+    // account that never set a password) is simply "no valid password" -> reject
+    // instead of panicking the worker.
+    let parsed_hash = match PasswordHash::new(&hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
     // verify password and hash
     Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)

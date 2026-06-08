@@ -71,12 +71,58 @@ services:
       CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET}
       CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET}
       CF_R2_REGION: ${CF_R2_REGION}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL}
+      CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET}
+      CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID}
+      CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET}
+      GEOLITE2_DB_PATH: /root/codebase/GeoLite2-City.mmdb
+      APP_ENV: ${APP_ENV}
 
     volumes:
       - ../services/api_switch:/root/codebase:rw
 
     ports:
       - "31337:31337"
+
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - WATCHCAT SCHEDULER (GC + future scheduled jobs)
+  # -----------------------------------------
+  sc_watchcat:
+    container_name: sc_watchcat
+    tty: true
+    command: >
+      sh -c "sleep 12 && cargo watch -x run"
+
+    build:
+      context: ../services/api_switch
+      dockerfile: Dockerfile
+
+    environment:
+      WATCHCAT_MODE: "true"
+      CARGO_TARGET_DIR: /tmp/wc-target
+      DATABASE_URL: ${POSTGRES_DATABASE_URL}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL}
+      CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID}
+      CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID}
+      CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET}
+      CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET}
+      CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET}
+      CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET}
+      CF_R2_REGION: ${CF_R2_REGION}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL}
+      CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET}
+      CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID}
+      CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET}
+
+    volumes:
+      - ../services/api_switch:/root/codebase:rw
+
+    depends_on:
+      - sc_api_switch
 
     networks:
       - clickswave_network

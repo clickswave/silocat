@@ -30,6 +30,13 @@ pub struct User {
     pub transactions: Vec<JsonValue>,
     pub country: Option<String>,
     pub bio: Option<String>,
+
+    pub username_change_count: i32,
+    pub username_change_window_start: Option<DateTime<Utc>>,
+
+    pub is_banned: bool,
+    pub banned_until: Option<DateTime<Utc>>,
+    pub ban_reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
@@ -54,7 +61,9 @@ pub fn token_data(user: User, subscription: Option<Subscription>) -> UserTokenDa
         email: user.email,
         profile_image: user.profile_image,
         email_verified: user.email_verified,
-        password_set: true,
+        // Google accounts are created without a password (empty hash); the UI
+        // uses this to offer "set password" vs "change password".
+        password_set: !user.password_hash.trim().is_empty(),
         username: user.username,
         api_key: user.api_key,
         subscription: subscription,
