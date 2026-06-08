@@ -5,7 +5,7 @@
 
 <footer class="footer">
 	<div class="footer-inner">
-		<p class="copy">© 2026 SiloCat · by Clickswave</p>
+		<p class="copy">© 2026 SiloCat · by <a href="https://clickswave.org" target="_blank" rel="noreferrer">Clickswave</a></p>
 
 		<nav class="links" aria-label="Legal">
 			<a href="/policies/terms-of-service">Terms</a>
@@ -19,7 +19,6 @@
 		<div class="social">
 			<a href="https://twitter.com/clickswave" target="_blank" rel="noreferrer" aria-label="X"><Icon icon="ri:twitter-x-line" width="18" /></a>
 			<a href="https://github.com/clickswave" target="_blank" rel="noreferrer" aria-label="GitHub"><Icon icon="ri:github-fill" width="18" /></a>
-			<a href="https://discord.gg/clickswave" target="_blank" rel="noreferrer" aria-label="Discord"><Icon icon="ri:discord-fill" width="18" /></a>
 		</div>
 	</div>
 	<Version version="0.0.1" />
@@ -44,6 +43,14 @@
 		margin: 0;
 		color: var(--text-muted);
 		font-size: var(--fs-sm);
+	}
+	.copy a {
+		color: var(--text-secondary);
+		text-decoration: none;
+		transition: color var(--dur) var(--ease);
+	}
+	.copy a:hover {
+		color: var(--text-primary);
 	}
 	.links {
 		display: flex;
