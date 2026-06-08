@@ -1,5 +1,6 @@
 <script>
 	import Aside from '$lib/components/Aside.svelte';
+	import DownloadToasts from '$lib/components/DownloadToasts.svelte';
 	import SiloCatLogo from '$lib/assets/silo-cat.png';
 	import { navigating } from '$app/stores';
 	import { afterNavigate } from '$app/navigation';
@@ -23,6 +24,8 @@
 	{#if navOpen}
 		<div class="nav-scrim" role="presentation" onclick={() => (navOpen = false)}></div>
 	{/if}
+
+	<DownloadToasts />
 
 	<div class="content-root">
 		<header class="topbar">

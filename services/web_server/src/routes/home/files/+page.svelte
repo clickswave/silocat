@@ -133,6 +133,7 @@
 		decryptChunk
 	} from '$lib/chacha.js';
 	import sodium from 'libsodium-wrappers-sumo';
+	import { downloadFile } from '$lib/download.js';
 	import { fade, scale } from 'svelte/transition';
 	import JSZip from 'jszip';
 
@@ -1032,49 +1033,9 @@
 	}
 
 	async function processDownload(file, password = null) {
-		toast.info(`Starting download for ${file.name}...`);
-		try {
-			await sodium.ready;
-			let fileKey = null;
-
-			const chunksRes = await axios.post('/api/v1/sanctum/file/fetch-chunks', { file_id: file.id });
-			const chunks = chunksRes.data.data.chunks;
-			if (!chunks || chunks.length === 0) throw new Error('No chunks found');
-
-			if (file.encrypted) {
-				if (!password) throw new Error('Password required for encrypted file');
-				const firstChunk = chunks[0];
-				if (!firstChunk.salt) throw new Error('Encrypted file missing salt');
-				const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-				fileKey = await deriveKeyFromPassword(password, saltBytes);
-			}
-
-			const downloadedChunks = [];
-			for (let i = 0; i < chunks.length; i++) {
-				const chunk = chunks[i];
-				const chunkData = await axios.get(chunk.presigned_url, { responseType: 'arraybuffer' });
-				let dataBytes = new Uint8Array(chunkData.data);
-				if (file.encrypted) {
-					const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
-					dataBytes = await decryptChunk(dataBytes, fileKey, nonceBytes);
-				}
-				downloadedChunks.push(dataBytes);
-			}
-			const blob = new Blob(downloadedChunks, { type: file.mime });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = file.name;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
-			toast.success('Download complete!');
-		} catch (e) {
-			console.error(e);
-			toast.error('Download failed: ' + e.message);
-		} finally {
-			fileToDecrypt = null;
-		}
+		// Progress + cancel are shown by the global DownloadToasts (bottom-right).
+		fileToDecrypt = null;
+		downloadFile(file, { password });
 	}
 
 	let showDeleteFileModal = $state(false);

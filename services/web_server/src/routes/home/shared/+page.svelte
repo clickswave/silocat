@@ -10,6 +10,17 @@
 	import { toast } from 'svelte-sonner';
 	import axios from 'axios';
 	import { fade } from 'svelte/transition';
+	import { downloadFile } from '$lib/download.js';
+
+	function handleDownload(file) {
+		if (file.encrypted) {
+			const pw = window.prompt(`"${file.name}" is encrypted. Enter the password to decrypt it:`);
+			if (!pw) return;
+			downloadFile(file, { password: pw });
+		} else {
+			downloadFile(file);
+		}
+	}
 
 	// Fetch Shared Files
 	async function fetchSharedFilesFn() {
@@ -153,6 +164,7 @@
 					type={getFileType(file.mime)}
 					encrypted={file.encrypted}
 					starred={file.starred}
+					ondownload={() => handleDownload(file)}
 					onshare={() => handleShare(file)}
 					onstar={() => handleStar(file, 'file')}
 				/>

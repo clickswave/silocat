@@ -9,6 +9,17 @@
 	import { toast } from 'svelte-sonner';
 	import axios from 'axios';
 	import { fade } from 'svelte/transition';
+	import { downloadFile } from '$lib/download.js';
+
+	function handleDownload(file) {
+		if (file.encrypted) {
+			const pw = window.prompt(`"${file.name}" is encrypted. Enter the password to decrypt it:`);
+			if (!pw) return;
+			downloadFile(file, { password: pw });
+		} else {
+			downloadFile(file);
+		}
+	}
 
 	// Fetch Starred Files
 	async function fetchStarredFilesFn() {
@@ -163,6 +174,7 @@
 					type={getFileType(file.mime)}
 					encrypted={file.encrypted}
 					starred={true}
+					ondownload={() => handleDownload(file)}
 					onstar={() => handleStar(file, 'file')}
 					onclick={(e) => handleItemClick(e, file, 'file')}
 				/>
