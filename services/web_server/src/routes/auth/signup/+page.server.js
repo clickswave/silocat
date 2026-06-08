@@ -34,6 +34,11 @@ export const actions = {
 		let password = data.get('password')?.trim();
 		let promoCode = data.get('promoCode')?.trim();
 
+		// Cloudflare sets CF-IPCountry to the real visitor's country on the request
+		// to this Worker. The API can't geolocate the user (registration is proxied
+		// server-side, so it sees this Worker's IP), so pass the country through.
+		let clientCountry = request.headers.get('cf-ipcountry') || null;
+
 		let turnstile_token = data.get('cf-turnstile-response');
 		let { success } = await validateTurnstileToken(turnstile_token);
 
@@ -51,7 +56,8 @@ export const actions = {
 				username: username,
 				email: email,
 				password: password,
-				promo_code: promoCode || null
+				promo_code: promoCode || null,
+				client_country: clientCountry
 			};
 			let response = await ApiServerClient.post(ApiServerRoutes.registerPersonal, payload).then((res) => res.data);
 			await locals.session.user.set(response.data.user);

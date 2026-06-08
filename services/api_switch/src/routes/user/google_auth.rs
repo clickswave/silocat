@@ -12,6 +12,17 @@ pub struct GoogleAuthInput {
     // works across dev / staging / prod. Google validates it against the URIs
     // registered in the OAuth client, so accepting it from the client is safe.
     pub redirect_uri: Option<String>,
+    // ISO country from the user's CF-IPCountry (forwarded by the web proxy);
+    // preferred over geoip since this call is proxied server-side.
+    pub client_country: Option<String>,
+}
+
+/// Sanitize a 2-letter ISO country code; drops Cloudflare's non-country
+/// sentinels (XX = unknown, T1 = Tor) and anything malformed.
+fn sanitize_country(raw: Option<&str>) -> Option<String> {
+    raw.map(|c| c.trim().to_uppercase()).filter(|c| {
+        c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()) && c != "XX" && c != "T1"
+    })
 }
 
 #[derive(Deserialize, Debug)]
@@ -141,10 +152,12 @@ pub async fn handle(
             let username = format!("{}{}", base, libs::rng::number(4));
             let user_id = libs::rng::uuid();
             let api_key = libs::rng::uuid();
-            let geo_country = axum_state
-                .geoip
-                .as_ref()
-                .and_then(|r| libs::geoip::country_code(r, &libs::geoip::client_ip(&headers, addr)));
+            let geo_country = sanitize_country(payload.client_country.as_deref()).or_else(|| {
+                axum_state
+                    .geoip
+                    .as_ref()
+                    .and_then(|r| libs::geoip::country_code(r, &libs::geoip::client_ip(&headers, addr)))
+            });
 
             let created = sqlx::query_as::<_, User>(
                 "INSERT INTO users \

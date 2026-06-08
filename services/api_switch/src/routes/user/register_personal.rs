@@ -15,6 +15,18 @@ pub struct RegisterAccountInput {
     pub password: String,
     pub invite_code: Option<String>,
     pub promo_code: Option<String>,
+    // ISO country code the web layer derived from the user's CF-IPCountry header.
+    // Preferred over geoip here, because the IP this API sees is the web Worker's
+    // (registration is proxied server-side), not the real client's.
+    pub client_country: Option<String>,
+}
+
+/// Sanitize a 2-letter ISO country code; drops empties and Cloudflare's
+/// non-country sentinels (XX = unknown, T1 = Tor).
+fn sanitize_country(raw: Option<&str>) -> Option<String> {
+    raw.map(|c| c.trim().to_uppercase()).filter(|c| {
+        c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()) && c != "XX" && c != "T1"
+    })
 }
 
 pub async fn handle(
@@ -30,6 +42,9 @@ pub async fn handle(
         .geoip
         .as_ref()
         .and_then(|r| libs::geoip::country_code(r, &registration_ip));
+    // Prefer the client's real country (from the web's CF-IPCountry); geoip on the
+    // Worker IP is the fallback (and is right for direct/dev hits).
+    let geo_country = sanitize_country(payload.client_country.as_deref()).or(geo_country);
     // input validation
     let mut validation_errors = vec![];
     // validate email
