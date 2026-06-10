@@ -52,8 +52,12 @@
 
 				<div class="dl-meta">
 					{#if d.status === 'active'}
-						<span>{fmt(d.loaded)}{d.total ? ` / ${fmt(d.total)}` : ''}</span>
-						<span>{pct(d)}%</span>
+						{#if d.phase && !d.loaded}
+							<span class="dl-phase">{d.phase}</span><span></span>
+						{:else}
+							<span>{fmt(d.loaded)}{d.total ? ` / ${fmt(d.total)}` : ''}</span>
+							<span>{pct(d)}%</span>
+						{/if}
 					{:else if d.status === 'done'}
 						<span>Downloaded</span><span>{fmt(d.total)}</span>
 					{:else if d.status === 'cancelled'}
@@ -146,5 +150,9 @@
 	}
 	.dl-err {
 		color: #ff6b6b;
+	}
+	.dl-phase {
+		color: var(--primary, #ff4655);
+		font-weight: 600;
 	}
 </style>

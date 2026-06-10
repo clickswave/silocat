@@ -44,6 +44,7 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 		loaded: 0,
 		total: Number(file.size) || 0,
 		status: 'active',
+		phase: 'Preparing…',
 		error: null,
 		controller
 	});
@@ -64,8 +65,12 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 			if (!password) throw new Error('Password required for encrypted file');
 			if (!chunks[0].salt) throw new Error('Encrypted file is missing its salt');
 			const saltBytes = Uint8Array.from(atob(chunks[0].salt), (c) => c.charCodeAt(0));
+			// argon2 key derivation is the slow part where the bar would otherwise sit at 0.
+			patch(id, { phase: 'Deriving key…' });
 			fileKey = await deriveKeyFromPassword(password, saltBytes);
 		}
+
+		patch(id, { phase: file.encrypted ? 'Downloading + decrypting…' : 'Downloading…' });
 
 		const parts = [];
 		let loaded = 0;
@@ -107,6 +112,54 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 			setTimeout(() => remove(id), 6000);
 		}
 	}
+}
+
+/**
+ * Fetch + (decrypt) a file fully into an in-memory Blob (for inline preview).
+ * Does NOT save to disk and does NOT register a DownloadToasts entry.
+ * @param {{id:string,name:string,mime?:string,encrypted?:boolean}} file
+ * @param {{ password?:string|null, chunksUrl?:string, signal?:AbortSignal, onProgress?:(loaded:number,total:number)=>void }} opts
+ * @returns {Promise<Blob>}
+ */
+export async function fetchDecryptedBlob(
+	file,
+	{ password = null, chunksUrl = '/api/v1/sanctum/file/fetch-chunks', signal, onProgress } = {}
+) {
+	await sodium.ready;
+
+	const chunksRes = await axios.post(chunksUrl, { file_id: file.id }, { signal });
+	const chunks = chunksRes.data?.data?.chunks;
+	if (!chunks || chunks.length === 0) throw new Error('No chunks found');
+
+	const total = chunks.reduce((s, c) => s + (Number(c.size) || 0), 0) || Number(file.size) || 0;
+
+	let fileKey = null;
+	if (file.encrypted) {
+		if (!password) throw new Error('Password required for encrypted file');
+		if (!chunks[0].salt) throw new Error('Encrypted file is missing its salt');
+		const saltBytes = Uint8Array.from(atob(chunks[0].salt), (c) => c.charCodeAt(0));
+		fileKey = await deriveKeyFromPassword(password, saltBytes);
+	}
+
+	const parts = [];
+	let loaded = 0;
+	for (const chunk of chunks) {
+		const res = await axios.get(chunk.presigned_url, {
+			responseType: 'arraybuffer',
+			signal,
+			onDownloadProgress: (e) => onProgress?.(loaded + (e.loaded || 0), total)
+		});
+		let bytes = new Uint8Array(res.data);
+		loaded += bytes.byteLength;
+		if (file.encrypted) {
+			const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
+			bytes = await decryptChunk(bytes, fileKey, nonceBytes);
+		}
+		parts.push(bytes);
+		onProgress?.(loaded, total);
+	}
+
+	return new Blob(parts, { type: file.mime || 'application/octet-stream' });
 }
 
 export function cancelDownload(id) {

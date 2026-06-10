@@ -13,6 +13,16 @@
 
 	const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
 
+	// Server-rendered Open Graph data (from +page.server.js) for link previews.
+	let { data } = $props();
+	const og = $derived(
+		data?.og || {
+			title: 'Secure download on SiloCat',
+			description: 'A file shared securely and stored on silo.cat.'
+		}
+	);
+	const shareUrl = $derived(`https://silo.cat/${$page.params.slug}`);
+
 	let fileId = $page.params.slug;
 	let fileMeta = $state(null);
 	/* ... state ... */
@@ -364,11 +374,26 @@
 </script>
 
 <svelte:head>
-	<title>
-		{fileMeta ? fileMeta.name : folderMeta ? folderMeta.name : 'Secure Download'} - SiloCat
-	</title>
-	<!-- Private share link: never index or follow. -->
+	<title>{og.title}</title>
+	<meta name="description" content={og.description} />
+	<!-- Private share link: never index or follow (but link previews still render). -->
 	<meta name="robots" content="noindex, nofollow" />
+
+	<!-- Open Graph -->
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="SiloCat" />
+	<meta property="og:title" content={og.title} />
+	<meta property="og:description" content={og.description} />
+	<meta property="og:url" content={shareUrl} />
+	<meta property="og:image" content="https://silo.cat/og-image.png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+
+	<!-- Twitter -->
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content={og.title} />
+	<meta name="twitter:description" content={og.description} />
+	<meta name="twitter:image" content="https://silo.cat/og-image.png" />
 </svelte:head>
 
 <div class="landing-page">

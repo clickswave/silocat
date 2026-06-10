@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folders SET share_type = $1, share_token = $2, share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END WHERE id = $7 AND user_id = $8 RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "share_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "share_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "link_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "link_max_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "share_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "share_password_hash",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        "Timestamptz",
+        "Bool",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "582a5655299f4aa9156098f47dbb23374a35bec891d5a289fa5f995cbd6fd4ed"
+}

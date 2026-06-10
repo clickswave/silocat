@@ -6,6 +6,9 @@ mod fetch_storage_stats;
 mod fetch_info;
 mod verify_email;
 mod resend_verification;
+mod request_email_change;
+mod confirm_email_change;
+mod support;
 mod google_auth;
 mod avatar;
 mod forgot_password;
@@ -37,6 +40,12 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/username-status", get(username_status::handle))
         .route("/verify-email", post(verify_email::handle))
         .route("/resend-verification", post(resend_verification::handle))
+        .route("/request-email-change", post(request_email_change::handle))
+        .route("/confirm-email-change", post(confirm_email_change::handle))
+        .route("/support", post(support::handle).get(support::list))
+        .route("/support/{id}", get(support::get_one))
+        .route("/support/{id}/reply", post(support::reply))
+        .route("/support/{id}/status", post(support::set_status))
 
         .route_layer(
             axum::middleware::from_fn_with_state(

@@ -6,6 +6,8 @@ use serde_json::json;
 use crate::routes::respond;
 use crate::models::{UserTokenData};
 use rand::Rng; // Make sure rand is available or use uuid
+use sha2::{Digest, Sha256};
+use chrono::{Duration, Utc};
 
 #[derive(Deserialize)]
 pub struct ToggleSharePayload {
@@ -13,6 +15,19 @@ pub struct ToggleSharePayload {
     pub file_id: Option<String>,
     pub folder_id: Option<String>,
     pub share_type: String, // 'off', 'public', 'once'
+    // Optional hardening. Fields are only applied when present, so toggling the
+    // share type does not silently wipe an existing expiry/password.
+    // expires_in_days: Some(0) = never, Some(n) = n days, None = leave unchanged.
+    pub expires_in_days: Option<i64>,
+    // password: Some(non-empty) = set, None = leave unchanged.
+    pub password: Option<String>,
+    // clear_password: Some(true) = remove existing password.
+    pub clear_password: Option<bool>,
+}
+
+// Simple SHA-256 hex gate for share links (not a user credential).
+fn hash_share_pw(pw: &str) -> String {
+    hex::encode(Sha256::digest(pw.as_bytes()))
 }
 
 #[derive(Deserialize)]
@@ -39,7 +54,20 @@ pub async fn toggle_share(
 ) -> impl IntoResponse {
     let new_token = generate_token();
     let user_id = payload.user_id.clone();
-    
+
+    // Compute conditional updates: (should_update, value). When should_update is
+    // false the existing column value is preserved (CASE WHEN in the UPDATE).
+    let (exp_update, exp_value) = match payload.expires_in_days {
+        Some(d) if d > 0 => (true, Some(Utc::now() + Duration::days(d))),
+        Some(_) => (true, None), // 0 or negative = never
+        None => (false, None),
+    };
+    let (pw_update, pw_value) = match (payload.password.as_ref(), payload.clear_password) {
+        (Some(p), _) if !p.trim().is_empty() => (true, Some(hash_share_pw(p.trim()))),
+        (_, Some(true)) => (true, None),
+        _ => (false, None),
+    };
+
     if let Some(file_id) = payload.file_id {
         let mut tx = match axum_state.pg_pool.begin().await {
             Ok(tx) => tx,
@@ -64,9 +92,17 @@ pub async fn toggle_share(
                 };
 
                 let result = sqlx::query!(
-                    "UPDATE files SET share_type = $1, share_token = $2 WHERE id = $3 AND user_id = $4 RETURNING share_token, share_type, link_downloads, link_max_downloads",
+                    "UPDATE files SET share_type = $1, share_token = $2, \
+                     share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, \
+                     share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END \
+                     WHERE id = $7 AND user_id = $8 \
+                     RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
                     payload.share_type,
                     token_to_set,
+                    exp_update,
+                    exp_value,
+                    pw_update,
+                    pw_value,
                     file_id,
                     user_id
                 )
@@ -80,7 +116,9 @@ pub async fn toggle_share(
                             "share_token": r.share_token,
                             "share_type": r.share_type,
                             "link_downloads": r.link_downloads,
-                            "link_max_downloads": r.link_max_downloads
+                            "link_max_downloads": r.link_max_downloads,
+                            "expires_at": r.share_expires_at.map(|t| t.to_rfc3339()),
+                            "password_protected": r.share_password_hash.is_some()
                         }))
                     },
                     Err(e) => {
@@ -116,15 +154,23 @@ pub async fn toggle_share(
                 };
 
                 let result = sqlx::query!(
-                    "UPDATE folders SET share_type = $1, share_token = $2 WHERE id = $3 AND user_id = $4 RETURNING share_token, share_type, link_downloads, link_max_downloads",
+                    "UPDATE folders SET share_type = $1, share_token = $2, \
+                     share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, \
+                     share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END \
+                     WHERE id = $7 AND user_id = $8 \
+                     RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
                     payload.share_type,
                     token_to_set,
+                    exp_update,
+                    exp_value,
+                    pw_update,
+                    pw_value,
                     folder_id,
                     user_id
                 )
                 .fetch_one(&mut *tx)
                 .await;
-                
+
                   match result {
                     Ok(r) => {
                         let _ = tx.commit().await;
@@ -132,7 +178,9 @@ pub async fn toggle_share(
                             "share_token": r.share_token,
                             "share_type": r.share_type,
                             "link_downloads": r.link_downloads,
-                            "link_max_downloads": r.link_max_downloads
+                            "link_max_downloads": r.link_max_downloads,
+                            "expires_at": r.share_expires_at.map(|t| t.to_rfc3339()),
+                            "password_protected": r.share_password_hash.is_some()
                         }))
                     },
                     Err(e) => {
@@ -201,7 +249,7 @@ pub async fn get_share_info(
 
     // Check files
     let file = sqlx::query!(
-        "SELECT share_token, share_type, link_downloads, link_max_downloads FROM files WHERE id = $1 AND user_id = $2",
+        "SELECT share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM files WHERE id = $1 AND user_id = $2",
         id,
         user_id
     )
@@ -214,13 +262,15 @@ pub async fn get_share_info(
             "share_token": r.share_token,
             "share_type": r.share_type,
             "link_downloads": r.link_downloads,
-            "link_max_downloads": r.link_max_downloads
+            "link_max_downloads": r.link_max_downloads,
+            "expires_at": r.share_expires_at.map(|t| t.to_rfc3339()),
+            "password_protected": r.share_password_hash.is_some()
         }));
     }
 
     // Check folders
     let folder = sqlx::query!(
-        "SELECT share_token, share_type, link_downloads, link_max_downloads FROM folders WHERE id = $1 AND user_id = $2",
+        "SELECT share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE id = $1 AND user_id = $2",
         id,
         user_id
     )
@@ -233,7 +283,9 @@ pub async fn get_share_info(
             "share_token": r.share_token,
             "share_type": r.share_type,
             "link_downloads": r.link_downloads,
-            "link_max_downloads": r.link_max_downloads
+            "link_max_downloads": r.link_max_downloads,
+            "expires_at": r.share_expires_at.map(|t| t.to_rfc3339()),
+            "password_protected": r.share_password_hash.is_some()
         }));
     }
 
@@ -243,6 +295,7 @@ pub async fn get_share_info(
 #[derive(Deserialize)]
 pub struct PublicDownloadPayload {
     pub token: String,
+    pub password: Option<String>,
 }
 
 // PUBLIC ENDPOINTS (No User Auth)
@@ -265,7 +318,7 @@ pub async fn public_get_info(
 ) -> impl IntoResponse {
     // Check files
     let file = sqlx::query!(
-        "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted FROM files WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -273,6 +326,11 @@ pub async fn public_get_info(
 
     match file {
         Ok(Some(r)) => {
+            if let Some(exp) = r.share_expires_at {
+                if exp < Utc::now() {
+                    return respond(410, "This link has expired.", vec!["Link expired".to_string()], json!({}));
+                }
+            }
             if r.share_type == Some("once".to_string()) {
                 let downloads = r.link_downloads.unwrap_or(0);
                 let max = r.link_max_downloads.unwrap_or(1);
@@ -287,16 +345,18 @@ pub async fn public_get_info(
                 "name": r.name,
                 "size": r.size,
                 "mime": r.mime,
-                "encrypted": r.encrypted // Expose encrypted status
+                "encrypted": r.encrypted, // Expose encrypted status
+                "password_required": r.share_password_hash.is_some(),
+                "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },
-        Ok(None) => {}, 
+        Ok(None) => {},
         Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
     }
 
     // Check folders
     let folder = sqlx::query!(
-        "SELECT id, name, share_type, link_downloads, link_max_downloads FROM folders WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, name, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off'",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -304,6 +364,11 @@ pub async fn public_get_info(
 
     match folder {
         Ok(Some(r)) => {
+            if let Some(exp) = r.share_expires_at {
+                if exp < Utc::now() {
+                    return respond(410, "This link has expired.", vec!["Link expired".to_string()], json!({}));
+                }
+            }
             if r.share_type == Some("once".to_string()) {
                 let downloads = r.link_downloads.unwrap_or(0);
                 let max = r.link_max_downloads.unwrap_or(1);
@@ -311,7 +376,7 @@ pub async fn public_get_info(
                     return respond(410, "This safe-link has expired.", vec!["Link limit reached".to_string()], json!({}));
                 }
             }
-            
+
             // Fetch files in folder to display
             let files = sqlx::query!(
                 "SELECT id, name, size, mime, encrypted FROM files WHERE folder_id = $1 AND deleted = false",
@@ -335,7 +400,9 @@ pub async fn public_get_info(
                 "type": "folder",
                 "id": r.id,
                 "name": r.name,
-                "files": files_data
+                "files": files_data,
+                "password_required": r.share_password_hash.is_some(),
+                "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },
         Ok(None) => respond(404, "Invalid or expired link", vec!["Link not found".to_string()], json!({})),
@@ -347,6 +414,7 @@ pub async fn public_get_info(
 pub struct PublicFetchChunksPayload {
     pub token: String, // Folder share token
     pub file_id: String, // File within that folder
+    pub password: Option<String>,
 }
 
 pub async fn public_fetch_file_chunks(
@@ -355,24 +423,39 @@ pub async fn public_fetch_file_chunks(
 ) -> impl IntoResponse {
     let token = payload.token;
     let file_id = payload.file_id;
+    let supplied_pw_hash = payload
+        .password
+        .as_ref()
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| hash_share_pw(p.trim()));
 
     // Verify folder token
     let folder = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads FROM folders WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off'",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
     .await;
 
     if let Ok(Some(folder_rec)) = folder {
-         if folder_rec.share_type == Some("once".to_string()) {
+        if let Some(exp) = folder_rec.share_expires_at {
+            if exp < Utc::now() {
+                return respond(410, "This link has expired.", vec![], json!({}));
+            }
+        }
+        if let Some(ref required) = folder_rec.share_password_hash {
+            if supplied_pw_hash.as_deref() != Some(required.as_str()) {
+                return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            }
+        }
+        if folder_rec.share_type == Some("once".to_string()) {
             let downloads = folder_rec.link_downloads.unwrap_or(0);
             let max = folder_rec.link_max_downloads.unwrap_or(1);
             if downloads >= max {
                 return respond(410, "This safe-link has expired.", vec![], json!({}));
             }
         }
-        
+
         // Check if file is in this folder (direct child for now, recursive logic if needed later)
         // Actually, we should probably allow any descendant if we had fully recursive 'files in folder' query.
         // For simple structure (parent_id), we check if file.folder_id == folder.id
@@ -449,24 +532,39 @@ pub async fn public_authorize_download(
     Json(payload): Json<PublicDownloadPayload>,
 ) -> impl IntoResponse {
     let token = payload.token;
+    let supplied_pw_hash = payload
+        .password
+        .as_ref()
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| hash_share_pw(p.trim()));
 
     // Check file
     let file_query = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads, user_id FROM files WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, share_type, link_downloads, link_max_downloads, user_id, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
     .await;
 
     if let Ok(Some(r)) = file_query {
-         if r.share_type == Some("once".to_string()) {
+        if let Some(exp) = r.share_expires_at {
+            if exp < Utc::now() {
+                return respond(410, "This link has expired.", vec![], json!({}));
+            }
+        }
+        if let Some(ref required) = r.share_password_hash {
+            if supplied_pw_hash.as_deref() != Some(required.as_str()) {
+                return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            }
+        }
+        if r.share_type == Some("once".to_string()) {
             let downloads = r.link_downloads.unwrap_or(0);
             let max = r.link_max_downloads.unwrap_or(1);
             if downloads >= max {
                 return respond(410, "This safe-link has expired.", vec![], json!({}));
             }
         }
-        
+
         // Increment download count
         let _ = sqlx::query!(
             "UPDATE files SET link_downloads = COALESCE(link_downloads, 0) + 1 WHERE id = $1",
@@ -518,21 +616,31 @@ pub async fn public_authorize_download(
     
     // Check folder
     let folder = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads FROM folders WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off'",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
     .await;
-    
+
     if let Ok(Some(r)) = folder {
-         if r.share_type == Some("once".to_string()) {
+        if let Some(exp) = r.share_expires_at {
+            if exp < Utc::now() {
+                return respond(410, "This link has expired.", vec![], json!({}));
+            }
+        }
+        if let Some(ref required) = r.share_password_hash {
+            if supplied_pw_hash.as_deref() != Some(required.as_str()) {
+                return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            }
+        }
+        if r.share_type == Some("once".to_string()) {
             let downloads = r.link_downloads.unwrap_or(0);
             let max = r.link_max_downloads.unwrap_or(1);
             if downloads >= max {
                 return respond(410, "This safe-link has expired.", vec![], json!({}));
             }
         }
-        
+
         let _ = sqlx::query!(
             "UPDATE folders SET link_downloads = COALESCE(link_downloads, 0) + 1 WHERE id = $1",
             r.id

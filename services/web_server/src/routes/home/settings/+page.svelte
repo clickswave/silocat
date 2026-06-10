@@ -3,6 +3,7 @@
 	import Icon from '@iconify/svelte';
 	import { countries, getCountryName } from '$lib/countries';
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import CountrySelect from '$lib/components/CountrySelect.svelte';
 	import { browser } from '$app/environment';
 
@@ -35,6 +36,97 @@
 	let emailNotifications = $state(true);
 	let pushNotifications = $state(false);
 	let saving = $state(false);
+
+	// --- Email change (inline verify) ---
+	let emailInput = $state('');
+	let emailStage = $state('idle'); // 'idle' | 'sent'
+	let emailBusy = $state(false);
+	let otpInput = $state('');
+	let otpBusy = $state(false);
+	let resendBusy = $state(false);
+
+	$effect(() => {
+		// keep the field in sync with the account email when not mid-change
+		if (emailStage === 'idle') emailInput = user.email || '';
+	});
+
+	const emailValid = $derived(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput.trim()));
+	const emailChanged = $derived(
+		emailInput.trim().toLowerCase() !== (user.email || '').toLowerCase()
+	);
+
+	async function requestEmailChange() {
+		if (!emailChanged || !emailValid || emailBusy) return;
+		emailBusy = true;
+		try {
+			const res = await fetch('/api/v1/user/request-email-change', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: emailInput.trim() })
+			});
+			const d = await res.json();
+			if (!res.ok) {
+				alert(d.message || (d.errors && d.errors.join(', ')) || d.error || 'Could not send code');
+			} else {
+				emailStage = 'sent';
+				otpInput = '';
+			}
+		} catch (e) {
+			console.error(e);
+			alert('Could not send verification code');
+		} finally {
+			emailBusy = false;
+		}
+	}
+
+	async function resendEmailCode() {
+		if (resendBusy) return;
+		resendBusy = true;
+		try {
+			const res = await fetch('/api/v1/user/request-email-change', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: emailInput.trim() })
+			});
+			const d = await res.json();
+			if (!res.ok) alert(d.message || d.error || 'Could not resend code');
+		} catch (e) {
+			console.error(e);
+		} finally {
+			resendBusy = false;
+		}
+	}
+
+	async function confirmEmailChange() {
+		if (otpBusy || otpInput.trim().length < 4) return;
+		otpBusy = true;
+		try {
+			const res = await fetch('/api/v1/user/confirm-email-change', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ otp: otpInput.trim() })
+			});
+			const d = await res.json();
+			if (!res.ok) {
+				alert(d.message || (d.errors && d.errors.join(', ')) || d.error || 'Incorrect code');
+			} else {
+				emailStage = 'idle';
+				otpInput = '';
+				await invalidateAll();
+			}
+		} catch (e) {
+			console.error(e);
+			alert('Could not verify code');
+		} finally {
+			otpBusy = false;
+		}
+	}
+
+	function cancelEmailChange() {
+		emailStage = 'idle';
+		otpInput = '';
+		emailInput = user.email || '';
+	}
 
 	// Display picture. Works for both Google avatars (absolute http URLs) and
 	// uploaded avatars (relative proxy URL with a ?v= cache-buster).
@@ -339,24 +431,75 @@
 					></textarea>
 				</div>
 
-				<div class="form-group">
-					<label for="email">Email Address</label>
-					<input
-						type="email"
-						id="email"
-						bind:value={profileForm.email}
-						disabled
-						title="Email cannot be changed"
-					/>
-					<span class="note">Contact support to change email.</span>
-				</div>
-
 				<div class="form-actions">
 					<button type="submit" class="btn primary" disabled={saving}>
 						{saving ? 'Saving...' : 'Save Changes'}
 					</button>
 				</div>
 			</form>
+
+			<!-- Email change (inline verify) -->
+			<div class="email-change">
+				<label for="email">Email Address</label>
+				<div class="email-row">
+					<input
+						type="email"
+						id="email"
+						bind:value={emailInput}
+						placeholder="you@example.com"
+						autocomplete="email"
+						disabled={emailStage === 'sent'}
+					/>
+					{#if emailChanged && emailStage === 'idle'}
+						<button
+							type="button"
+							class="btn primary sm"
+							onclick={requestEmailChange}
+							disabled={emailBusy || !emailValid}
+						>
+							{emailBusy ? 'Sending…' : 'Verify'}
+						</button>
+					{/if}
+				</div>
+
+				{#if emailStage === 'idle'}
+					{#if user.email_verified === false}
+						<span class="note warn">Your email is not verified.</span>
+					{:else}
+						<span class="note">Change your email and click Verify to confirm it with a code.</span>
+					{/if}
+				{:else}
+					<div class="otp-box">
+						<p class="otp-info">
+							Enter the 6-digit code we sent to <strong>{emailInput}</strong>.
+						</p>
+						<div class="otp-row">
+							<input
+								type="text"
+								inputmode="numeric"
+								maxlength="6"
+								placeholder="000000"
+								class="otp-input"
+								bind:value={otpInput}
+							/>
+							<button
+								type="button"
+								class="btn primary sm"
+								onclick={confirmEmailChange}
+								disabled={otpBusy || otpInput.trim().length < 4}
+							>
+								{otpBusy ? 'Verifying…' : 'Confirm'}
+							</button>
+						</div>
+						<div class="otp-actions">
+							<button type="button" class="link-btn" onclick={resendEmailCode} disabled={resendBusy}>
+								{resendBusy ? 'Resending…' : 'Resend code'}
+							</button>
+							<button type="button" class="link-btn" onclick={cancelEmailChange}>Cancel</button>
+						</div>
+					</div>
+				{/if}
+			</div>
 		</section>
 
 		<!-- Section: Security -->
@@ -747,6 +890,104 @@
 				border-color: var(--border-strong);
 			}
 		}
+	}
+
+	/* Email change (inline verify) */
+	.email-change {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-4);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--hairline);
+
+		> label {
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--text-secondary);
+		}
+		.email-row,
+		.otp-row {
+			display: flex;
+			gap: var(--space-2);
+		}
+		input {
+			flex: 1;
+			min-width: 0;
+			background: var(--bg-input);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-sm);
+			padding: 0.75rem 0.95rem;
+			color: var(--text-primary);
+			font-family: inherit;
+			font-size: var(--fs-body);
+			transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+			&:focus {
+				outline: none;
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px var(--primary-glow);
+			}
+			&:disabled {
+				opacity: 0.6;
+			}
+		}
+		.otp-input {
+			font-family: var(--font-mono);
+			letter-spacing: 0.3em;
+			text-align: center;
+			max-width: 160px;
+		}
+		.note {
+			font-size: var(--fs-xs);
+			color: var(--text-muted);
+			font-style: italic;
+			&.warn {
+				color: var(--warning, #e0a800);
+				font-style: normal;
+			}
+		}
+		.otp-box {
+			display: flex;
+			flex-direction: column;
+			gap: var(--space-3);
+			background: var(--tint-soft);
+			border: 1px solid var(--border-default);
+			border-radius: var(--radius-sm);
+			padding: var(--space-4);
+			margin-top: var(--space-1);
+			.otp-info {
+				margin: 0;
+				font-size: var(--fs-sm);
+				color: var(--text-secondary);
+				strong {
+					color: var(--text-primary);
+				}
+			}
+			.otp-actions {
+				display: flex;
+				gap: var(--space-4);
+			}
+			.link-btn {
+				background: none;
+				border: none;
+				padding: 0;
+				color: var(--primary);
+				font-size: var(--fs-sm);
+				font-weight: var(--fw-medium);
+				cursor: pointer;
+				&:hover {
+					text-decoration: underline;
+				}
+				&:disabled {
+					opacity: 0.6;
+					cursor: default;
+				}
+			}
+		}
+	}
+	.btn.sm {
+		padding: 0.6rem 1.1rem;
+		flex-shrink: 0;
 	}
 
 	@media (max-width: 600px) {

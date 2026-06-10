@@ -77,6 +77,16 @@
         "ordinal": 14,
         "name": "deleted_on",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "share_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "share_password_hash",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -99,6 +109,8 @@
       true,
       true,
       false,
+      true,
+      true,
       true
     ]
   },

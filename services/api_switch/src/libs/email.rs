@@ -31,11 +31,9 @@ pub async fn send(
     email_data: &EmailData,
 ) -> anyhow::Result<Response, String> {
 
-    println!("[DBG EMAIL SEND] 1");
     let mail_to = format!("{} <{}>", &email_data.to_name, &email_data.to_email);
     let mail_from = format!("{} <{}>", &email_data.from_name, &email_data.from_email);
     let mail_reply_to = format!("{} <{}>", &email_data.reply_to_name, &email_data.reply_to_email);
-    println!("[DBG EMAIL SEND] 2");
     // construct email: HTML + inline logo (multipart/related, cid:silocat-logo)
     let logo_part = Attachment::new_inline(LOGO_CID.to_string())
         .body(LOGO_PNG.to_vec(), "image/png".parse().expect("invalid logo content type"));
@@ -50,11 +48,9 @@ pub async fn send(
                 .singlepart(logo_part),
         )
         .expect("Exception while constructing email");
-    println!("[DBG EMAIL SEND] 3");
 
     // parse smtp creds
     let creds = Credentials::new(smtp_config.username.clone(), smtp_config.password.clone());
-    println!("[DBG EMAIL SEND] 4");
     // parse tls config
     let tls_config = match TlsParameters::builder(smtp_config.address.clone()).build() {
         Ok(tls_config) => tls_config,
@@ -62,7 +58,6 @@ pub async fn send(
             return Err(err.to_string());
         }
     };
-    println!("[DBG EMAIL SEND] 5");
 
     // create mailer
     let mailer = SmtpTransport::relay(
@@ -73,7 +68,6 @@ pub async fn send(
         .tls(Tls::Required(tls_config))
         .credentials(creds)
         .build();
-    println!("[DBG EMAIL SEND] 6");
 
     // send email
     match mailer.send(&email) {
@@ -222,6 +216,145 @@ pub async fn send_verification_email(
         reply_to_email: smtp_config.reply_to_email.clone(),
         email_subject: "Your SiloCat verification code".to_string(),
         email_body,
+    };
+
+    send(smtp_config, &email_data).await
+}
+
+/// Internal support/contact message from a signed-in user. Sent to the support
+/// inbox with reply-to set to the user so the team can reply directly.
+pub async fn send_support_email(
+    smtp_config: &SmtpConfig,
+    user_name: &str,
+    user_email: &str,
+    category: &str,
+    subject: &str,
+    message: &str,
+) -> anyhow::Result<Response, String> {
+    let body = format!(
+        r##"<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0c;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0a0a0c;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+<tr><td style="padding:0 6px 18px;">
+<span style="font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:18px;font-weight:800;color:#ffffff;letter-spacing:1.2px;">SILO.CAT</span>
+<span style="font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#71717a;"> &nbsp;support</span>
+</td></tr>
+<tr><td style="background:#161618;border:1px solid #2a2a30;border-radius:14px;padding:32px;">
+<div style="height:3px;width:44px;border-radius:99px;background:#ff4655;margin-bottom:22px;"></div>
+<h1 style="margin:0 0 20px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:800;color:#fff;">New support message</h1>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#e9e9ee;">
+<tr><td style="padding:6px 0;color:#71717a;width:90px;">Category</td><td style="padding:6px 0;color:#fff;font-weight:600;">{category}</td></tr>
+<tr><td style="padding:6px 0;color:#71717a;">From</td><td style="padding:6px 0;color:#fff;">{user_name} &lt;{user_email}&gt;</td></tr>
+<tr><td style="padding:6px 0;color:#71717a;">Subject</td><td style="padding:6px 0;color:#fff;font-weight:600;">{subject}</td></tr>
+</table>
+<div style="height:1px;background:#26262c;margin:20px 0;line-height:1px;font-size:1px;">&nbsp;</div>
+<p style="margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.65;color:#d8d8de;white-space:pre-wrap;">{message}</p>
+</td></tr>
+<tr><td style="padding:18px 8px;text-align:center;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#52525b;">
+Reply directly to this email to respond to {user_name}.
+</td></tr>
+</table></td></tr></table></body></html>"##,
+        category = esc(category),
+        user_name = esc(user_name),
+        user_email = esc(user_email),
+        subject = esc(subject),
+        message = esc(message),
+    );
+
+    let email_data = EmailData {
+        to_name: "SiloCat Support".to_string(),
+        to_email: "support@silo.cat".to_string(),
+        from_name: smtp_config.from_name.clone(),
+        from_email: smtp_config.from_email.clone(),
+        // Reply-to is the user so the team can answer them directly.
+        reply_to_name: user_name.to_string(),
+        reply_to_email: user_email.to_string(),
+        email_subject: format!("[Support · {}] {}", category, subject),
+        email_body: body,
+    };
+
+    send(smtp_config, &email_data).await
+}
+
+/// Notify the ticket owner that an admin replied or resolved their ticket.
+/// `kind` is "reply" or "resolved". `excerpt` is the admin's reply text (reply only).
+pub async fn send_ticket_update_email(
+    smtp_config: &SmtpConfig,
+    to_name: &str,
+    to_email: &str,
+    ticket_id: &str,
+    ticket_subject: &str,
+    kind: &str,
+    excerpt: &str,
+) -> anyhow::Result<Response, String> {
+    let resolved = kind == "resolved";
+    let heading = if resolved { "Your ticket was resolved" } else { "New reply from SiloCat" };
+    let intro = if resolved {
+        format!(
+            "We've marked your support ticket \u{201c}{}\u{201d} as resolved. If you still need help, reply on the ticket to reopen it.",
+            ticket_subject
+        )
+    } else {
+        format!("The SiloCat team replied to your ticket \u{201c}{}\u{201d}.", ticket_subject)
+    };
+    let cta_url = format!("https://silo.cat/home/support/{}", ticket_id);
+
+    let excerpt_block = if !resolved && !excerpt.trim().is_empty() {
+        format!(
+            r##"<div style="background:#0e0e10;border:1px solid #2a2a30;border-radius:10px;padding:16px 18px;margin:0 0 26px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#d8d8de;white-space:pre-wrap;">{}</div>"##,
+            esc(excerpt)
+        )
+    } else {
+        String::new()
+    };
+
+    let body = format!(
+        r##"<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0c;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0a0a0c;">
+<tr><td align="center" style="padding:34px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+<tr><td style="padding:0 6px 20px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="vertical-align:middle;padding-right:11px;"><img src="cid:silocat-logo" width="38" height="38" alt="SiloCat" style="display:block;border-radius:10px;"></td>
+<td style="vertical-align:middle;"><span style="font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:19px;font-weight:800;color:#fff;letter-spacing:1.3px;">SILO.CAT</span></td>
+</tr></table>
+</td></tr>
+<tr><td style="background:#161618;border:1px solid #2a2a30;border-radius:16px;padding:38px;">
+<div style="height:3px;width:46px;border-radius:99px;background:#ff4655;margin-bottom:24px;"></div>
+<h1 style="margin:0 0 16px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:800;color:#fff;">{heading}</h1>
+<p style="margin:0 0 14px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#e9e9ee;">Hi {name},</p>
+<p style="margin:0 0 24px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#a8a8b2;">{intro}</p>
+{excerpt_block}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="left"><tr>
+<td align="center" bgcolor="#ff4655" style="border-radius:10px;background:#ff4655;background-image:linear-gradient(90deg,#ff4655,#ff8a93);">
+<a href="{cta_url}" target="_blank" style="display:inline-block;padding:12px 28px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#fff;border-radius:10px;">View ticket</a>
+</td></tr></table>
+</td></tr>
+<tr><td style="padding:22px 8px;text-align:center;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#52525b;">
+&copy; 2026 Clickswave Labs Private Limited &middot; <a href="https://silo.cat/home/support" style="color:#9a9aa3;">Your tickets</a>
+</td></tr>
+</table></td></tr></table></body></html>"##,
+        heading = esc(heading),
+        name = esc(to_name),
+        intro = esc(&intro),
+        excerpt_block = excerpt_block,
+        cta_url = cta_url,
+    );
+
+    let email_data = EmailData {
+        to_name: to_name.to_string(),
+        to_email: to_email.to_string(),
+        from_name: smtp_config.from_name.clone(),
+        from_email: smtp_config.from_email.clone(),
+        reply_to_name: smtp_config.reply_to_name.clone(),
+        reply_to_email: smtp_config.reply_to_email.clone(),
+        email_subject: if resolved {
+            format!("Resolved: {}", ticket_subject)
+        } else {
+            format!("New reply: {}", ticket_subject)
+        },
+        email_body: body,
     };
 
     send(smtp_config, &email_data).await

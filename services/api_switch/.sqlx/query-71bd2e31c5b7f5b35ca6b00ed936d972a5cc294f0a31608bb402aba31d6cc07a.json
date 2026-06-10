@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted FROM files WHERE share_token = $1 AND share_type != 'off'",
+  "query": "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
   "describe": {
     "columns": [
       {
@@ -42,6 +42,16 @@
         "ordinal": 7,
         "name": "encrypted",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "share_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "share_password_hash",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -57,8 +67,10 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "56ced8c550df60862e5e070ffa2a33cb3e5375b4e5524d7dc9ae79f3a7b7dc11"
+  "hash": "71bd2e31c5b7f5b35ca6b00ed936d972a5cc294f0a31608bb402aba31d6cc07a"
 }

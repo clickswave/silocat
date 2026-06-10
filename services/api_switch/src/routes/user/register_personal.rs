@@ -181,6 +181,11 @@ pub async fn handle(
 
     match user {
         Ok(user) => {
+            // The subscription carried on the session token (drives the sidebar's
+            // initial storage total before the live stats fetch resolves). A promo
+            // OR an invite Pro grant fills this in.
+            let mut created_subscription: Option<models::Subscription> = None;
+
             // Redeem an optional signup promo: grants bonus storage for a duration
             // (recorded as a subscription so fetch_storage_stats counts it until it
             // expires). Indefinite = ~100 years. Best-effort: never fails signup.
@@ -204,24 +209,42 @@ pub async fn handle(
                             let days = duration_days.unwrap_or(36500).max(0);
                             let insert_sub = format!(
                                 "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) \
-                                 VALUES ('Promo', $1, $2, NOW() + INTERVAL '{} days', TRUE)",
+                                 VALUES ('Promo', $1, $2, NOW() + INTERVAL '{} days', TRUE) RETURNING *",
                                 days
                             );
-                            let _ = sqlx::query(&insert_sub)
+                            // Only bump uses_count if the subscription row was actually
+                            // created — otherwise the admin panel shows a redemption that
+                            // never granted any space (the bug we are fixing).
+                            match sqlx::query(&insert_sub)
                                 .bind(bonus)
                                 .bind(&user.id)
-                                .execute(&axum_state.pg_pool)
-                                .await;
-                            let _ = sqlx::query("UPDATE signup_promos SET uses_count = uses_count + 1 WHERE code = $1")
-                                .bind(code)
-                                .execute(&axum_state.pg_pool)
-                                .await;
+                                .fetch_optional(&axum_state.pg_pool)
+                                .await
+                            {
+                                Ok(Some(row)) => {
+                                    created_subscription = Some(models::Subscription {
+                                        id: row.get("id"),
+                                        name: row.get("name"),
+                                        additional_space: row.get("additional_space"),
+                                        created_by: row.get("created_by"),
+                                        created_on: row.get("created_on"),
+                                        expires_on: row.get("expires_on"),
+                                        invited: row.get("invited"),
+                                    });
+                                    let _ = sqlx::query("UPDATE signup_promos SET uses_count = uses_count + 1 WHERE code = $1")
+                                        .bind(code)
+                                        .execute(&axum_state.pg_pool)
+                                        .await;
+                                }
+                                Ok(None) => {}
+                                Err(e) => {
+                                    println!("Promo subscription insert failed for {}: {:?}", code, e);
+                                }
+                            }
                         }
                     }
                 }
             }
-
-            let mut created_subscription: Option<models::Subscription> = None;
 
             // Apply Subscription Benefits
             if let Some(ref invite) = valid_invite_code {

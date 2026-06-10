@@ -234,65 +234,47 @@
 
 <div class="subscription-page">
 	<header class="page-header">
-		<div class="header-top">
-			<h1>Manage Subscription</h1>
+		<div class="title-group">
+			<h1>Subscription</h1>
+			<p class="subtitle">Upgrade your storage and security.</p>
 		</div>
-		<p class="subtitle">Upgrade your storage and security.</p>
-	</header>
-
-	<div class="promo-section">
-		<h2>Have a Promo Code?</h2>
-		<div class="input-group">
-			<input
-				type="text"
-				placeholder="Enter code (e.g., 10-off-pro-1m)"
-				bind:value={promoCode}
-				disabled={discountApplied}
-			/>
-			{#if discountApplied}
+		<div class="currency-switch" role="group" aria-label="Currency">
+			{#each currencies as c}
 				<button
-					class="btn-apply remove"
-					onclick={() => {
-						discountApplied = false;
-						discount = 0;
-						verifiedCode = '';
-						promoCode = '';
-					}}>Remove</button
+					class={selectedCurrency === c.code ? 'active' : ''}
+					onclick={() => (selectedCurrency = c.code)}
 				>
-			{:else}
-				<button class="btn-apply" onclick={checkPromo} disabled={!promoCode || validatingPromo}>
-					{validatingPromo ? '...' : 'Apply'}
-				</button>
-			{/if}
-		</div>
-		{#if discountApplied}
-			<p class="promo-success">Code applied: {discount}% Discount</p>
-		{/if}
-	</div>
-
-	<div class="payment-method-section">
-		<h2>Payment Method</h2>
-		<div class="gateways-grid">
-			{#each gateways as gateway}
-				<button
-					class="gateway-card {selectedGateway === gateway.id ? 'selected' : ''} {gateway.enabled
-						? ''
-						: 'disabled'}"
-					onclick={() => gateway.enabled && (selectedGateway = gateway.id)}
-					disabled={!gateway.enabled}
-				>
-					<Icon icon={gateway.icon} width="32" class="gateway-icon" />
-					<span class="gateway-name">{gateway.name}</span>
-					{#if !gateway.enabled}
-						<span class="coming-soon">Soon</span>
-					{/if}
+					{c.symbol} {c.code}
 				</button>
 			{/each}
 		</div>
+	</header>
+
+	<!-- Current plan status -->
+	<div class="status-hero {isPro ? 'pro' : ''}">
+		<div class="status-icon">
+			<Icon icon={isPro ? 'ri:vip-crown-2-fill' : 'ri:shield-check-fill'} width="28" />
+		</div>
+		<div class="status-text">
+			<span class="status-eyebrow">Current plan</span>
+			<h2>{isPro ? 'Pro' : 'Free'}</h2>
+			<p>
+				{isPro
+					? 'You have full access to Pro features and storage add-ons.'
+					: 'You are on the free plan with 50 GB of end-to-end encrypted storage.'}
+			</p>
+		</div>
+		{#if isPro}
+			<div class="status-badge"><Icon icon="ri:vip-crown-2-fill" width="16" /> Pro member</div>
+		{:else}
+			<button class="hero-cta" disabled={processing} onclick={() => handleSubscribe('plan', 'pro')}>
+				{processing ? 'Processing…' : 'Upgrade to Pro'}
+			</button>
+		{/if}
 	</div>
 
-	<div class="plans-section">
-		<h2>Membership Plans</h2>
+	<section class="block">
+		<div class="block-head"><h2>Plans</h2></div>
 		<div class="pricing-grid">
 			<!-- Free Plan -->
 			<div class="card pricing-card">
@@ -343,11 +325,13 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</section>
 
-	<div class="addons-section">
-		<h2>Storage Add-ons</h2>
-		<p class="section-desc">Need more space? Exclusive for Pro members.</p>
+	<section class="block">
+		<div class="block-head">
+			<h2>Storage add-ons</h2>
+			<p class="muted">Need more space? Exclusive for Pro members.</p>
+		</div>
 
 		<div class="addons-grid">
 			{#each addons as addon}
@@ -375,17 +359,90 @@
 				</div>
 			{/each}
 		</div>
-	</div>
+	</section>
+
+	<!-- Billing options: promo + payment -->
+	<section class="block">
+		<div class="block-head"><h2>Billing</h2></div>
+		<div class="bill-grid">
+			<div class="bill-card">
+				<div class="bill-head">
+					<Icon icon="ri:price-tag-3-line" width="18" />
+					<h3>Promo code</h3>
+				</div>
+				<div class="promo-row">
+					<input
+						type="text"
+						placeholder="Enter code (e.g. 10-off-pro-1m)"
+						bind:value={promoCode}
+						disabled={discountApplied}
+					/>
+					{#if discountApplied}
+						<button
+							class="promo-btn remove"
+							onclick={() => {
+								discountApplied = false;
+								discount = 0;
+								verifiedCode = '';
+								promoCode = '';
+							}}>Remove</button
+						>
+					{:else}
+						<button class="promo-btn" onclick={checkPromo} disabled={!promoCode || validatingPromo}>
+							{validatingPromo ? '…' : 'Apply'}
+						</button>
+					{/if}
+				</div>
+				{#if discountApplied}
+					<p class="promo-success">
+						<Icon icon="ri:checkbox-circle-fill" width="16" /> {discount}% discount applied
+					</p>
+				{/if}
+			</div>
+
+			<div class="bill-card">
+				<div class="bill-head">
+					<Icon icon="ri:bank-card-line" width="18" />
+					<h3>Payment method</h3>
+				</div>
+				<div class="gateways-grid">
+					{#each gateways as gateway}
+						<button
+							class="gateway-card {selectedGateway === gateway.id ? 'selected' : ''} {gateway.enabled
+								? ''
+								: 'disabled'}"
+							onclick={() => gateway.enabled && (selectedGateway = gateway.id)}
+							disabled={!gateway.enabled}
+						>
+							<Icon icon={gateway.icon} width="26" class="gateway-icon" />
+							<span class="gateway-name">{gateway.name}</span>
+							{#if !gateway.enabled}
+								<span class="coming-soon">Soon</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			</div>
+		</div>
+	</section>
 </div>
 
 <style lang="scss">
 	.subscription-page {
 		width: 100%;
 		color: var(--text-primary);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-8);
 	}
 
 	.page-header {
-		margin-bottom: var(--space-6);
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-end;
+		gap: var(--space-4);
+		flex-wrap: wrap;
+
 		h1 {
 			font-size: var(--fs-h3);
 			font-weight: var(--fw-semibold);
@@ -394,41 +451,240 @@
 		.subtitle {
 			color: var(--text-muted);
 			font-size: var(--fs-sm);
+			margin: 0;
 		}
 	}
 
-	h2 {
-		font-size: var(--fs-h3);
-		margin-bottom: var(--space-5);
-		font-weight: var(--fw-semibold);
+	.currency-switch {
+		display: flex;
+		background: var(--tint-soft);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		padding: 2px;
+		gap: 2px;
+
+		button {
+			background: transparent;
+			border: none;
+			color: var(--text-muted);
+			font-family: inherit;
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			padding: var(--space-2) var(--space-3);
+			border-radius: var(--radius-sm);
+			cursor: pointer;
+			transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+			&:hover {
+				color: var(--text-primary);
+			}
+			&.active {
+				background: var(--bg-elevated);
+				color: var(--text-primary);
+				box-shadow: var(--shadow-card);
+			}
+		}
 	}
-	.section-desc {
-		color: var(--text-secondary);
-		margin-bottom: var(--space-6);
-		margin-top: calc(-1 * var(--space-4));
+
+	/* Current plan hero */
+	.status-hero {
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
+		background: var(--bg-card);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		padding: var(--space-5) var(--space-6);
+		box-shadow: var(--shadow-card);
+
+		&.pro {
+			border-color: var(--primary);
+			background: linear-gradient(110deg, rgba(255, 70, 85, 0.08), var(--bg-card) 60%);
+		}
+
+		.status-icon {
+			display: grid;
+			place-items: center;
+			width: 54px;
+			height: 54px;
+			flex-shrink: 0;
+			border-radius: var(--radius-md);
+			background: var(--tint-soft);
+			color: var(--text-secondary);
+		}
+		&.pro .status-icon {
+			background: rgba(255, 70, 85, 0.12);
+			color: var(--primary);
+		}
+		.status-text {
+			flex: 1;
+			min-width: 0;
+			.status-eyebrow {
+				font-size: var(--fs-xs);
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+				color: var(--text-muted);
+			}
+			h2 {
+				font-size: var(--fs-h3);
+				font-weight: var(--fw-bold);
+				margin: 2px 0 var(--space-1);
+			}
+			p {
+				margin: 0;
+				color: var(--text-secondary);
+				font-size: var(--fs-sm);
+			}
+		}
+		.status-badge {
+			display: inline-flex;
+			align-items: center;
+			gap: var(--space-1);
+			flex-shrink: 0;
+			background: rgba(255, 70, 85, 0.12);
+			color: var(--primary);
+			font-weight: var(--fw-semibold);
+			font-size: var(--fs-sm);
+			padding: var(--space-2) var(--space-4);
+			border-radius: var(--radius-pill, 999px);
+		}
+		.hero-cta {
+			flex-shrink: 0;
+			background: var(--accent-gradient);
+			color: #fff;
+			border: none;
+			border-radius: var(--radius-pill, 999px);
+			padding: var(--space-3) var(--space-5);
+			font-family: inherit;
+			font-weight: var(--fw-semibold);
+			cursor: pointer;
+			box-shadow: 0 6px 20px -6px var(--primary-glow);
+			transition: filter var(--dur) var(--ease);
+			&:hover:not(:disabled) {
+				filter: brightness(1.06);
+			}
+			&:disabled {
+				opacity: 0.6;
+				cursor: not-allowed;
+			}
+		}
+	}
+
+	/* Section blocks */
+	.block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+	}
+	.block-head {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-3);
+		flex-wrap: wrap;
+		h2 {
+			font-size: var(--fs-lg);
+			font-weight: var(--fw-semibold);
+			margin: 0;
+		}
+		.muted {
+			color: var(--text-muted);
+			font-size: var(--fs-sm);
+			margin: 0;
+		}
 	}
 
 	.pricing-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-		gap: var(--space-6);
-		margin-bottom: var(--space-10);
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: var(--space-5);
 	}
 
-	.payment-method-section {
-		margin-bottom: var(--space-8);
-		text-align: left;
+	/* Billing block */
+	.bill-grid {
+		display: grid;
+		grid-template-columns: 1fr 1.2fr;
+		gap: var(--space-5);
+	}
+	.bill-card {
+		background: var(--bg-card);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		padding: var(--space-5);
+		box-shadow: var(--shadow-card);
 
-		h2 {
-			font-size: var(--fs-lg);
-			color: var(--text-secondary);
+		.bill-head {
+			display: flex;
+			align-items: center;
+			gap: var(--space-2);
 			margin-bottom: var(--space-4);
+			color: var(--text-secondary);
+			h3 {
+				margin: 0;
+				font-size: var(--fs-body);
+				font-weight: var(--fw-semibold);
+				color: var(--text-primary);
+			}
 		}
+	}
+	.promo-row {
+		display: flex;
+		gap: var(--space-2);
+		input {
+			flex: 1;
+			min-width: 0;
+			background: var(--bg-input);
+			border: 1px solid var(--border-default);
+			padding: 0.7rem 0.9rem;
+			border-radius: var(--radius-sm);
+			color: var(--text-primary);
+			font-family: var(--font-mono);
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			outline: none;
+			&:focus {
+				border-color: var(--primary);
+				box-shadow: 0 0 0 3px var(--primary-glow);
+			}
+			&:disabled {
+				opacity: 0.7;
+			}
+		}
+		.promo-btn {
+			flex: none;
+			padding: 0 var(--space-4);
+			border-radius: var(--radius-sm);
+			border: 1px solid transparent;
+			font-family: inherit;
+			font-weight: var(--fw-semibold);
+			cursor: pointer;
+			background: var(--accent-gradient);
+			color: #fff;
+			&:hover:not(:disabled) {
+				filter: brightness(1.06);
+			}
+			&:disabled {
+				opacity: 0.55;
+				cursor: not-allowed;
+			}
+			&.remove {
+				background: var(--tint-soft);
+				border-color: var(--border-default);
+				color: var(--text-primary);
+			}
+		}
+	}
+	.promo-success {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		color: var(--success);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		margin: var(--space-3) 0 0;
 	}
 
 	.gateways-grid {
 		display: flex;
-		gap: var(--space-4);
+		gap: var(--space-3);
 		flex-wrap: wrap;
 	}
 
@@ -648,83 +904,6 @@
 		}
 	}
 
-	.promo-section {
-		margin-bottom: var(--space-8);
-		text-align: center;
-		padding-bottom: var(--space-6);
-		border-bottom: 1px solid var(--hairline);
-
-		.input-group {
-			display: flex;
-			gap: var(--space-4);
-			justify-content: center;
-			align-items: center;
-		}
-
-		input {
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			padding: 0.75rem 0.95rem;
-			border-radius: var(--radius-sm);
-			color: var(--text-primary);
-			width: 100%;
-			max-width: 300px;
-			text-align: center;
-			text-transform: uppercase;
-			font-weight: var(--fw-semibold);
-			letter-spacing: 1px;
-			font-family: var(--font-mono);
-
-			&:focus {
-				outline: none;
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
-
-			&:disabled {
-				opacity: 0.7;
-				cursor: not-allowed;
-			}
-		}
-
-		.btn-apply {
-			padding: 0.75rem 1.5rem;
-			border-radius: var(--radius-pill);
-			border: 1px solid transparent;
-			font-weight: var(--fw-semibold);
-			cursor: pointer;
-			background: var(--accent-gradient);
-			color: #fff;
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
-			transition: filter var(--dur) var(--ease), background var(--dur) var(--ease);
-
-			&:hover:not(:disabled) {
-				filter: brightness(1.06);
-			}
-
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
-
-			&.remove {
-				background: var(--tint-soft);
-				border-color: var(--border-default);
-				color: var(--text-primary);
-				box-shadow: none;
-				&:hover {
-					background: var(--tint-softer);
-				}
-			}
-		}
-
-		.promo-success {
-			color: var(--success);
-			margin-top: var(--space-4);
-			font-weight: var(--fw-semibold);
-		}
-	}
-
 	.original-price {
 		text-decoration: line-through;
 		color: var(--text-muted);
@@ -733,9 +912,23 @@
 		font-weight: var(--fw-semibold);
 	}
 
+	@media (max-width: 760px) {
+		.bill-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
 	@media (max-width: 600px) {
-		.promo-section .input-group {
-			flex-direction: column;
+		.page-header {
+			align-items: flex-start;
+		}
+		.status-hero {
+			flex-wrap: wrap;
+			.hero-cta,
+			.status-badge {
+				width: 100%;
+				justify-content: center;
+			}
 		}
 	}
 </style>

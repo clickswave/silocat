@@ -17,6 +17,22 @@
 	let maxDownloads = 1;
 	let link = '';
 
+	// Hardening
+	let expiresAt = null; // ISO string or null
+	let passwordProtected = false; // current saved state
+	let expiryChoice = '0'; // '0' = never, else days
+	let newPassword = ''; // new/changed password to apply
+	let removePassword = false;
+	let savingOptions = false;
+
+	function expiryLabel(iso) {
+		if (!iso) return null;
+		const d = new Date(iso);
+		const now = new Date();
+		if (d < now) return 'Expired';
+		return 'Expires ' + d.toLocaleString();
+	}
+
 	// Fetch initial status
 	import { onMount } from 'svelte';
 	onMount(async () => {
@@ -41,6 +57,8 @@
 				shareToken = data.share_token;
 				downloads = data.link_downloads || 0;
 				maxDownloads = data.link_max_downloads || 1;
+				expiresAt = data.expires_at || null;
+				passwordProtected = !!data.password_protected;
 				updateLink();
 			}
 		} catch (e) {
@@ -59,38 +77,69 @@
 		}
 	}
 
+	function targetField(payload) {
+		if (item.type === 'folder' || item.name === 'Folder') payload.folder_id = item.id;
+		else payload.file_id = item.id;
+		return payload;
+	}
+
+	function applyResponse(data) {
+		shareToken = data.share_token;
+		downloads = data.link_downloads;
+		maxDownloads = data.link_max_downloads;
+		expiresAt = data.expires_at || null;
+		passwordProtected = !!data.password_protected;
+		updateLink();
+	}
+
+	// Toggle only changes share_type; expiry/password are left untouched server-side.
 	async function handleToggle(type) {
 		if (loading) return;
 		const oldType = shareType;
 		shareType = type;
-
 		try {
-			const payload = {
-				share_type: type
-			};
-			if (item.type === 'folder' || item.name === 'Folder') {
-				// Basic check, better if props are strict
-				payload.folder_id = item.id;
-			} else {
-				payload.file_id = item.id;
-			}
-
-			const res = await axios.post('/api/v1/sanctum/file/share/toggle', payload);
+			const res = await axios.post(
+				'/api/v1/sanctum/file/share/toggle',
+				targetField({ share_type: type })
+			);
 			if (res.data.success) {
-				const data = res.data.success.data;
-				shareToken = data.share_token;
-				downloads = data.link_downloads;
-				maxDownloads = data.link_max_downloads;
-				updateLink();
+				applyResponse(res.data.success.data);
 				toast.success('Share settings updated');
 			} else {
-				shareType = oldType; // Revert on fail
+				shareType = oldType;
 				toast.error('Failed to update settings');
 			}
 		} catch (e) {
 			shareType = oldType;
 			toast.error('Error updating settings');
 			console.error(e);
+		}
+	}
+
+	// Apply expiry + password options to the current share.
+	async function applyOptions() {
+		if (loading || savingOptions) return;
+		savingOptions = true;
+		try {
+			const payload = targetField({ share_type: shareType });
+			payload.expires_in_days = parseInt(expiryChoice, 10) || 0;
+			if (removePassword) payload.clear_password = true;
+			else if (newPassword.trim()) payload.password = newPassword.trim();
+
+			const res = await axios.post('/api/v1/sanctum/file/share/toggle', payload);
+			if (res.data.success) {
+				applyResponse(res.data.success.data);
+				newPassword = '';
+				removePassword = false;
+				toast.success('Link options saved');
+			} else {
+				toast.error('Failed to save options');
+			}
+		} catch (e) {
+			toast.error('Error saving options');
+			console.error(e);
+		} finally {
+			savingOptions = false;
 		}
 	}
 
@@ -129,9 +178,12 @@
 <div class="modal-backdrop" on:click={close}>
 	<div class="modal" on:click|stopPropagation>
 		<div class="modal-header">
-			<h3>Share "{item.name}"</h3>
-			<button class="close-btn" on:click={close}>
-				<Icon icon="ri:close-line" width="24" />
+			<div class="head-title">
+				<span class="title-icon"><Icon icon="ri:share-forward-line" width="20" /></span>
+				<h3>Share “{item.name}”</h3>
+			</div>
+			<button class="close-btn" on:click={close} aria-label="Close">
+				<Icon icon="ri:close-line" width="22" />
 			</button>
 		</div>
 
@@ -187,12 +239,60 @@
 								</button>
 							</div>
 						</div>
-						{#if shareType === 'once'}
-							<div class="stats">
-								<Icon icon="ri:time-line" width="16" />
+						<div class="stats">
+							<Icon icon="ri:bar-chart-box-line" width="16" />
+							{#if shareType === 'once'}
 								<span>{downloads} / {maxDownloads} downloads used</span>
-							</div>
-						{/if}
+							{:else}
+								<span>{downloads} {downloads === 1 ? 'download' : 'downloads'} so far</span>
+							{/if}
+							{#if passwordProtected}
+								<span class="badge"><Icon icon="ri:lock-2-line" width="12" /> Password</span>
+							{/if}
+							{#if expiresAt}
+								<span class="badge {new Date(expiresAt) < new Date() ? 'danger' : ''}">
+									<Icon icon="ri:time-line" width="12" /> {expiryLabel(expiresAt)}
+								</span>
+							{/if}
+						</div>
+
+						<!-- Link hardening options -->
+						<div class="opts">
+							<label class="opt-field">
+								<span class="opt-label">Link expiry</span>
+								<select bind:value={expiryChoice}>
+									<option value="0">Never</option>
+									<option value="1">1 day</option>
+									<option value="7">7 days</option>
+									<option value="30">30 days</option>
+									<option value="90">90 days</option>
+								</select>
+							</label>
+
+							<label class="opt-field">
+								<span class="opt-label">
+									Password {#if passwordProtected}<span class="set-tag">set</span>{/if}
+								</span>
+								<input
+									type="password"
+									placeholder={passwordProtected ? 'Enter new password' : 'Optional password'}
+									bind:value={newPassword}
+									autocomplete="new-password"
+									disabled={removePassword}
+								/>
+							</label>
+
+							{#if passwordProtected}
+								<label class="opt-remove">
+									<input type="checkbox" bind:checked={removePassword} />
+									<span>Remove password</span>
+								</label>
+							{/if}
+
+							<button class="save-opts" on:click={applyOptions} disabled={savingOptions}>
+								{savingOptions ? 'Saving…' : 'Save options'}
+							</button>
+						</div>
 					</div>
 				{/if}
 			{/if}
@@ -222,8 +322,12 @@
 		border-radius: var(--radius-lg);
 		width: 100%;
 		max-width: 480px;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
 		box-shadow: var(--shadow-lg);
 		overflow: hidden;
+		animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.modal-header {
@@ -232,12 +336,34 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: var(--space-3);
+		flex-shrink: 0;
+
+		.head-title {
+			display: flex;
+			align-items: center;
+			gap: var(--space-3);
+			min-width: 0;
+		}
+		.title-icon {
+			display: grid;
+			place-items: center;
+			width: 34px;
+			height: 34px;
+			flex-shrink: 0;
+			border-radius: var(--radius-md);
+			background: var(--tint-soft);
+			color: var(--primary);
+		}
 
 		h3 {
 			margin: 0;
-			font-size: var(--fs-h3);
+			font-size: var(--fs-lg);
 			font-weight: var(--fw-semibold);
 			color: var(--text-primary);
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 
 		.close-btn {
@@ -262,6 +388,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
 
 		.loading {
 			display: flex;
@@ -399,15 +528,137 @@
 	.stats {
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: var(--space-2);
 		font-size: var(--fs-sm);
-		color: var(--danger); /* Warning color for 'Once' limits */
+		color: var(--text-muted);
 		padding-left: var(--space-1);
+
+		.badge {
+			display: inline-flex;
+			align-items: center;
+			gap: 3px;
+			font-size: var(--fs-xs);
+			background: var(--tint-soft);
+			border: 1px solid var(--border-default);
+			color: var(--text-secondary);
+			padding: 2px 7px;
+			border-radius: 999px;
+			&.danger {
+				color: var(--danger);
+				border-color: var(--danger);
+			}
+		}
+	}
+
+	.opts {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		margin-top: var(--space-4);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--hairline);
+
+		.opt-field {
+			display: flex;
+			flex-direction: column;
+			gap: var(--space-1);
+
+			.opt-label {
+				font-size: var(--fs-xs);
+				color: var(--text-muted);
+				font-weight: var(--fw-medium);
+				display: flex;
+				align-items: center;
+				gap: var(--space-2);
+			}
+			.set-tag {
+				font-size: 0.65rem;
+				text-transform: uppercase;
+				letter-spacing: 0.04em;
+				color: var(--success);
+				background: rgba(61, 220, 151, 0.12);
+				padding: 1px 6px;
+				border-radius: 999px;
+			}
+			select,
+			input {
+				background: var(--bg-input);
+				border: 1px solid var(--border-default);
+				border-radius: var(--radius-sm);
+				padding: 0.6rem 0.75rem;
+				color: var(--text-primary);
+				font-family: inherit;
+				font-size: var(--fs-sm);
+				outline: none;
+				transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+				&:focus {
+					border-color: var(--primary);
+					box-shadow: 0 0 0 3px var(--primary-glow);
+				}
+				&:disabled {
+					opacity: 0.5;
+				}
+			}
+		}
+		.opt-remove {
+			display: flex;
+			align-items: center;
+			gap: var(--space-2);
+			font-size: var(--fs-sm);
+			color: var(--text-secondary);
+			cursor: pointer;
+			input {
+				accent-color: var(--primary);
+			}
+		}
+		.save-opts {
+			align-self: flex-start;
+			background: var(--primary);
+			color: #fff;
+			border: none;
+			border-radius: var(--radius-sm);
+			padding: var(--space-2) var(--space-4);
+			font-family: inherit;
+			font-weight: var(--fw-medium);
+			font-size: var(--fs-sm);
+			cursor: pointer;
+			&:hover {
+				filter: brightness(1.05);
+			}
+			&:disabled {
+				opacity: 0.6;
+				cursor: default;
+			}
+		}
 	}
 
 	@keyframes spin {
 		to {
 			transform: rotate(360deg);
+		}
+	}
+
+	@keyframes slideUp {
+		from {
+			transform: translateY(20px);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+
+	@media (max-width: 600px) {
+		.modal-backdrop {
+			align-items: flex-end;
+			padding: 0;
+		}
+		.modal {
+			max-width: 100%;
+			max-height: 92vh;
+			border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 		}
 	}
 </style>

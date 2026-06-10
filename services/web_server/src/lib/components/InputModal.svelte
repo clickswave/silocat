@@ -130,4 +130,13 @@
 			}
 		}
 	}
+
+	@media (max-width: 600px) {
+		.actions {
+			flex-direction: column-reverse;
+			button {
+				width: 100%;
+			}
+		}
+	}
 </style>

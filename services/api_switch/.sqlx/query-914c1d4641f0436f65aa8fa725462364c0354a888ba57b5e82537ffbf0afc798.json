@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, share_type, link_downloads, link_max_downloads FROM folders WHERE share_token = $1 AND share_type != 'off'",
+  "query": "SELECT id, share_type, link_downloads, link_max_downloads, user_id, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,21 @@
         "ordinal": 3,
         "name": "link_max_downloads",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "share_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "share_password_hash",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -33,8 +48,11 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "37677062b016ff9221610a6d378721f1859e93c89ea286ac0163302c5f3dda21"
+  "hash": "914c1d4641f0436f65aa8fa725462364c0354a888ba57b5e82537ffbf0afc798"
 }

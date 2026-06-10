@@ -28,8 +28,11 @@
 			const res = await axios.get(`/api/v1/public/share/info/${token}`);
 			if (res.data.success) {
 				file = res.data.success.data;
-				// Check encryption
-				if (file.type === 'file' && file.encrypted) {
+				// Needs a password if it is client-side encrypted OR the owner set a
+				// link password gate (server-enforced on authorize).
+				if (file.password_required) {
+					needsPassword = true;
+				} else if (file.type === 'file' && file.encrypted) {
 					needsPassword = true;
 				} else if (file.type === 'folder' && file.files && file.files.some((f) => f.encrypted)) {
 					needsPassword = true;
@@ -60,8 +63,8 @@
 		downloadProgress = 0;
 
 		try {
-			// Authorize download and get chunks
-			const res = await axios.post('/api/v1/public/share/authorize', { token });
+			// Authorize download and get chunks (password gate enforced server-side).
+			const res = await axios.post('/api/v1/public/share/authorize', { token, password });
 			if (res.data.success) {
 				const data = res.data.success.data;
 
@@ -83,10 +86,15 @@
 			}
 		} catch (e) {
 			console.error(e);
-			if (e.message.includes('Wrong password') || e.message.includes('Decryption failed')) {
+			if (e.response && e.response.status === 401) {
+				// Server-side link password gate rejected the password.
+				showPasswordInput = true;
+				password = '';
+				toast.error('Incorrect link password.');
+			} else if (e.message.includes('Wrong password') || e.message.includes('Decryption failed')) {
 				toast.error('Incorrect password.');
 			} else if (e.response && e.response.status === 410) {
-				error = "This 'Once' link has expired.";
+				error = e.response.data?.message || 'This link has expired.';
 			} else {
 				toast.error('Unified download failed.');
 			}
@@ -106,7 +114,8 @@
 		try {
 			const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 				token: token,
-				file_id: f.id
+				file_id: f.id,
+				password
 			});
 
 			if (chunksRes.data && chunksRes.data.success) {
@@ -205,7 +214,8 @@
 				// Fetch chunks for this file
 				const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 					token: token,
-					file_id: f.id
+					file_id: f.id,
+					password
 				});
 
 				if (chunksRes.data && chunksRes.data.success) {

@@ -9,6 +9,7 @@
 	export let cancelLabel = 'Cancel';
 	export let danger = false;
 	export let isDanger = false; // Add alias to match +page.svelte usage if any
+	export let icon = 'ri:delete-bin-5-fill';
 
 	// Callback props
 	export let onconfirm = () => {};
@@ -46,7 +47,7 @@
 	<Modal {title} onclose={handleClose} hideHeader={true}>
 		<div class="confirm-content">
 			<div class="icon-wrapper {isDangerMode ? 'danger' : ''}">
-				<Icon icon="ri:delete-bin-5-fill" width="32" />
+				<Icon {icon} width="32" />
 			</div>
 
 			<div class="text-content">
@@ -154,11 +155,22 @@
 			}
 
 			&.danger {
-				background: var(--accent-gradient);
+				background: var(--danger);
+				box-shadow: 0 6px 20px -6px rgba(255, 70, 85, 0.6);
 
 				&:hover {
-					filter: brightness(1.06);
+					filter: brightness(1.08);
+					box-shadow: 0 10px 28px -6px rgba(255, 70, 85, 0.7);
 				}
+			}
+		}
+	}
+
+	@media (max-width: 600px) {
+		.confirm-content .actions {
+			flex-direction: column-reverse;
+			button {
+				width: 100%;
 			}
 		}
 	}

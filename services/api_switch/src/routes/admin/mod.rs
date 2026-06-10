@@ -16,6 +16,7 @@ pub mod early_access;
 pub mod db;
 pub mod signup_promos;
 pub mod ip_bans;
+pub mod support_tickets;
 
 pub fn router() -> Router<crate::AppState> {
     Router::new()
@@ -33,6 +34,7 @@ pub fn router() -> Router<crate::AppState> {
         .nest("/db", db::router())
         .nest("/signup-promos", signup_promos::router())
         .nest("/ip-bans", ip_bans::router())
+        .nest("/support-tickets", support_tickets::router())
         // .route("/me", get(me::handle).layer(from_fn(middlewares::validate_admin_token)))
 }
 

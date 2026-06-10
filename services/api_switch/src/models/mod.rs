@@ -37,6 +37,9 @@ pub struct User {
     pub is_banned: bool,
     pub banned_until: Option<DateTime<Utc>>,
     pub ban_reason: Option<String>,
+
+    pub pending_email: Option<String>,
+    pub pending_email_otp: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
@@ -108,6 +111,8 @@ pub struct File {
     pub share_type: Option<String>,
     pub link_downloads: Option<i64>,
     pub link_max_downloads: Option<i64>,
+    pub share_expires_at: Option<DateTime<Utc>>,
+    pub share_password_hash: Option<String>,
     pub deleted_on: Option<DateTime<Utc>>,
 }
 
@@ -126,8 +131,34 @@ pub struct Folder {
     pub share_type: Option<String>,
     pub link_downloads: Option<i64>,
     pub link_max_downloads: Option<i64>,
+    pub share_expires_at: Option<DateTime<Utc>>,
+    pub share_password_hash: Option<String>,
     pub deleted: bool,
     pub deleted_on: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
+pub struct SupportTicket {
+    pub id: String,
+    pub user_id: Option<String>,
+    pub username: String,
+    pub email: String,
+    pub category: String,
+    pub subject: String,
+    pub message: String,
+    pub is_pro: bool,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
+pub struct SupportReply {
+    pub id: String,
+    pub ticket_id: String,
+    pub author_role: String,
+    pub author_name: String,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, FromRow)]

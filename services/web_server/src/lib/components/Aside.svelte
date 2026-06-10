@@ -16,7 +16,8 @@
 		{ icon: 'ri:star-fill', label: 'Starred', href: '/home/starred' },
 		{ icon: 'ri:delete-bin-line', label: 'Trash', href: '/home/trash' },
 		{ icon: 'ri:bank-card-line', label: 'Billing', href: '/home/billing' },
-		{ icon: 'ri:settings-3-line', label: 'Settings', href: '/home/settings' }
+		{ icon: 'ri:settings-3-line', label: 'Settings', href: '/home/settings' },
+		{ icon: 'ri:customer-service-2-line', label: 'Support', href: '/home/support' }
 	];
 
 	let storage = $state({ used: 0, total: 0 });
@@ -27,9 +28,14 @@
 			// Fetch storage stats to get 'used' amount
 			let { data } = await FrontendClient.get('/api/v1/sanctum/user/storage');
 			if (data?.success) {
+				// Trust the live stats endpoint: it sums base storage + every active,
+				// non-expired subscription (promo / Pro grants). The session's
+				// `totalAvailableSpace` only reflects a single subscription on the token
+				// and goes stale (e.g. promo codes redeemed at signup are not on it), so
+				// it is a fallback only — never preferred.
 				storage = {
 					used: data.success.used,
-					total: user.totalAvailableSpace || data.success.total
+					total: data.success.total || user.totalAvailableSpace
 				};
 			}
 		} catch (e) {
@@ -146,7 +152,7 @@
 			display: flex;
 			flex-direction: row;
 			align-items: center;
-			justify-content: space-between;
+			justify-content: center;
 			gap: var(--space-2);
 			margin-bottom: var(--space-6);
 			min-height: 40px;
@@ -155,7 +161,7 @@
 			.logo-container {
 				display: flex;
 				align-items: center;
-				gap: 12px;
+				gap: 10px;
 				overflow: hidden;
 				text-decoration: none;
 				color: inherit;
@@ -170,8 +176,10 @@
 
 				.logo-text {
 					font-weight: var(--fw-black);
-					font-size: var(--fs-lg);
-					letter-spacing: 0.03em;
+					/* match the wordmark height to the 36px logo */
+					font-size: 1.7rem;
+					line-height: 36px;
+					letter-spacing: 0.02em;
 					white-space: nowrap;
 				}
 
@@ -391,6 +399,9 @@
 		}
 		.aside.open {
 			transform: none;
+		}
+		.aside .header {
+			justify-content: space-between;
 		}
 		.aside .header .nav-close {
 			display: flex;

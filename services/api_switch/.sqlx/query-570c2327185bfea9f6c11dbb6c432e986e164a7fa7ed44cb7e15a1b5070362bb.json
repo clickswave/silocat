@@ -122,6 +122,16 @@
         "ordinal": 23,
         "name": "ban_reason",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 24,
+        "name": "pending_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 25,
+        "name": "pending_email_otp",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -150,6 +160,8 @@
       false,
       true,
       false,
+      true,
+      true,
       true,
       true
     ]

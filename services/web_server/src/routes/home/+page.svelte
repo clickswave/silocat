@@ -83,7 +83,9 @@
 
 	function calculateStorage() {
 		const fetched = fetchStorageStats?.data || { total: 0, used: 0, free: 0 };
-		const total = data.user?.totalAvailableSpace || fetched.total;
+		// Prefer the live stats total (base + all active subscriptions, incl. promos);
+		// the session's totalAvailableSpace only carries one subscription and is stale.
+		const total = fetched.total || data.user?.totalAvailableSpace;
 		return {
 			used: fetched.used,
 			total: total,
