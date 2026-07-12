@@ -98,6 +98,36 @@ services:
       - clickswave_network
 
   # -----------------------------------------
+  # - HEALTH MONITOR (per-VPS agent)
+  # Prebuilt binary downloaded from R2 into services/health_monitor at deploy.
+  # Host metrics from host-global /proc; disk from the host root bind-mount.
+  # Probes the local stack + R2 storage, pushes snapshots to clickswave_status.
+  # -----------------------------------------
+  sc_health_monitor:
+    container_name: sc_health_monitor
+    image: debian:bookworm-slim
+    restart: unless-stopped
+    command: >
+      bash -c "apt-get update && apt-get install -y ca-certificates && ./target/release/health_monitor"
+    environment:
+      HM_PRODUCT: silocat
+      HM_ENV: prod
+      HM_PORT: "9099"
+      HM_TOKEN: ${HEALTH_TOKEN}
+      HM_HTTP_CHECKS: "api=http://sc_api_switch:31337/,storage=${CF_R2_SHADOW_API_URL}"
+      HM_TCP_CHECKS: "database=${CORE_DB_HOST}:5432"
+      HM_PUSH_URL: ${HEALTH_PUSH_URL}
+      HM_PUSH_TOKEN: ${HEALTH_PUSH_TOKEN}
+      HM_DISK_PATH: /host
+      RUST_LOG: info
+    volumes:
+      - ../services/health_monitor:/root/codebase
+      - /:/host:ro
+    working_dir: /root/codebase
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
   # - NGINX PROXY
   # -----------------------------------------
   sc_nginx:
