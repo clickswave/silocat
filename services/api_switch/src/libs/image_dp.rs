@@ -18,7 +18,19 @@ const JPEG_QUALITY: u8 = 85;
 
 /// Decode -> center square crop -> resize to EDGE x EDGE -> JPEG bytes.
 pub fn normalize(input: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let img = image::load_from_memory(input)
+    // Bound the decode so a small but adversarial file (a "decompression bomb")
+    // can't expand to gigabytes of pixels and OOM the process. The byte size is
+    // already capped upstream (MAX_DP_BYTES); this caps the *decoded* image.
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(input))
+        .with_guessed_format()
+        .map_err(|e| anyhow::anyhow!("Unsupported or corrupt image: {e}"))?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    limits.max_alloc = Some(64 * 1024 * 1024); // 64 MB decode budget
+    reader.limits(limits);
+    let img = reader
+        .decode()
         .map_err(|e| anyhow::anyhow!("Unsupported or corrupt image: {e}"))?;
 
     let (w, h) = img.dimensions();

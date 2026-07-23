@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folders (name, user_id, parent_id, uploaded_as_files, owner_api_key)\n         VALUES ($1, $2, $3, $4, $5) RETURNING *",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "uploaded_as_files",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "owner_api_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "starred",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "share_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "share_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "link_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "link_max_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "deleted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "deleted_on",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "share_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "share_password_hash",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "89e99ccfb9639c0f65bc7d33cc87d395b0812030fb78a16dcc818461307eb86b"
+}

@@ -54,7 +54,7 @@ pub async fn tables(State(state): State<crate::AppState>) -> impl IntoResponse {
                 .collect();
             respond(200, "Tables", vec![], json!({ "tables": list }))
         }
-        Err(e) => respond(500, "Could not list tables", vec![e.to_string()], json!(null)),
+        Err(_e) => respond(500, "Could not list tables", vec![], json!(null)),
     }
 }
 
@@ -103,7 +103,7 @@ pub async fn table(
             vec![],
             json!({ "columns": columns, "rows": rs, "limit": limit, "offset": offset }),
         ),
-        Err(e) => respond(500, "Query failed", vec![e.to_string()], json!(null)),
+        Err(_e) => respond(500, "Query failed", vec![], json!(null)),
     }
 }
 
@@ -128,10 +128,10 @@ pub async fn query(
     // Run inside a READ ONLY transaction so any write attempt errors at the DB.
     let mut tx = match state.pg_pool.begin().await {
         Ok(t) => t,
-        Err(e) => return respond(500, "DB error", vec![e.to_string()], json!(null)),
+        Err(_e) => return respond(500, "DB error", vec![], json!(null)),
     };
-    if let Err(e) = sqlx::query("SET TRANSACTION READ ONLY").execute(&mut *tx).await {
-        return respond(500, "DB error", vec![e.to_string()], json!(null));
+    if let Err(_e) = sqlx::query("SET TRANSACTION READ ONLY").execute(&mut *tx).await {
+        return respond(500, "DB error", vec![], json!(null));
     }
     let wrapped = format!("SELECT to_jsonb(t) AS row FROM ( {} ) t LIMIT {}", sql, limit);
     let result = sqlx::query_scalar::<_, Value>(&wrapped).fetch_all(&mut *tx).await;
@@ -146,7 +146,7 @@ pub async fn query(
             };
             respond(200, "Query OK", vec![], json!({ "columns": columns, "rows": rs, "count": count }))
         }
-        Err(e) => respond(400, "Query error", vec![e.to_string()], json!(null)),
+        Err(_e) => respond(400, "Query error", vec![], json!(null)),
     }
 }
 

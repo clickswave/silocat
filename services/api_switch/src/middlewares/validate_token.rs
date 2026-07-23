@@ -57,7 +57,7 @@ pub async fn validate_token(
     }
 
     let subscription = if let Some(sub_id) = &user.subscription_id {
-        sqlx::query_as::<_, models::Subscription>("SELECT * FROM subscriptions WHERE id = $1")
+        sqlx::query_as::<_, models::Subscription>("SELECT * FROM subscriptions WHERE id = $1 AND expires_on > NOW()")
             .bind(sub_id)
             .fetch_optional(&state.pg_pool)
             .await

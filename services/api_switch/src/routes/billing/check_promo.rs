@@ -15,7 +15,11 @@ pub async fn handle(
 
     let promo_res = sqlx::query_as!(
         models::PromoCode,
-        "SELECT code, discount_percentage, duration, COALESCE(active, TRUE) as \"active!\" FROM promo_codes WHERE code = $1 AND active = TRUE",
+        "SELECT code, discount_percentage, duration, COALESCE(active, TRUE) as \"active!\" \
+         FROM promo_codes \
+         WHERE code = $1 AND active = TRUE \
+           AND (expires_at IS NULL OR expires_at > NOW()) \
+           AND (max_uses IS NULL OR uses_count < max_uses)",
         payload.code
     )
     .fetch_optional(&state.pg_pool)
@@ -34,8 +38,8 @@ pub async fn handle(
                 "valid": false
             }))
         },
-        Err(e) => {
-             respond(500, "Database Error", vec![e.to_string()], json!({}))
+        Err(_e) => {
+             respond(500, "Database Error", vec![], json!({}))
         }
     }
 }

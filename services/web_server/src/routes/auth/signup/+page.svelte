@@ -7,6 +7,8 @@
 	import Icon from '@iconify/svelte';
 	import { Turnstile } from 'svelte-turnstile';
 	import { browser } from '$app/environment';
+	import { slide } from 'svelte/transition';
+	import { Button, Input } from '$lib/ui';
 
 	let { data } = $props();
 
@@ -17,6 +19,8 @@
 		confirmPassword: '',
 		promoCode: ''
 	});
+
+	let showPromo = $state(false);
 
 	let googleAuthUrl = $derived(
 		browser
@@ -30,11 +34,9 @@
 	function handleSubmit(event) {
 		loading = true;
 		return async ({ update, result }) => {
-			// on success
 			if (result.data.success) {
 				await goto('/home/pending-actions');
 			}
-			// on error
 			if (result.data.error) {
 				let response = result.data.error;
 				toast.error(response.message, {
@@ -48,202 +50,130 @@
 	}
 </script>
 
-<Seo
-	title="Create your account | SiloCat"
-	description="Create your anonymous, encrypted SiloCat vault."
-	noindex
-/>
+<Seo title="Create your account | Silocat" description="Create your encrypted Silocat account." noindex />
 
-<section class="auth-card card">
+<section class="auth-card">
 	<div class="card-header">
-		<div class="logo">
-			<img src={SiloCatLogo} alt="SiloCat Logo" />
-		</div>
-		<div class="title-group">
-			<h1>Create your encrypted vault</h1>
-			<p>Zero-knowledge by design. Only you hold the keys.</p>
-		</div>
+		<img class="mark" src={SiloCatLogo} alt="" />
+		<h1>Create account</h1>
+		<p>10 GB free, encrypted end to end.</p>
 	</div>
 
-	<a href={googleAuthUrl} class="btn btn-ghost btn-block google-btn">
-		<Icon icon="logos:google-icon" width="20" /> Continue with Google
-	</a>
+	<Button variant="ghost" block href={googleAuthUrl}>
+		<Icon icon="logos:google-icon" width="16" /> Continue with Google
+	</Button>
 
 	<div class="or-divider"><span>or</span></div>
 
 	<form method="POST" use:enhance={handleSubmit}>
-		<div class="grid-row">
-			<div class="form-group">
-				<label for="username">Username</label>
-				<div class="input-wrapper">
-					<Icon icon="ri:user-line" class="input-icon" width="18" />
-					<input
-						id="username"
-						name="username"
-						type="text"
-						class="field"
-						placeholder="codename"
-						bind:value={form.username}
-						autocomplete="username"
-						required
-					/>
-				</div>
-			</div>
+		<Input
+			bind:value={form.username}
+			name="username"
+			label="Username"
+			icon="ri:user-line"
+			placeholder="username"
+			autocomplete="username"
+			required
+		/>
 
-			<div class="form-group">
-				<label for="email">Email</label>
-				<div class="input-wrapper">
-					<Icon icon="ri:mail-line" class="input-icon" width="18" />
-					<input
-						id="email"
-						name="email"
-						type="email"
-						class="field"
-						placeholder="name@example.com"
-						bind:value={form.email}
-						autocomplete="email"
-						required
-					/>
-				</div>
-			</div>
-		</div>
+		<Input
+			bind:value={form.email}
+			name="email"
+			type="email"
+			label="Email"
+			icon="ri:mail-line"
+			placeholder="name@example.com"
+			autocomplete="email"
+			required
+		/>
 
 		<div class="grid-row">
-			<div class="form-group">
-				<label for="password">Password</label>
-				<div class="input-wrapper">
-					<Icon icon="ri:lock-password-line" class="input-icon" width="18" />
-					<input
-						id="password"
-						name="password"
-						type="password"
-						class="field"
-						placeholder="••••••"
-						bind:value={form.password}
-						autocomplete="new-password"
-						required
-					/>
-				</div>
-			</div>
+			<Input
+				bind:value={form.password}
+				name="password"
+				type="password"
+				label="Password"
+				icon="ri:lock-2-line"
+				placeholder="••••••••"
+				autocomplete="new-password"
+				required
+			/>
 
-			<div class="form-group">
-				<label for="confirmPassword">Confirm</label>
-				<div class="input-wrapper">
-					<Icon icon="ri:lock-check-line" class="input-icon" width="18" />
-					<input
-						id="confirmPassword"
-						name="confirmPassword"
-						type="password"
-						class="field"
-						placeholder="••••••"
-						bind:value={form.confirmPassword}
-						autocomplete="new-password"
-						required
-					/>
-				</div>
-			</div>
+			<Input
+				bind:value={form.confirmPassword}
+				name="confirmPassword"
+				type="password"
+				label="Confirm"
+				icon="ri:lock-2-line"
+				placeholder="••••••••"
+				autocomplete="new-password"
+				required
+			/>
 		</div>
 
-		<div class="form-group">
-			<label for="promoCode">
-				Promo code
-				<span class="optional">Have a promo code? Unlock bonus storage.</span>
-			</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:ticket-line" class="input-icon" width="18" />
-				<input
-					id="promoCode"
-					name="promoCode"
-					type="text"
-					class="field"
-					placeholder="Promo code (optional)"
+		{#if showPromo}
+			<div transition:slide={{ duration: 150 }}>
+				<Input
 					bind:value={form.promoCode}
+					name="promoCode"
+					label="Promo code"
+					icon="ri:ticket-line"
+					placeholder="Code"
 				/>
 			</div>
-		</div>
+		{:else}
+			<button type="button" class="link-btn promo-toggle" onclick={() => (showPromo = true)}>
+				Have a promo code?
+			</button>
+			<input type="hidden" name="promoCode" value={form.promoCode} />
+		{/if}
 
-		<div class="form-group turnstile-group">
+		<div class="turnstile-group">
 			<Turnstile siteKey={data.turnstileSiteKey} bind:this={turnstileRef} theme="auto" />
 		</div>
 
-		<button type="submit" disabled={loading} class="btn btn-primary btn-block submit-btn">
-			{#if loading}
-				<Icon icon="line-md:loading-loop" width="20" /> Initializing...
-			{:else}
-				<Icon icon="ri:shield-user-line" width="20" /> Create Encrypted Vault
-			{/if}
-		</button>
+		<Button type="submit" block {loading}>Create account</Button>
 	</form>
 
 	<div class="footer">
-		<p>Already an agent? <a href="/auth/signin">Access Terminal</a></p>
+		<p>Already have an account? <a href="/auth/signin">Sign in</a></p>
 	</div>
 </section>
 
 <style lang="scss">
 	.auth-card {
 		width: 100%;
-		max-width: 480px;
+		background: var(--surface);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
-		position: relative;
-		overflow: hidden;
-
-		/* Top accent edge */
-		&::before {
-			content: '';
-			position: absolute;
-			top: 0;
-			left: 0;
-			right: 0;
-			height: 1px;
-			background: linear-gradient(90deg, transparent, var(--primary), transparent);
-		}
+		gap: var(--space-5);
 	}
 
 	.card-header {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: var(--space-1);
 		align-items: center;
+		text-align: center;
 
-		.logo {
-			width: 48px;
-			height: 48px;
-			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-md);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			box-shadow: var(--shadow-glow);
-
-			img {
-				width: 26px;
-				height: 26px;
-			}
+		.mark {
+			width: 32px;
+			height: 32px;
+			margin-bottom: var(--space-1);
 		}
 
-		.title-group {
-			text-align: center;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-1);
+		h1 {
+			font-size: var(--fs-h3);
+			margin: 0;
+		}
 
-			h1 {
-				margin: 0;
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-bold);
-			}
-
-			p {
-				margin: 0;
-				color: var(--text-secondary);
-				font-size: var(--fs-sm);
-			}
+		p {
+			color: var(--ink-mute);
+			font-size: var(--fs-sm);
+			margin: 0;
 		}
 	}
 
@@ -251,7 +181,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		color: var(--text-muted);
+		color: var(--ink-faint);
 		font-size: var(--fs-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.12em;
@@ -261,97 +191,68 @@
 			content: '';
 			flex: 1;
 			height: 1px;
-			background: var(--hairline);
+			background: var(--edge);
 		}
 	}
 
 	form {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-4);
 	}
 
 	.grid-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: var(--space-3);
+
+		/* let grid children shrink below content width instead of overflowing */
+		> :global(*) {
+			min-width: 0;
+		}
+
+		@media (max-width: 560px) {
+			grid-template-columns: 1fr;
+		}
 	}
 
-	.form-group {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
+	.link-btn {
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		color: var(--ink-faint);
+		font-size: var(--fs-sm);
+		font-family: inherit;
+		align-self: flex-start;
 
-		label {
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			color: var(--text-secondary);
-
-			.optional {
-				font-size: var(--fs-xs);
-				color: var(--text-muted);
-				font-weight: var(--fw-regular);
-			}
-		}
-
-		.input-wrapper {
-			position: relative;
-			display: flex;
-			align-items: center;
-			width: 100%;
-
-			:global(.input-icon) {
-				position: absolute;
-				left: var(--space-3);
-				color: var(--text-muted);
-				pointer-events: none;
-				transition: color var(--dur) var(--ease);
-			}
-
-			&:focus-within :global(.input-icon) {
-				color: var(--primary);
-			}
-		}
-
-		.field {
-			padding-left: 2.6rem;
+		&:hover {
+			color: var(--ink);
+			text-decoration: underline;
 		}
 	}
 
 	.turnstile-group {
-		align-items: center;
-		margin-top: var(--space-1);
-	}
-
-	.submit-btn {
-		margin-top: var(--space-1);
+		display: flex;
+		justify-content: center;
 	}
 
 	.footer {
 		text-align: center;
 
 		p {
-			color: var(--text-muted);
+			color: var(--ink-faint);
 			font-size: var(--fs-sm);
 			margin: 0;
 
 			a {
-				color: var(--text-primary);
-				text-decoration: none;
+				color: var(--ink);
 				font-weight: var(--fw-medium);
-				transition: color var(--dur) var(--ease);
 
 				&:hover {
-					color: var(--primary);
 					text-decoration: underline;
 				}
 			}
-		}
-	}
-
-	@media (max-width: 560px) {
-		.grid-row {
-			grid-template-columns: 1fr;
 		}
 	}
 </style>

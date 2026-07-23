@@ -13,7 +13,7 @@ export async function GET({ params, locals }) {
 
         // Passing user_id as query param to match the pattern of bypassing Extension middleware
         // This requires backend update for `get_share_info` too.
-        const res = await ApiServerClient.get(`/file/share/info/${id}?user_id=${user.id}`)
+        const res = await ApiServerClient.get(`/file/share/info/${id}?user_id=${user.id}`, { headers: { 'X-Api-Key': user.api_key } })
             .then(r => r.data);
 
         if (res.status === 200) {

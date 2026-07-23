@@ -534,25 +534,21 @@
 				flex-shrink: 0;
 
 				&.get {
-					background: rgba(61, 220, 151, 0.15);
-					color: var(--success);
-					border: 1px solid rgba(61, 220, 151, 0.3);
+					background: var(--ok-soft);
+					color: var(--ok);
 				}
 				&.post {
-					background: rgba(242, 201, 76, 0.15);
-					color: var(--warning);
-					border: 1px solid rgba(242, 201, 76, 0.3);
+					background: var(--warn-soft);
+					color: var(--warn);
 				}
 				&.put,
 				&.patch {
-					background: rgba(74, 163, 226, 0.15);
-					color: var(--accent-blue);
-					border: 1px solid rgba(74, 163, 226, 0.3);
+					background: var(--tint-softer);
+					color: var(--ink-mute);
 				}
 				&.delete {
-					background: rgba(255, 70, 85, 0.15);
-					color: var(--primary);
-					border: 1px solid rgba(255, 70, 85, 0.3);
+					background: var(--danger-soft);
+					color: var(--danger);
 				}
 			}
 

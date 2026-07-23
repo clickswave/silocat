@@ -9,7 +9,7 @@ pub mod folder_stats;
 use axum::routing::post;
 use axum::Router;
 
-pub fn router() -> Router<crate::AppState> {
+pub fn router(state: crate::AppState) -> Router<crate::AppState> {
     Router::new()
         .route("/create", post(create_folder::handle))
         .route("/list", post(fetch_folder::handle))
@@ -18,4 +18,10 @@ pub fn router() -> Router<crate::AppState> {
         .route("/permanent-delete", post(permanent_delete_folders::handle))
         .route("/restore", post(restore_folders::handle))
         .route("/stats", post(folder_stats::handle))
+        // Resolve X-Api-Key -> Option<Caller> for every folder route; handlers
+        // derive ownership from the Caller, never from a body user_id.
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::middlewares::resolve_identity::resolve_identity,
+        ))
 }

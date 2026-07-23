@@ -26,18 +26,18 @@ export const actions = {
 		let email = data.get('email')?.trim();
 		let password = data.get('password')?.trim();
 
-		// let turnstile_token = data.get('cf-turnstile-response');
-		// let { success } = await validateTurnstileToken(turnstile_token);
-		// if (!success) {
-		// 	return {
-		// 		error: {
-		// 			status: 400,
-		// 			message: 'Could not validate captcha',
-		// 			errors: ["Cloudflare says you're not a human!"],
-		// 			data: {}
-		// 		}
-		// 	};
-		// }
+		let turnstile_token = data.get('cf-turnstile-response');
+		let { success } = await validateTurnstileToken(turnstile_token);
+		if (!success) {
+			return {
+				error: {
+					status: 400,
+					message: 'Could not validate captcha',
+					errors: ["Cloudflare says you're not a human!"],
+					data: {}
+				}
+			};
+		}
 
 		try {
 			let payload = {

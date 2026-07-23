@@ -6,10 +6,34 @@
 	import { decryptChunk, deriveKeyFromPassword } from '$lib/chacha.js';
 	import { toast } from 'svelte-sonner';
 	import Icon from '@iconify/svelte';
-	import { fade, scale } from 'svelte/transition';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import { shadowKey } from '$lib/stores/shadow.js';
+	import { Button, Progress, PasswordInput, Input, Modal, Badge, Spinner } from '$lib/ui';
+
+	function fmtSize(bytes) {
+		if (!bytes) return '0 B';
+		const k = 1024;
+		const s = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), s.length - 1);
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
+	}
+	function fmtDate(d) {
+		try {
+			return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+		} catch {
+			return '';
+		}
+	}
+	function typeIcon(mime, name) {
+		const m = mime || '';
+		if (m.includes('image')) return 'ri:image-line';
+		if (m.includes('video')) return 'ri:film-line';
+		if (m.includes('audio')) return 'ri:music-2-line';
+		if (m.includes('pdf') || m.includes('document')) return 'ri:file-text-line';
+		if (/\.(zip|rar|7z|tar|gz)$/i.test(name || '')) return 'ri:file-zip-line';
+		return 'ri:file-3-line';
+	}
 
 	const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
 
@@ -17,7 +41,7 @@
 	let { data } = $props();
 	const og = $derived(
 		data?.og || {
-			title: 'Secure download on SiloCat',
+			title: 'Secure download on Silocat',
 			description: 'A file shared securely and stored on silo.cat.'
 		}
 	);
@@ -381,7 +405,7 @@
 
 	<!-- Open Graph -->
 	<meta property="og:type" content="website" />
-	<meta property="og:site_name" content="SiloCat" />
+	<meta property="og:site_name" content="Silocat" />
 	<meta property="og:title" content={og.title} />
 	<meta property="og:description" content={og.description} />
 	<meta property="og:url" content={shareUrl} />
@@ -396,938 +420,451 @@
 	<meta name="twitter:image" content="https://silo.cat/og-image.png" />
 </svelte:head>
 
-<div class="landing-page">
+<div class="dl-page">
 	<Navbar />
 
-	<main class="hero">
-		<div class="hero-content">
-			<h1>Ready to <span class="text-gradient">Download.</span></h1>
-			<p class="subtitle">Secure, fast, and anonymous delivery.</p>
-
-			<div class="download-card">
-				{#if error}
-					<div class="state-container error">
-						<Icon icon="mdi:alert-circle" class="state-icon text-red-500" />
-						<h3>Access Denied</h3>
-						<p>{error}</p>
+	<main class="dl-main">
+		<div class="dl-card">
+			{#if error}
+				<div class="state">
+					<div class="state-glyph danger"><Icon icon="ri:error-warning-line" width="24" /></div>
+					<h1>Link unavailable</h1>
+					<p class="state-msg">{error}</p>
+					<Button variant="ghost" href="/">Go to Silocat</Button>
+				</div>
+			{:else if isFolder}
+				<div class="head">
+					<div class="glyph"><Icon icon="ri:folder-3-line" width="22" /></div>
+					<div class="head-text">
+						<h1 title={folderMeta.name}>{folderMeta.uploaded_as_files ? 'Shared files' : folderMeta.name}</h1>
+						<p class="sub">{folderFiles.length} item{folderFiles.length !== 1 ? 's' : ''} · {fmtSize(folderFiles.reduce((a, f) => a + f.size, 0))}</p>
 					</div>
-				{:else if isFolder}
-					<div class="file-details" transition:fade>
-						<div class="icon-circle">
-							<Icon icon="ri:folder-shared-line" width="48" />
-						</div>
+				</div>
 
-						<h2 class="filename" title={folderMeta.name}>
-							{folderMeta.uploaded_as_files ? 'Shared Files' : folderMeta.name}
-						</h2>
-						<div class="action-header">
-							<p class="filesize">{folderFiles.length} item{folderFiles.length !== 1 ? 's' : ''}</p>
-							<div style="display: flex; gap: 0.5rem;">
-								<button
-									class="zip-btn"
-									onclick={() => startDownloadZip()}
-									disabled={isDownloading || (folderFiles.some((f) => f.encrypted) && !password)}
-								>
-									{#if isDownloading}
-										<div
-											style="display: flex; flex-direction: column; align-items: center; width: 100%;"
-										>
-											<div
-												style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;"
-											>
-												<Icon icon="line-md:loading-loop" />
-												<span>Processing... {Math.round(progress)}%</span>
-											</div>
-											<div
-												style="width: 100%; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin-top: 4px; overflow: hidden;"
-											>
-												<div
-													style="width: {progress}%; height: 100%; background: white; transition: width 0.2s ease;"
-												></div>
-											</div>
-										</div>
-									{:else}
-										<Icon icon="ri:file-zip-line" />
-										Download Zip
-									{/if}
-								</button>
-								<button class="delete-btn" onclick={handleDeleteClick} title="Delete Folder">
-									<Icon icon="ri:delete-bin-line" width="20" />
-								</button>
+				{#if folderFiles.some((f) => f.encrypted)}
+					<PasswordInput bind:value={password} label="Password" placeholder="Unlock password" />
+				{/if}
+
+				<div class="actions">
+					<Button
+						block
+						loading={isDownloading}
+						disabled={folderFiles.some((f) => f.encrypted) && !password}
+						onclick={() => startDownloadZip()}
+					>
+						{#if isDownloading}Preparing zip… {Math.round(progress)}%{:else}<Icon icon="ri:file-zip-line" width="16" /> Download all as zip{/if}
+					</Button>
+					<button class="del" onclick={handleDeleteClick} aria-label="Delete folder" title="Delete folder">
+						<Icon icon="ri:delete-bin-line" width="17" />
+					</button>
+				</div>
+				{#if isDownloading}<Progress value={progress} size="sm" />{/if}
+
+				<div class="file-list">
+					{#each folderFiles as file (file.id)}
+						<div class="frow">
+							<span class="fic"><Icon icon={typeIcon(file.mime, file.name)} width="16" /></span>
+							<div class="fmeta">
+								<span class="fname" title={file.name}>{file.name}</span>
+								<span class="fsize">{fmtSize(file.size)}</span>
 							</div>
-						</div>
-
-						<!-- Shared Password Input for Folder -->
-						{#if folderFiles.some((f) => f.encrypted)}
-							<div class="password-section">
-								<div class="input-label">
-									<Icon icon="ri:lock-password-line" />
-									<span>Enter Password (if needed)</span>
-								</div>
-								<input
-									type="password"
-									bind:value={password}
-									placeholder="Unlock password..."
-									class="password-input"
-								/>
-							</div>
-						{/if}
-
-						<div class="file-list">
-							{#each folderFiles as file}
-								<div class="file-item">
-									<div class="file-info">
-										<Icon icon="ri:file-line" class="file-icon" />
-										<div class="file-text">
-											<span class="name">{file.name}</span>
-											<span class="size">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
-										</div>
-									</div>
-									<div
-										style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 120px;"
-									>
-										{#if isDownloading && currentDownloadId === file.id && currentDownloadProgress > 0}
-											<div style="width: 100%; display: flex; align-items: center; gap: 6px;">
-												<div
-													style="flex-grow: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;"
-												>
-													<div
-														style="width: {currentDownloadProgress}%; height: 100%; background: #4facfe; transition: width 0.1s linear;"
-													></div>
-												</div>
-												<span
-													style="font-size: 0.75rem; color: rgba(255,255,255,0.8); font-variant-numeric: tabular-nums; width: 32px; text-align: right;"
-												>
-													{Math.round(currentDownloadProgress)}%
-												</span>
-											</div>
-										{:else if file.total_chunks && file.uploaded_chunks < file.total_chunks}
-											<div
-												style="display: flex; align-items: center; gap: 4px; color: #ffb703; font-size: 0.75rem;"
-											>
-												<Icon icon="line-md:uploading-loop" />
-												<span
-													>{Math.round((file.uploaded_chunks / file.total_chunks) * 100)}% Uploaded</span
-												>
-											</div>
-										{/if}
-
-										<button
-											class="mini-download-btn"
-											onclick={() => startDownloadSingle(file)}
-											disabled={(file.encrypted && !password) ||
-												(isDownloading && currentDownloadId === file.id)}
-											title="Download File"
-										>
-											{#if isDownloading && currentDownloadId === file.id}
-												<Icon icon="line-md:loading-loop" />
-											{:else}
-												<Icon icon="ri:download-line" />
-											{/if}
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-						<div class="metadata-section">
-							<h3>Folder Details</h3>
-							<div class="meta-grid">
-								<div class="meta-item">
-									<span class="label">Type</span>
-									<span class="value"
-										>{folderMeta.uploaded_as_files ? 'File Collection' : 'Folder'}</span
-									>
-								</div>
-								<div class="meta-item">
-									<span class="label">Items</span>
-									<span class="value">{folderFiles.length} files</span>
-								</div>
-								<div class="meta-item">
-									<span class="label">Created On</span>
-									<span class="value">{new Date(folderMeta.created_on).toLocaleDateString()}</span>
-								</div>
-								<div class="meta-item">
-									<span class="label">Total Size</span>
-									<span class="value"
-										>{(folderFiles.reduce((acc, f) => acc + f.size, 0) / 1024 / 1024).toFixed(2)} MB</span
-									>
-								</div>
-							</div>
-						</div>
-					</div>
-				{:else if fileMeta}
-					<div class="file-details" transition:fade>
-						<div class="icon-circle">
-							<Icon icon="ri:file-download-line" width="48" />
-						</div>
-
-						<h2 class="filename" title={fileMeta.name}>{fileMeta.name}</h2>
-						<p class="filesize">{(fileMeta.size / 1024 / 1024).toFixed(2)} MB</p>
-
-						{#if fileMeta.encrypted}
-							<div class="password-section">
-								<div class="input-label">
-									<Icon icon="ri:lock-password-line" />
-									<span>Enter Password to Decrypt</span>
-								</div>
-								<input
-									type="password"
-									bind:value={password}
-									placeholder="Unlock password..."
-									class="password-input"
-								/>
-							</div>
-						{:else}
-							<div class="info-badge">
-								<Icon icon="ri:shield-check-line" />
-								<span>File is not password protected.</span>
-							</div>
-						{/if}
-
-						<div class="action-area">
-							{#if isDownloading}
-								<div class="progress-container">
-									<div class="progress-bar-bg">
-										<!-- Remote Upload Progress (Lighter/ Different Color) -->
-										<div
-											class="progress-bar-fill remote"
-											style="width: {uploadProgress}%; background-color: rgba(255,255,255,0.2); position: absolute; top:0; left:0; height: 100%;"
-										></div>
-										<!-- Local Download Progress (Primary Color) -->
-										<div
-											class="progress-bar-fill local"
-											style="width: {progress}%; position: absolute; top:0; left:0; height: 100%;"
-										></div>
-									</div>
-									<div
-										class="progress-info-row"
-										style="display: flex; justify-content: space-between; margin-top: 8px;"
-									>
-										<span class="progress-text">
-											{fileMeta.encrypted ? 'Decrypting' : 'Downloading'}... {Math.round(progress)}%
-										</span>
-										{#if isWaiting}
-											<span
-												class="waiting-text"
-												style="color: var(--warning-color, #ffaa00); display: flex; align-items: center; gap: 4px;"
-											>
-												<Icon icon="svg-spinners:dots-12" /> Waiting for upload... {Math.round(
-													uploadProgress
-												)}%
-											</span>
-										{:else if uploadProgress < 100}
-											<span class="remote-text" style="opacity: 0.7;">
-												Uploaded: {Math.round(uploadProgress)}%
-											</span>
-										{/if}
-									</div>
-								</div>
-							{:else}
-								<button
-									class="download-btn"
-									onclick={() => startDownload()}
-									disabled={fileMeta.encrypted && !password}
-								>
-									{#if fileMeta.encrypted}
-										<Icon icon="ri:lock-unlock-line" width="24" />
-										Decrypt & Download
-									{:else}
-										<Icon icon="ri:download-cloud-2-line" width="24" />
-										Download File
-									{/if}
-								</button>
-								<button class="delete-btn" onclick={handleDeleteClick} title="Delete File">
-									<Icon icon="ri:delete-bin-line" width="24" />
-								</button>
+							{#if file.total_chunks && file.uploaded_chunks < file.total_chunks}
+								<span class="uploading"><Icon icon="svg-spinners:12-dots-scale-rotate" width="13" /> {Math.round((file.uploaded_chunks / file.total_chunks) * 100)}%</span>
+							{:else if isDownloading && currentDownloadId === file.id}
+								<span class="dlpct">{Math.round(currentDownloadProgress)}%</span>
 							{/if}
+							<button
+								class="frow-dl"
+								onclick={() => startDownloadSingle(file)}
+								disabled={(file.encrypted && !password) || (isDownloading && currentDownloadId === file.id)}
+								aria-label="Download file"
+							>
+								{#if isDownloading && currentDownloadId === file.id}<Spinner size={15} />{:else}<Icon icon="ri:download-line" width="16" />{/if}
+							</button>
 						</div>
+					{/each}
+				</div>
 
-						<div class="metadata-section">
-							<h3>File Details</h3>
-							<div class="meta-grid">
-								<div class="meta-item">
-									<span class="label">Type</span>
-									<span class="value">File</span>
-								</div>
-								<div class="meta-item">
-									<span class="label">Size</span>
-									<span class="value">{(fileMeta.size / 1024 / 1024).toFixed(2)} MB</span>
-								</div>
-								<div class="meta-item">
-									<span class="label">Date Uploaded</span>
-									<span class="value">{new Date(fileMeta.created_on).toLocaleDateString()}</span>
-								</div>
-								<div class="meta-item">
-									<span class="label">MIME Type</span>
-									<span class="value">{fileMeta.mime}</span>
-								</div>
-								<div class="meta-item full-width">
-									<span class="label">SHA256 Checksum</span>
-									<span class="value mono">{fileMeta.sha256_checksum}</span>
-								</div>
-							</div>
+				<dl class="meta">
+					<div><dt>Type</dt><dd>{folderMeta.uploaded_as_files ? 'File collection' : 'Folder'}</dd></div>
+					<div><dt>Items</dt><dd>{folderFiles.length}</dd></div>
+					<div><dt>Created</dt><dd>{fmtDate(folderMeta.created_on)}</dd></div>
+					<div><dt>Total size</dt><dd>{fmtSize(folderFiles.reduce((a, f) => a + f.size, 0))}</dd></div>
+				</dl>
+			{:else if fileMeta}
+				<div class="head">
+					<div class="glyph"><Icon icon={typeIcon(fileMeta.mime, fileMeta.name)} width="22" /></div>
+					<div class="head-text">
+						<h1 title={fileMeta.name}>{fileMeta.name}</h1>
+						<p class="sub">
+							{fmtSize(fileMeta.size)}
+							{#if fileMeta.encrypted}<span class="dot">·</span><Badge tone="neutral" icon="ri:lock-2-line">Encrypted</Badge>{/if}
+						</p>
+					</div>
+				</div>
+
+				{#if fileMeta.encrypted}
+					<PasswordInput bind:value={password} label="Password" placeholder="Unlock password" />
+				{/if}
+
+				{#if isDownloading}
+					<div class="dl-progress">
+						<Progress value={progress} size="md" />
+						<div class="dl-progress-row">
+							<span>{fileMeta.encrypted ? 'Decrypting' : 'Downloading'} · {Math.round(progress)}%</span>
+							{#if isWaiting}
+								<span class="waiting"><Icon icon="svg-spinners:12-dots-scale-rotate" width="12" /> waiting for upload {Math.round(uploadProgress)}%</span>
+							{:else if uploadProgress < 100}
+								<span class="muted">uploaded {Math.round(uploadProgress)}%</span>
+							{/if}
 						</div>
 					</div>
 				{:else}
-					<div class="state-container loading">
-						<Icon icon="svg-spinners:ring-resize" class="state-icon" />
-						<p>Retrieving secure metadata...</p>
+					<div class="actions">
+						<Button block disabled={fileMeta.encrypted && !password} onclick={() => startDownload()}>
+							{#if fileMeta.encrypted}<Icon icon="ri:lock-unlock-line" width="16" /> Decrypt & download{:else}<Icon icon="ri:download-line" width="16" /> Download{/if}
+						</Button>
+						<button class="del" onclick={handleDeleteClick} aria-label="Delete file" title="Delete file">
+							<Icon icon="ri:delete-bin-line" width="17" />
+						</button>
 					</div>
 				{/if}
-			</div>
+
+				<dl class="meta">
+					<div><dt>Size</dt><dd>{fmtSize(fileMeta.size)}</dd></div>
+					<div><dt>Uploaded</dt><dd>{fmtDate(fileMeta.created_on)}</dd></div>
+					<div><dt>Type</dt><dd class="ellipsis">{fileMeta.mime || 'file'}</dd></div>
+					{#if fileMeta.sha256_checksum}
+						<div class="full"><dt>SHA-256</dt><dd class="mono ellipsis">{fileMeta.sha256_checksum}</dd></div>
+					{/if}
+				</dl>
+			{:else}
+				<div class="state">
+					<Spinner size={24} />
+					<p class="state-msg">Loading…</p>
+				</div>
+			{/if}
+
+			{#if !error}
+				<p class="secure-note">
+					<Icon icon="ri:shield-check-line" width="13" />
+					{#if isFolder ? folderFiles.some((f) => f.encrypted) : fileMeta?.encrypted}Encrypted end to end · shared via Silocat{:else}Shared via Silocat{/if}
+				</p>
+			{/if}
 		</div>
 	</main>
 
 	<Footer />
-
-	<div class="bg-effects">
-		<div class="glow-spot top"></div>
-		<div class="glow-spot bottom"></div>
-	</div>
 </div>
 
-{#if showDeleteModal}
-	<div class="modal-backdrop" transition:fade onclick={() => (showDeleteModal = false)}>
-		<div class="modal-content" transition:scale onclick={(e) => e.stopPropagation()}>
-			<div class="modal-header">
-				<Icon icon="ri:delete-bin-fill" width="32" class="modal-icon error" />
-				<h2>Delete {isFolder ? 'Folder' : 'File'}</h2>
-			</div>
-
-			<div class="modal-body">
-				<p>
-					Are you sure you want to delete this {isFolder ? 'folder' : 'file'}? This action cannot be
-					undone.
-				</p>
-
-				<div class="input-group">
-					<label for="delKey">Owner API Key</label>
-					<div class="input-wrapper">
-						<input
-							type="text"
-							id="delKey"
-							bind:value={deleteKeyInput}
-							placeholder="Enter API Key to verify ownership"
-							class:has-value={!!deleteKeyInput}
-						/>
-						{#if $page.data.user && deleteKeyInput === $page.data.user.api_key}
-							<span
-								class="badge"
-								style="background: rgba(255, 70, 85, 0.2); color: #ff4655; border-color: rgba(255, 70, 85, 0.3);"
-								>Account Key</span
-							>
-						{:else if $shadowKey && deleteKeyInput === $shadowKey}
-							<span class="badge">Browser Key</span>
-						{/if}
-					</div>
-					<p class="hint">
-						Required to verify ownership. If you lost the key, the {isFolder ? 'folder' : 'file'} cannot
-						be deleted.
-					</p>
-				</div>
-			</div>
-
-			<div class="modal-actions">
-				<button class="cancel-btn" onclick={() => (showDeleteModal = false)}>Cancel</button>
-				<button
-					class="confirm-delete-btn"
-					onclick={performDelete}
-					disabled={isDeleting || !deleteKeyInput}
-				>
-					{#if isDeleting}
-						<Icon icon="svg-spinners:ring-resize" /> Deleting...
-					{:else}
-						<Icon icon="ri:delete-bin-line" /> Delete
-					{/if}
-				</button>
-			</div>
-		</div>
+<Modal open={showDeleteModal} title={`Delete ${isFolder ? 'folder' : 'file'}`} icon="ri:delete-bin-line" onclose={() => (showDeleteModal = false)}>
+	<div class="del-body">
+		<p class="del-msg">This permanently deletes the {isFolder ? 'folder' : 'file'}. It can't be undone.</p>
+		<Input bind:value={deleteKeyInput} label="Owner key" icon="ri:key-2-line" placeholder="API key to verify ownership" mono hint={`Required to prove ownership. Without it the ${isFolder ? 'folder' : 'file'} can't be deleted.`}>
+			{#if $page.data.user && deleteKeyInput === $page.data.user.api_key}
+				<Badge tone="accent">Account</Badge>
+			{:else if $shadowKey && deleteKeyInput === $shadowKey}
+				<Badge tone="neutral">Browser</Badge>
+			{/if}
+		</Input>
 	</div>
-{/if}
+	{#snippet footer()}
+		<Button variant="quiet" onclick={() => (showDeleteModal = false)}>Cancel</Button>
+		<Button variant="danger-solid" loading={isDeleting} disabled={!deleteKeyInput} onclick={performDelete}>Delete</Button>
+	{/snippet}
+</Modal>
 
 <style lang="scss">
-	.landing-page {
+	.dl-page {
 		min-height: 100vh;
-		position: relative;
-		overflow: hidden;
 		display: flex;
 		flex-direction: column;
 	}
-
-	.hero {
+	.dl-main {
 		flex: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 10;
 		padding: var(--space-8) var(--gutter);
-		.hero-content {
-			text-align: center;
-			max-width: 800px;
-			width: 100%;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-5);
-			h1 {
-				font-size: var(--fs-display);
-				font-weight: var(--fw-black);
-				margin: 0;
-			}
-			.subtitle {
-				font-size: var(--fs-lg);
-				color: var(--text-secondary);
-				margin-bottom: var(--space-5);
-			}
-		}
 	}
-
-	.download-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		padding: clamp(1.5rem, 5vw, 3rem);
+	.dl-card {
 		width: 100%;
-		max-width: 500px;
-		box-shadow: var(--shadow-lg);
-		min-height: 300px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-
-		.state-container {
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-4);
-			.state-icon {
-				font-size: 3rem;
-				color: var(--primary);
-			}
-			h3 {
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-semibold);
-				margin: 0;
-			}
-			p {
-				color: var(--text-secondary);
-			}
-			&.loading .state-icon {
-				color: var(--text-secondary);
-			}
-		}
-
-		.file-details {
-			width: 100%;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-2);
-			.icon-circle {
-				width: 80px;
-				height: 80px;
-				background: rgba(255, 70, 85, 0.1);
-				border-radius: 50%;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				color: var(--primary);
-				box-shadow: var(--shadow-glow);
-				margin-bottom: var(--space-4);
-			}
-			.filename {
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-semibold);
-				margin: 0;
-				word-break: break-all;
-			}
-			.filesize {
-				color: var(--text-muted);
-				font-size: var(--fs-body);
-				margin-bottom: var(--space-6);
-			}
-
-			.action-header {
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				width: 100%;
-				margin-bottom: var(--space-5);
-
-				.filesize {
-					color: var(--text-muted);
-					font-size: var(--fs-body);
-					margin: 0;
-				}
-
-				.zip-btn {
-					background: var(--tint-soft);
-					border: 1px solid var(--border-default);
-					color: var(--text-primary);
-					padding: 0.5rem 1rem;
-					border-radius: var(--radius-sm);
-					font-size: var(--fs-sm);
-					font-weight: var(--fw-medium);
-					font-family: inherit;
-					cursor: pointer;
-					display: flex;
-					align-items: center;
-					gap: var(--space-2);
-					transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-
-					&:hover:not(:disabled) {
-						background: var(--tint-softer);
-						border-color: var(--border-strong);
-					}
-
-					&:disabled {
-						opacity: 0.5;
-						cursor: not-allowed;
-					}
-				}
-			}
-
-			.file-list {
-				width: 100%;
-				display: flex;
-				flex-direction: column;
-				gap: var(--space-3);
-				margin-bottom: var(--space-6);
-				max-height: 400px;
-				overflow-y: auto;
-				padding-right: var(--space-2);
-
-				.file-item {
-					display: flex;
-					justify-content: space-between;
-					align-items: center;
-					padding: var(--space-4);
-					background: var(--tint-soft);
-					border: 1px solid var(--hairline);
-					border-radius: var(--radius-sm);
-					transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-
-					&:hover {
-						background: var(--tint-softer);
-						border-color: var(--border-default);
-					}
-
-					.file-info {
-						display: flex;
-						align-items: center;
-						gap: var(--space-4);
-						overflow: hidden;
-
-						.file-icon {
-							font-size: 1.5rem;
-							color: var(--text-secondary);
-							flex-shrink: 0;
-						}
-
-						.file-text {
-							display: flex;
-							flex-direction: column;
-							overflow: hidden;
-
-							.name {
-								font-weight: var(--fw-medium);
-								white-space: nowrap;
-								overflow: hidden;
-								text-overflow: ellipsis;
-								max-width: 200px;
-							}
-
-							.size {
-								font-size: var(--fs-sm);
-								color: var(--text-muted);
-							}
-						}
-					}
-
-					.mini-download-btn {
-						background: var(--tint-softer);
-						border: 1px solid var(--border-default);
-						color: var(--text-primary);
-						width: 36px;
-						height: 36px;
-						border-radius: var(--radius-sm);
-						display: flex;
-						align-items: center;
-						justify-content: center;
-						cursor: pointer;
-						transition: background var(--dur) var(--ease);
-
-						&:hover:not(:disabled) {
-							background: var(--bg-card-hover);
-						}
-
-						&:disabled {
-							opacity: 0.5;
-							cursor: not-allowed;
-						}
-					}
-				}
-			}
-
-			.password-section {
-				width: 100%;
-				background: var(--tint-soft);
-				padding: var(--space-5);
-				border-radius: var(--radius-sm);
-				display: flex;
-				flex-direction: column;
-				gap: var(--space-3);
-				margin-bottom: var(--space-5);
-				border: 1px solid var(--hairline);
-
-				.input-label {
-					display: flex;
-					align-items: center;
-					gap: var(--space-2);
-					color: var(--text-secondary);
-					font-size: var(--fs-sm);
-					font-weight: var(--fw-medium);
-				}
-				.password-input {
-					width: 100%;
-					background: var(--bg-input);
-					border: 1px solid var(--border-default);
-					color: var(--text-primary);
-					padding: 0.75rem 0.95rem;
-					border-radius: var(--radius-sm);
-					font-size: var(--fs-body);
-					font-family: var(--font-mono);
-					outline: none;
-					transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-					box-sizing: border-box;
-					&:focus {
-						border-color: var(--primary);
-						box-shadow: 0 0 0 3px var(--primary-glow);
-					}
-				}
-			}
-
-			.info-badge {
-				background: rgba(61, 220, 151, 0.12);
-				color: var(--success);
-				padding: 0.6rem 1rem;
-				border-radius: var(--radius-pill);
-				font-size: var(--fs-sm);
-				display: flex;
-				align-items: center;
-				gap: var(--space-2);
-				margin-bottom: var(--space-6);
-			}
-
-			.action-area {
-				width: 100%;
-				.download-btn {
-					width: 100%;
-					background: var(--accent-gradient);
-					color: #fff;
-					border: none;
-					padding: 0.95rem;
-					border-radius: var(--radius-pill);
-					font-weight: var(--fw-semibold);
-					font-size: var(--fs-lg);
-					font-family: inherit;
-					cursor: pointer;
-					display: flex;
-					align-items: center;
-					justify-content: center;
-					gap: var(--space-3);
-					box-shadow: 0 6px 20px -6px var(--primary-glow);
-					transition: filter var(--dur) var(--ease), transform var(--dur) var(--ease);
-					&:hover {
-						filter: brightness(1.06);
-						transform: translateY(-1px);
-					}
-					&:disabled {
-						opacity: 0.5;
-						cursor: not-allowed;
-						transform: none;
-						background: var(--border-strong);
-						box-shadow: none;
-					}
-				}
-
-				.progress-container {
-					width: 100%;
-					.progress-bar-bg {
-						height: 8px;
-						background: var(--tint-softer);
-						border-radius: var(--radius-pill);
-						overflow: hidden;
-						margin-bottom: var(--space-2);
-						position: relative;
-						.progress-bar-fill {
-							height: 100%;
-							background: var(--accent-gradient);
-							transition: width 0.3s ease;
-						}
-					}
-					.progress-text {
-						font-size: var(--fs-sm);
-						color: var(--text-secondary);
-					}
-				}
-			}
-		}
-	}
-
-	.bg-effects {
-		position: fixed;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		pointer-events: none;
-		z-index: 0;
-		overflow: hidden;
-		.glow-spot {
-			position: absolute;
-			width: 600px;
-			height: 600px;
-			filter: blur(110px);
-			border-radius: 50%;
-			&.top {
-				top: -22%;
-				left: 12%;
-				background: radial-gradient(circle, rgba(255, 70, 85, 0.16) 0%, transparent 70%);
-			}
-			&.bottom {
-				bottom: -25%;
-				right: 10%;
-				width: 800px;
-				height: 800px;
-				background: radial-gradient(circle, rgba(74, 163, 226, 0.1) 0%, transparent 70%);
-			}
-		}
-	}
-	.metadata-section {
-		width: 100%;
-		margin-top: var(--space-6);
-		padding-top: var(--space-6);
-		border-top: 1px solid var(--hairline);
-
-		h3 {
-			font-size: var(--fs-lg);
-			font-weight: var(--fw-semibold);
-			margin-bottom: var(--space-4);
-			color: var(--text-primary);
-		}
-
-		.meta-grid {
-			display: grid;
-			grid-template-columns: repeat(2, 1fr);
-			gap: var(--space-4);
-
-			.meta-item {
-				display: flex;
-				flex-direction: column;
-				gap: var(--space-1);
-
-				&.full-width {
-					grid-column: span 2;
-				}
-
-				.label {
-					font-size: var(--fs-xs);
-					color: var(--text-muted);
-					text-transform: uppercase;
-					letter-spacing: 0.05em;
-				}
-
-				.value {
-					font-size: var(--fs-sm);
-					color: var(--text-primary);
-					word-break: break-all;
-
-					&.mono {
-						font-family: var(--font-mono);
-						font-size: var(--fs-sm);
-						color: var(--text-secondary);
-					}
-				}
-			}
-		}
-	}
-	.action-area {
-		display: flex;
-		gap: var(--space-4);
-		width: 100%;
-
-		.download-btn {
-			flex: 1;
-		}
-
-		.delete-btn {
-			background: rgba(255, 70, 85, 0.1);
-			border: 1px solid rgba(255, 70, 85, 0.25);
-			color: var(--danger);
-			padding: 0 var(--space-5);
-			border-radius: var(--radius-pill);
-			cursor: pointer;
-			transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-
-			&:hover {
-				background: rgba(255, 70, 85, 0.18);
-				border-color: rgba(255, 70, 85, 0.4);
-			}
-		}
-	}
-
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.65);
-		backdrop-filter: blur(8px);
-		z-index: 100;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--gutter);
-	}
-	.modal-content {
-		background: var(--bg-elevated);
-		border: 1px solid var(--border-default);
+		max-width: 460px;
+		background: var(--surface);
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-lg);
 		padding: var(--space-6);
-		width: 100%;
-		max-width: 420px;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
-		box-shadow: var(--shadow-lg);
-		position: relative;
-		text-align: left;
 	}
-	.modal-header {
+
+	/* states */
+	.state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: var(--space-3);
+		padding: var(--space-6) 0;
+		color: var(--ink-faint);
+
+		h1 {
+			font-size: var(--fs-h3);
+			color: var(--ink);
+		}
+		.state-msg {
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+			margin: 0;
+		}
+	}
+	.state-glyph {
 		display: flex;
 		align-items: center;
-		gap: var(--space-4);
-
-		:global(.modal-icon.error) {
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--edge);
+		color: var(--ink-faint);
+		&.danger {
 			color: var(--danger);
-		}
-		h2 {
-			margin: 0;
-			font-size: var(--fs-h3);
-			color: var(--text-primary);
+			border-color: transparent;
+			background: var(--danger-soft);
 		}
 	}
-	.modal-body {
+
+	/* header */
+	.head {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		min-width: 0;
+	}
+	.glyph {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 48px;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		color: var(--ink-mute);
+		flex-shrink: 0;
+	}
+	.head-text {
+		min-width: 0;
+		h1 {
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.sub {
+			display: flex;
+			align-items: center;
+			gap: var(--space-2);
+			margin: var(--space-1) 0 0;
+			font-family: var(--font-mono);
+			font-size: var(--fs-xs);
+			color: var(--ink-faint);
+		}
+		.dot {
+			opacity: 0.5;
+		}
+	}
+
+	/* actions */
+	.actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+	.del {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		flex-shrink: 0;
+		background: transparent;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		color: var(--ink-mute);
+		cursor: pointer;
+		transition:
+			border-color var(--dur) var(--ease),
+			color var(--dur) var(--ease),
+			background var(--dur) var(--ease);
+		&:hover {
+			border-color: var(--danger);
+			color: var(--danger);
+			background: var(--danger-soft);
+		}
+	}
+
+	.dl-progress {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.dl-progress-row {
+		display: flex;
+		justify-content: space-between;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		.muted {
+			color: var(--ink-faint);
+		}
+		.waiting {
+			display: inline-flex;
+			align-items: center;
+			gap: 4px;
+			color: var(--warn);
+		}
+	}
+
+	/* folder file list */
+	.file-list {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+		max-height: 280px;
+		overflow-y: auto;
+	}
+	.frow {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		& + .frow {
+			border-top: 1px solid var(--edge);
+		}
+	}
+	.fic {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+	.fmeta {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		.fname {
+			font-size: var(--fs-sm);
+			color: var(--ink);
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.fsize {
+			font-family: var(--font-mono);
+			font-size: var(--fs-xs);
+			color: var(--ink-faint);
+		}
+	}
+	.uploading {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--warn);
+	}
+	.dlpct {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+	}
+	.frow-dl {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px;
+		height: 30px;
+		flex-shrink: 0;
+		background: none;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: var(--ink-mute);
+		cursor: pointer;
+		&:hover:not(:disabled) {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+		&:disabled {
+			opacity: 0.4;
+			cursor: not-allowed;
+		}
+	}
+
+	/* metadata */
+	.meta {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-3) var(--space-4);
+		margin: 0;
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--edge);
+
+		div {
+			min-width: 0;
+		}
+		.full {
+			grid-column: 1 / -1;
+		}
+		dt {
+			font-size: var(--fs-xs);
+			color: var(--ink-faint);
+			margin-bottom: 2px;
+		}
+		dd {
+			margin: 0;
+			font-size: var(--fs-sm);
+			color: var(--ink);
+			&.mono {
+				font-family: var(--font-mono);
+				font-size: var(--fs-xs);
+			}
+			&.ellipsis {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+		}
+	}
+
+	.secure-note {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-1);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		margin: 0;
+	}
+
+	/* delete modal body */
+	.del-body {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-
-		p {
-			margin: 0;
-			color: var(--text-secondary);
-			line-height: var(--lh-snug);
-			font-size: var(--fs-sm);
-		}
-
-		.input-group {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-2);
-			margin-top: var(--space-2);
-
-			label {
-				font-size: var(--fs-sm);
-				color: var(--text-secondary);
-				font-weight: var(--fw-medium);
-			}
-
-			.input-wrapper {
-				position: relative;
-
-				input {
-					width: 100%;
-					background: var(--bg-input);
-					border: 1px solid var(--border-default);
-					padding: 0.75rem 0.95rem;
-					padding-right: 6rem;
-					border-radius: var(--radius-sm);
-					color: var(--text-primary);
-					font-family: var(--font-mono);
-					font-size: var(--fs-body);
-					box-sizing: border-box;
-
-					&:focus {
-						outline: none;
-						border-color: var(--primary);
-						box-shadow: 0 0 0 3px var(--primary-glow);
-					}
-				}
-
-				.badge {
-					position: absolute;
-					right: var(--space-2);
-					top: 50%;
-					transform: translateY(-50%);
-					background: rgba(61, 220, 151, 0.12);
-					color: var(--success);
-					font-size: var(--fs-xs);
-					padding: 0.2rem 0.5rem;
-					border-radius: var(--radius-sm);
-					border: 1px solid rgba(61, 220, 151, 0.25);
-					pointer-events: none;
-				}
-			}
-
-			.hint {
-				font-size: var(--fs-xs);
-				color: var(--text-muted);
-				margin-top: var(--space-1);
-				font-style: italic;
-			}
-		}
 	}
-	.modal-actions {
-		display: grid;
-		grid-template-columns: 1fr 1.5fr;
-		gap: var(--space-4);
-		margin-top: var(--space-2);
-
-		button {
-			padding: 0.85rem;
-			border-radius: var(--radius-pill);
-			font-weight: var(--fw-semibold);
-			font-family: inherit;
-			cursor: pointer;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			gap: var(--space-2);
-			transition: background var(--dur) var(--ease), filter var(--dur) var(--ease);
-			border: 1px solid transparent;
-
-			&.cancel-btn {
-				background: var(--tint-soft);
-				border-color: var(--border-default);
-				color: var(--text-primary);
-				&:hover {
-					background: var(--tint-softer);
-					border-color: var(--border-strong);
-				}
-			}
-
-			&.confirm-delete-btn {
-				background: var(--accent-gradient);
-				color: #fff;
-				box-shadow: 0 6px 20px -6px var(--primary-glow);
-				&:hover {
-					filter: brightness(1.06);
-				}
-				&:disabled {
-					opacity: 0.5;
-					cursor: not-allowed;
-				}
-			}
-		}
+	.del-msg {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		margin: 0;
 	}
 </style>

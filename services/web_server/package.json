@@ -1,5 +1,5 @@
 {
-	"name": "web-server",
+	"name": "silocat-web",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -45,5 +45,10 @@
 		"sass": "^1.97.1",
 		"svelte-sonner": "^1.0.7",
 		"svelte-turnstile": "^0.11.0"
+	},
+	"license": "AGPL-3.0-only",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/clickswave/silocat"
 	}
 }

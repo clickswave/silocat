@@ -14,7 +14,7 @@ export async function POST({ request, locals }) {
         const res = await ApiServerClient.post('/file/share/regenerate', {
             ...payload,
             user_id: user.id
-        });
+        }, { headers: { 'X-Api-Key': user.api_key } });
 
         if (res.data.status === 200) {
             return json({

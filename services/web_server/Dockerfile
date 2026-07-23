@@ -5,8 +5,5 @@ RUN apt-get update
 RUN apt-get upgrade -y
 RUN apt-get install -y curl build-essential pkg-config libssl-dev vim tree net-tools git
 
-# RUN mkdir /root/.ssh || echo "[*] SSH FOLDER EXISTS"
-# RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
-
 # copy service source files
 WORKDIR /root/codebase

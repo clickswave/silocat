@@ -25,10 +25,10 @@ async fn list_subscriptions(
             vec![],
             json!({ "subscriptions": subs }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to fetch subscriptions",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }

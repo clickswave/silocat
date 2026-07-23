@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT code, discount_percentage, duration, COALESCE(active, TRUE) as \"active!\" FROM promo_codes WHERE code = $1 AND active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR uses_count < max_uses)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "discount_percentage",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "duration",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "active!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "100a013940afaf1336290788ba088e81800155361b1950c787b260e83fda7c10"
+}

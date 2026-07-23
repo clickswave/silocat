@@ -14,9 +14,22 @@ pub struct ForgotPasswordInput {
 /// same way whether or not the email exists, so it can't be used to enumerate
 /// accounts. Rate-limited to one code per 60s (shared with the verification OTP).
 pub async fn handle(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<ForgotPasswordInput>,
 ) -> impl IntoResponse {
+    // Per-IP throttle on reset-code sends (the per-account 60s throttle below
+    // doesn't stop spraying codes across many accounts from one host).
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    if !state.rate_limiter.check(&format!("forgot:{}", ip), 10, std::time::Duration::from_secs(600)) {
+        return respond(
+            429,
+            "Too Many Requests",
+            vec!["Too many requests. Please try again later.".to_string()],
+            json!({}),
+        );
+    }
     let generic_ok = || {
         respond(
             200,
@@ -65,7 +78,7 @@ pub async fn handle(
 
     let otp = libs::rng::number(6);
 
-    if let Err(e) = sqlx::query("UPDATE users SET otp = $1, otp_last_sent_at = NOW() WHERE id = $2")
+    if let Err(e) = sqlx::query("UPDATE users SET otp = $1, otp_last_sent_at = NOW(), otp_expires_at = NOW() + INTERVAL '10 minutes', otp_attempts = 0 WHERE id = $2")
         .bind(&otp)
         .bind(&user_id)
         .execute(&state.pg_pool)

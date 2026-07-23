@@ -34,6 +34,7 @@ pub struct AppState {
     pub r2: libs::r2::R2,
     pub google_oauth: libs::configs::GoogleOauthConfig,
     pub geoip: Option<libs::geoip::GeoReader>,
+    pub rate_limiter: libs::ratelimit::RateLimiter,
 }
 
 #[tokio::main]
@@ -99,7 +100,18 @@ async fn main() -> anyhow::Result<()> {
         r2,
         google_oauth,
         geoip,
+        rate_limiter: libs::ratelimit::RateLimiter::new(),
     };
+
+    // Surface the pricing mode: any APP_ENV that isn't prod/production charges
+    // the ₹1/$1 test prices, so a misconfigured prod box is visible in the logs.
+    let app_env = std::env::var("APP_ENV").unwrap_or_else(|_| "(unset)".to_string());
+    let is_prod_pricing = matches!(app_env.trim().to_ascii_lowercase().as_str(), "prod" | "production" | "(unset)");
+    println!(
+        "[startup] APP_ENV={} — pricing: {}",
+        app_env,
+        if is_prod_pricing { "PRODUCTION (real prices)" } else { "TEST (nominal prices)" }
+    );
 
     let router = routes::all(state.clone()).await.with_state(state.clone());
 

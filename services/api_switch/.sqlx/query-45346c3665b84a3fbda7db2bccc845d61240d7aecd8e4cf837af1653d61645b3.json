@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE promo_codes SET uses_count = uses_count + 1 WHERE code = $1 AND active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) AND (max_uses IS NULL OR uses_count < max_uses) RETURNING discount_percentage",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discount_percentage",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45346c3665b84a3fbda7db2bccc845d61240d7aecd8e4cf837af1653d61645b3"
+}

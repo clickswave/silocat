@@ -217,7 +217,7 @@
 				}
 
 				&.selected {
-					background: rgba(255, 70, 85, 0.1);
+					background: var(--accent-soft);
 					color: var(--primary);
 				}
 

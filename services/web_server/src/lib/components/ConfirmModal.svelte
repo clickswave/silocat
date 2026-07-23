@@ -87,7 +87,7 @@
 		margin-bottom: calc(-1 * var(--space-2));
 
 		&.danger {
-			background: rgba(255, 70, 85, 0.1);
+			background: var(--danger-soft);
 			color: var(--danger);
 		}
 	}
@@ -156,11 +156,11 @@
 
 			&.danger {
 				background: var(--danger);
-				box-shadow: 0 6px 20px -6px rgba(255, 70, 85, 0.6);
+				box-shadow: none;
 
 				&:hover {
 					filter: brightness(1.08);
-					box-shadow: 0 10px 28px -6px rgba(255, 70, 85, 0.7);
+					box-shadow: none;
 				}
 			}
 		}

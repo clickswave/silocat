@@ -18,10 +18,11 @@ export async function POST({ request, locals }) {
         // We inject owner_api_key for access control if backend requires it
         let payload = {
             ...body,
+            api_key: sessionUser.api_key,
             owner_api_key: sessionUser.api_key
         };
 
-        let response = await ApiServerClient.post('/file/fetch-chunks', payload).then(res => res.data);
+        let response = await ApiServerClient.post('/file/fetch-chunks', payload, { headers: { 'X-Api-Key': sessionUser.api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[FETCH_CHUNKS]', err);

@@ -46,10 +46,10 @@ async fn list_anon_users(
             vec![],
             json!({ "users": users }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to fetch anonymous users",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }

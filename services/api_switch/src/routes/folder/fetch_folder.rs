@@ -1,8 +1,9 @@
+use crate::middlewares::resolve_identity::Caller;
 use crate::models;
 use crate::routes::respond;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::{Extension, Json};
 use serde_json::json;
 
 #[derive(serde::Deserialize)]
@@ -12,10 +13,10 @@ pub struct PayloadBody {
 
 pub async fn handle(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<PayloadBody>,
 ) -> impl IntoResponse {
 
-    // 1. Fetch Folder Metadata
     // 1. Fetch Folder Metadata
     let folder_query = sqlx::query_as!(
         models::Folder,
@@ -28,10 +29,19 @@ pub async fn handle(
     let folder = match folder_query {
         Ok(Some(f)) => f,
         Ok(None) => return respond(404, "Folder not found", vec![], json!({})),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
-    // 2. Fetch Child Files
+    // Owner-only: a folder's listing (and its children's metadata) is never
+    // returned for another user's folder id. Ownership is derived from the
+    // authenticated caller, never a client-supplied api key.
+    let allowed = caller
+        .as_ref()
+        .map_or(false, |c| c.owns(&folder.user_id, &folder.owner_api_key));
+    if !allowed {
+        return respond(404, "Folder not found", vec![], json!({}));
+    }
+
     // 2. Fetch Child Files
     let files_query = sqlx::query_as!(
         models::File,
@@ -43,10 +53,9 @@ pub async fn handle(
 
     let files = match files_query {
         Ok(files) => files,
-        Err(e) => return respond(500, "Failed to fetch files", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to fetch files", vec![], json!({})),
     };
 
-    // 3. Fetch Child Folders
     // 3. Fetch Child Folders
     let subfolders_query = sqlx::query_as!(
         models::Folder,
@@ -58,7 +67,7 @@ pub async fn handle(
 
     let subfolders = match subfolders_query {
         Ok(folders) => folders,
-        Err(e) => return respond(500, "Failed to fetch subfolders", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to fetch subfolders", vec![], json!({})),
     };
 
     respond(

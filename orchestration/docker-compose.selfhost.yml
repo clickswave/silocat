@@ -1,0 +1,173 @@
+# Self-contained Silocat stack for self-hosters.
+#
+#   cp env.selfhost.example .env   (repo root; edit the secrets)
+#   docker compose -f orchestration/docker-compose.selfhost.yml --env-file .env up -d
+#
+# Bundles Postgres and MinIO (S3-compatible storage) so nothing external is
+# required. Swap the CF_R2_* endpoints for Cloudflare R2 / Backblaze B2 in
+# production if you prefer managed storage.
+
+services:
+  sc_postgres:
+    container_name: sc_postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: silocat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: silocat
+    volumes:
+      - silocat_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U silocat']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - silocat_network
+
+  sc_minio:
+    container_name: sc_minio
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-silocat}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+    volumes:
+      - silocat_minio:/data
+    ports:
+      - '9001:9001' # admin console (optional)
+    networks:
+      - silocat_network
+
+  # One-shot: create the three buckets Silocat uses.
+  sc_minio_init:
+    image: minio/mc:latest
+    depends_on:
+      - sc_minio
+    entrypoint: >
+      sh -c "
+      sleep 3 &&
+      mc alias set local http://sc_minio:9000 $${MINIO_ROOT_USER:-silocat} $${MINIO_ROOT_PASSWORD} &&
+      mc mb -p local/silocat-shadow local/silocat-sanctum local/silocat-dp || true
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-silocat}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks:
+      - silocat_network
+
+  sc_api_switch:
+    container_name: sc_api_switch
+    restart: unless-stopped
+    build:
+      context: ../services/api_switch
+      dockerfile: Dockerfile
+    command: sh -c "cargo sqlx migrate run && cargo run --release"
+    depends_on:
+      sc_postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgres://silocat:${POSTGRES_PASSWORD}@sc_postgres:5432/silocat
+      AUTHORITY_SIGN: ${AUTHORITY_SIGN:?set AUTHORITY_SIGN in .env}
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:?set ADMIN_TOKEN_SECRET in .env}
+      SILOCAT_INVITE_ONLY: ${SILOCAT_INVITE_ONLY:-0}
+
+      # Storage: defaults point at the bundled MinIO.
+      CF_R2_REGION: ${CF_R2_REGION:-us-east-1}
+      CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET:-silocat-shadow}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL:-http://sc_minio:9000}
+      CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
+      CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+      CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET:-silocat-sanctum}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL:-http://sc_minio:9000}
+      CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
+      CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+      CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET:-silocat-dp}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL:-http://sc_minio:9000}
+      CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
+      CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+
+      # Optional integrations: leave blank to disable.
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Silocat}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      OAUTH_ID_GOOGLE: ${OAUTH_ID_GOOGLE:-}
+      OAUTH_SECRET_GOOGLE: ${OAUTH_SECRET_GOOGLE:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      RAZORPAY_ID: ${RAZORPAY_ID:-}
+      RAZORPAY_SECRET: ${RAZORPAY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      # GeoLite2 is optional and must be user-supplied (MaxMind license).
+      GEOLITE2_DB_PATH: ${GEOLITE2_DB_PATH:-}
+    networks:
+      - silocat_network
+
+  # Background scheduler: the same binary in WatchCat mode (cleanup, orphan GC).
+  sc_watchcat:
+    container_name: sc_watchcat
+    restart: unless-stopped
+    build:
+      context: ../services/api_switch
+      dockerfile: Dockerfile
+    command: sh -c "sleep 15 && cargo run --release"
+    depends_on:
+      - sc_api_switch
+    environment:
+      WATCHCAT_MODE: 1
+      APP_ENV: production
+      DATABASE_URL: postgres://silocat:${POSTGRES_PASSWORD}@sc_postgres:5432/silocat
+      AUTHORITY_SIGN: ${AUTHORITY_SIGN}
+      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET}
+      CF_R2_REGION: ${CF_R2_REGION:-us-east-1}
+      CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET:-silocat-shadow}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL:-http://sc_minio:9000}
+      CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
+      CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+      CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET:-silocat-sanctum}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL:-http://sc_minio:9000}
+      CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
+      CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+      CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET:-silocat-dp}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL:-http://sc_minio:9000}
+      CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
+      CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+    networks:
+      - silocat_network
+
+  sc_web_server:
+    container_name: sc_web_server
+    restart: unless-stopped
+    build:
+      context: ../services/web_server
+      dockerfile: Dockerfile
+    command: sh -c "npm i && npm run dev"
+    depends_on:
+      - sc_api_switch
+    ports:
+      - '12001:12001'
+    environment:
+      INTERNAL_API_URL: http://sc_api_switch:31337
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      AUTHORITY_SIGN: ${AUTHORITY_SIGN}
+      PUBLIC_TURNSTILE_KEY: ${PUBLIC_TURNSTILE_KEY:-1x00000000000000000000AA}
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-1x0000000000000000000000000000000AA}
+      OAUTH_CALLBACK_BASE_URI: ${OAUTH_CALLBACK_BASE_URI:-http://localhost:12001}
+      OAUTH_ID_GOOGLE: ${OAUTH_ID_GOOGLE:-}
+      OAUTH_SECRET_GOOGLE: ${OAUTH_SECRET_GOOGLE:-}
+      RAZORPAY_ID: ${RAZORPAY_ID:-}
+      RAZORPAY_SECRET: ${RAZORPAY_SECRET:-}
+    networks:
+      - silocat_network
+
+volumes:
+  silocat_pgdata:
+  silocat_minio:
+
+networks:
+  silocat_network:
+    driver: bridge

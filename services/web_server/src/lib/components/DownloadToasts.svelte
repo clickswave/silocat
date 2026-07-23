@@ -71,7 +71,7 @@
 	</div>
 {/if}
 
-<style>
+<style lang="scss">
 	.dl-stack {
 		position: fixed;
 		right: 1rem;
@@ -79,31 +79,31 @@
 		z-index: 200;
 		display: flex;
 		flex-direction: column;
-		gap: 0.6rem;
+		gap: var(--space-2);
 		width: min(340px, calc(100vw - 2rem));
 	}
 	.dl-card {
-		background: var(--bg-card, #1b1b1f);
-		border: 1px solid var(--border-default, #2e2e35);
-		border-radius: var(--radius-md, 8px);
-		padding: 0.7rem 0.8rem;
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-		color: var(--text-primary, #e9e9ee);
+		background: var(--raised);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		padding: var(--space-3);
+		box-shadow: var(--shadow-overlay);
+		color: var(--ink);
 	}
 	.dl-top {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-2);
 	}
 	:global(.dl-card .dl-ico) {
 		flex-shrink: 0;
-		color: var(--primary, #ff4655);
+		color: var(--ink-mute);
 	}
 	.dl-name {
 		flex: 1;
 		min-width: 0;
-		font-size: 0.8rem;
-		font-weight: 600;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -112,47 +112,49 @@
 		flex-shrink: 0;
 		background: transparent;
 		border: none;
-		color: var(--text-muted, #9a9aa3);
+		color: var(--ink-faint);
 		cursor: pointer;
 		display: flex;
 		padding: 2px;
-		border-radius: 4px;
-	}
-	.dl-x:hover {
-		color: var(--text-primary, #fff);
-		background: rgba(255, 255, 255, 0.08);
+		border-radius: var(--radius-sm);
+
+		&:hover {
+			color: var(--ink);
+			background: var(--tint-soft);
+		}
 	}
 	.dl-bar {
-		height: 5px;
-		background: var(--bg-input, #2a2a30);
-		border-radius: 99px;
+		height: 4px;
+		background: var(--tint-softer);
+		border-radius: var(--radius-full);
 		overflow: hidden;
-		margin: 0.5rem 0 0.35rem;
+		margin: var(--space-2) 0 var(--space-1);
 	}
 	.dl-fill {
 		height: 100%;
-		background: var(--accent-gradient, linear-gradient(90deg, #ff4655, #ff8a93));
-		border-radius: 99px;
+		background: var(--accent);
+		border-radius: var(--radius-full);
 		transition: width 0.2s ease;
 	}
 	.dl-bar.done .dl-fill {
-		background: var(--success, #3ddc97);
+		background: var(--ok);
 	}
 	.dl-bar.err .dl-fill {
-		background: var(--text-muted, #9a9aa3);
+		background: var(--ink-faint);
 	}
 	.dl-meta {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.7rem;
-		color: var(--text-muted, #9a9aa3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
 		font-variant-numeric: tabular-nums;
 	}
 	.dl-err {
-		color: #ff6b6b;
+		color: var(--danger);
 	}
 	.dl-phase {
-		color: var(--primary, #ff4655);
-		font-weight: 600;
+		color: var(--ink-mute);
+		font-weight: var(--fw-medium);
 	}
 </style>

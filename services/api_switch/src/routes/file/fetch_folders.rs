@@ -1,11 +1,11 @@
-use axum::{extract::State, Json, response::IntoResponse};
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
+use crate::middlewares::resolve_identity::Caller;
 use crate::routes::respond;
 
 #[derive(Deserialize, Debug)]
 pub struct Payload {
-    pub user_id: String,
     pub parent_id: Option<String>,
     pub starred: Option<bool>,
     pub shared: Option<bool>,
@@ -25,9 +25,22 @@ struct FolderRecord {
 
 pub async fn handle(
     State(state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
-    
+    // Identity comes from the authenticated X-Api-Key, never the request body.
+    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
+        Some(uid) => uid,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
+
     let is_deleted = payload.deleted.unwrap_or(false);
 
     // We use query_as! to map directly to FolderRecord.
@@ -49,7 +62,7 @@ pub async fn handle(
             WHERE f.user_id = $1 AND f.starred = true AND f.deleted = $2
             ORDER BY f.created_on DESC
             "#,
-            payload.user_id,
+            user_id,
             is_deleted
         )
         .fetch_all(&state.pg_pool)
@@ -71,14 +84,13 @@ pub async fn handle(
             WHERE f.user_id = $1 AND f.share_type != 'off' AND f.deleted = $2
             ORDER BY f.created_on DESC
             "#,
-            payload.user_id,
+            user_id,
             is_deleted
         )
         .fetch_all(&state.pg_pool)
         .await
 
     } else if is_deleted {
-         println!("Fetching deleted folders for user: {}", payload.user_id);
          sqlx::query_as!(
             FolderRecord,
             r#"
@@ -93,7 +105,7 @@ pub async fn handle(
             WHERE f.user_id = $1 AND f.deleted = true
             ORDER BY f.created_on DESC
             "#,
-            payload.user_id
+            user_id
         )
         .fetch_all(&state.pg_pool)
         .await
@@ -113,7 +125,7 @@ pub async fn handle(
             WHERE f.user_id = $1 AND f.parent_id = $2 AND f.deleted = false
             ORDER BY f.created_on DESC
             "#,
-            payload.user_id,
+            user_id,
             pid
         )
         .fetch_all(&state.pg_pool)
@@ -134,7 +146,7 @@ pub async fn handle(
             WHERE f.user_id = $1 AND f.parent_id IS NULL AND f.deleted = false
             ORDER BY f.created_on DESC
             "#,
-            payload.user_id
+            user_id
         )
         .fetch_all(&state.pg_pool)
         .await
@@ -142,7 +154,6 @@ pub async fn handle(
 
     match folders_result {
         Ok(folders) => {
-            println!("Found {} folders for user {}", folders.len(), payload.user_id);
             let data: Vec<serde_json::Value> = folders.iter().map(|f| json!({
                 "id": f.id,
                 "name": f.name,

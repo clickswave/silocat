@@ -30,7 +30,7 @@ export async function GET({ url, locals }) {
             payload.shared = true;
         }
 
-        let response = await ApiServerClient.post(ApiServerRoutes.listFiles, payload);
+        let response = await ApiServerClient.post(ApiServerRoutes.listFiles, payload, { headers: { 'X-Api-Key': user.api_key } });
 
         return json(response.data);
     } catch (err) {
@@ -58,7 +58,7 @@ export async function POST({ request, locals }) {
             user_id: user.id
         };
 
-        let response = await ApiServerClient.post(ApiServerRoutes.listFiles, payload);
+        let response = await ApiServerClient.post(ApiServerRoutes.listFiles, payload, { headers: { 'X-Api-Key': user.api_key } });
 
         return json(response.data);
     } catch (err) {

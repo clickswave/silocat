@@ -1,934 +1,555 @@
 <script>
 	import Icon from '@iconify/svelte';
 	import { FrontendClient } from '$lib/frontendClient.js';
-	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import { toast } from 'svelte-sonner';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { loadRazorpay } from '$lib/loadRazorpay.js';
+	import { Button, Segmented, Badge, Progress, Input } from '$lib/ui';
 
 	let { data } = $props();
-	let isPro = $derived(data.user?.subscription?.name === 'Pro');
-	let billingPeriod = 'monthly';
-	let selectedCurrency = $state('USD'); // Default
-	let selectedGateway = $state('razorpay');
-	let processing = $state(false);
+
+	let planName = $derived(data.user?.subscription?.name || 'Free');
+	let isPro = $derived(planName === 'Pro');
+	let isPlus = $derived(planName === 'Plus');
+	let isPaid = $derived(isPro || isPlus);
+	let expiresOn = $derived(
+		data.user?.subscription?.expires_on
+			? new Date(data.user.subscription.expires_on).toLocaleDateString(undefined, {
+					month: 'short',
+					day: 'numeric',
+					year: 'numeric'
+				})
+			: null
+	);
+
+	let selectedCurrency = $state('USD');
+	let cycle = $state('monthly'); // monthly | annual
+	const selectedGateway = 'razorpay';
+	let processing = $state(null); // identifier currently processing
+
 	let promoCode = $state('');
 	let discount = $state(0);
 	let discountApplied = $state(false);
 	let verifiedCode = $state('');
 	let validatingPromo = $state(false);
 
-	const currencies = [
-		{ code: 'USD', symbol: '$' },
-		{ code: 'INR', symbol: '₹' }
-	];
+	const SYMBOL = { USD: '$', INR: '₹', EUR: '€' };
+	const symbol = $derived(SYMBOL[selectedCurrency] || '$');
 
-	// Pricing configuration
-	const pricing = {
-		USD: { Free: 0, Pro: 9 },
-		INR: { Free: 0, Pro: 950 },
-		EUR: { Free: 0, Pro: 8 }
+	// Mirrors api_switch calculate_price(). Annual = ~10 months (two months free).
+	const PRICES = {
+		USD: { plus: { monthly: 4, annual: 39 }, pro: { monthly: 10, annual: 96 } },
+		INR: { plus: { monthly: 349, annual: 3490 }, pro: { monthly: 899, annual: 8990 } },
+		EUR: { plus: { monthly: 4, annual: 39 }, pro: { monthly: 9, annual: 90 } }
 	};
 
-	const addonsData = {
-		USD: [
-			{ id: '1tb', name: '+1 TB Storage', price: 5, size: '1 TB' },
-			{ id: '5tb', name: '+5 TB Storage', price: 20, size: '5 TB' },
-			{ id: '10tb', name: '+10 TB Storage', price: 35, size: '10 TB' },
-			{ id: '20tb', name: '+20 TB Storage', price: 60, size: '20 TB' }
-		],
-		INR: [
-			{ id: '1tb', name: '+1 TB Storage', price: 399, size: '1 TB' },
-			{ id: '5tb', name: '+5 TB Storage', price: 1599, size: '5 TB' },
-			{ id: '10tb', name: '+10 TB Storage', price: 2999, size: '10 TB' },
-			{ id: '20tb', name: '+20 TB Storage', price: 4999, size: '20 TB' }
-		]
-	};
-
-	let addons = $derived(addonsData[selectedCurrency] || addonsData['USD']);
-
-	const eurozone = [
-		'austria',
-		'at',
-		'belgium',
-		'be',
-		'bulgaria',
-		'bg',
-		'croatia',
-		'hr',
-		'cyprus',
-		'cy',
-		'estonia',
-		'ee',
-		'finland',
-		'fi',
-		'france',
-		'fr',
-		'germany',
-		'de',
-		'greece',
-		'gr',
-		'ireland',
-		'ie',
-		'italy',
-		'it',
-		'latvia',
-		'lv',
-		'lithuania',
-		'lt',
-		'luxembourg',
-		'lu',
-		'malta',
-		'mt',
-		'netherlands',
-		'nl',
-		'portugal',
-		'pt',
-		'slovakia',
-		'sk',
-		'slovenia',
-		'si',
-		'spain',
-		'es'
-	];
+	const eurozone = new Set([
+		'austria','at','belgium','be','bulgaria','bg','croatia','hr','cyprus','cy','estonia','ee',
+		'finland','fi','france','fr','germany','de','greece','gr','ireland','ie','italy','it','latvia',
+		'lv','lithuania','lt','luxembourg','lu','malta','mt','netherlands','nl','portugal','pt','slovakia',
+		'sk','slovenia','si','spain','es'
+	]);
 
 	onMount(() => {
-		// Detect country and set currency
 		const country = data.user?.country?.toLowerCase();
-		if (country === 'india' || country === 'in') {
-			selectedCurrency = 'INR';
-		} else if (eurozone.includes(country)) {
-			selectedCurrency = 'EUR';
-		} else {
-			selectedCurrency = 'USD';
-		}
+		if (country === 'india' || country === 'in') selectedCurrency = 'INR';
+		else if (eurozone.has(country)) selectedCurrency = 'EUR';
+		else selectedCurrency = 'USD';
 	});
 
-	const gateways = [
-		{ id: 'razorpay', name: 'Razorpay', icon: 'simple-icons:razorpay', enabled: true },
-		{ id: 'stripe', name: 'Stripe', icon: 'simple-icons:stripe', enabled: false },
-		{ id: 'paypal', name: 'PayPal', icon: 'simple-icons:paypal', enabled: false },
-		{ id: 'skrill', name: 'Skrill', icon: 'simple-icons:skrill', enabled: false }
-	];
+	// Live storage for the current-plan hero (shared query key: stays in sync with
+	// the sidebar + dashboard, updates after any upload/delete).
+	const storageQuery = createQuery(() => ({
+		queryKey: ['fetchStorageStats'],
+		queryFn: async () => {
+			const { data } = await FrontendClient.get('/api/v1/sanctum/user/storage');
+			return data?.success || { used: 0, total: 0 };
+		},
+		enabled: browser
+	}));
+	let usage = $derived({
+		used: storageQuery.data?.used || 0,
+		total: storageQuery.data?.total || data.user?.totalAvailableSpace || 0
+	});
+
+	function fmtSize(bytes) {
+		if (!bytes) return '0 B';
+		const k = 1024;
+		const s = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), s.length - 1);
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
+	}
+	let usedPct = $derived(usage.total ? Math.min((usage.used / usage.total) * 100, 100) : 0);
+
+	function priceOf(planId) {
+		if (planId === 'free') return 0;
+		return PRICES[selectedCurrency]?.[planId]?.[cycle] ?? 0;
+	}
+	function displayPrice(planId) {
+		const p = priceOf(planId);
+		if (discountApplied && p > 0) return Math.round(p * (1 - discount / 100));
+		return p;
+	}
+	const suffix = $derived(cycle === 'annual' ? '/yr' : '/mo');
+
+	// Storage is the only thing you pay for. Every privacy feature (encryption,
+	// password + expiring share links, anonymous drops) is on every tier, so the
+	// plans differ by space, not by locking features behind a paywall.
+	const plans = $derived([
+		{
+			id: 'free',
+			name: 'Free',
+			tagline: 'Everything, 10 GB of space.',
+			features: ['10 GB encrypted storage', 'End-to-end encryption', 'Password + expiring share links', 'Up to 20 GB anonymous drops']
+		},
+		{
+			id: 'plus',
+			name: 'Plus',
+			tagline: '20× the space.',
+			features: ['200 GB encrypted storage', 'Everything in Free', 'Email support']
+		},
+		{
+			id: 'pro',
+			name: 'Pro',
+			tagline: 'Room for everything.',
+			recommended: true,
+			features: ['2 TB encrypted storage', 'Everything in Free', 'Priority support']
+		}
+	]);
+
+	// What the button on each plan card should do given the user's current plan.
+	function planCta(planId) {
+		if (planId === 'free') {
+			return { label: isPaid ? 'Included' : 'Current plan', disabled: true, variant: 'ghost' };
+		}
+		if (planId === 'plus') {
+			if (isPlus) return { label: 'Current plan', disabled: true, variant: 'ghost' };
+			if (isPro) return { label: 'Included', disabled: true, variant: 'ghost' };
+			return { label: 'Choose Plus', disabled: false, variant: 'ghost', action: () => subscribe('plan', 'plus') };
+		}
+		// pro
+		if (isPro) return { label: 'Current plan', disabled: true, variant: 'ghost' };
+		return { label: isPlus ? 'Upgrade to Pro' : 'Go Pro', disabled: false, variant: 'solid', action: () => subscribe('plan', 'pro') };
+	}
 
 	async function checkPromo() {
 		if (!promoCode || validatingPromo) return;
 		validatingPromo = true;
-
 		try {
-			const res = await FrontendClient.post('/api/v1/billing/check-promo', {
-				code: promoCode
-			});
-
+			const res = await FrontendClient.post('/api/v1/billing/check-promo', { code: promoCode });
 			if (res.data.status === 200 && res.data.data.valid) {
 				discount = res.data.data.discount_percentage;
 				discountApplied = true;
 				verifiedCode = promoCode;
-				toast.success(`Promo code applied! ${discount}% off.`);
+				toast.success(`Promo applied: ${discount}% off.`);
 			} else {
-				discount = 0;
-				discountApplied = false;
-				verifiedCode = '';
 				toast.error('Invalid promo code');
 			}
 		} catch (e) {
-			console.error(e);
-			const errorMessage = e.response?.data?.message || 'Failed to verify promo code';
-			toast.error(errorMessage);
-			discount = 0;
-			discountApplied = false;
-			verifiedCode = '';
+			toast.error(e.response?.data?.message || 'Failed to verify promo code');
 		} finally {
 			validatingPromo = false;
 		}
 	}
 
-	async function handleSubscribe(type, identifier) {
-		if (processing) return;
-		processing = true;
+	function clearPromo() {
+		discountApplied = false;
+		discount = 0;
+		verifiedCode = '';
+		promoCode = '';
+	}
 
+	async function subscribe(type, identifier) {
+		if (processing) return;
+		processing = identifier;
 		try {
-			// 1. Create Order
 			const orderRes = await FrontendClient.post('/api/v1/billing/order', {
 				order_type: type,
-				identifier: identifier,
+				identifier,
 				currency: selectedCurrency,
 				gateway: selectedGateway,
+				cycle,
 				promo_code: discountApplied ? verifiedCode : null
 			});
 
-			// Handle 100% discount or free orders immediately
-			// Handle 100% discount or free orders immediately
 			if (orderRes.data.success && orderRes.data.success.amount === 0) {
-				toast.success('Promo code applied! Upgrade successful.');
-				setTimeout(() => location.reload(), 1500);
+				toast.success('Applied. Enjoy your new plan.');
+				setTimeout(() => location.reload(), 1200);
 				return;
 			}
 
 			const { order_id, amount, currency, key_id } = orderRes.data.success;
-
-			if (selectedGateway === 'razorpay') {
-				// 2. Open Razorpay
-				const options = {
-					key: key_id,
-					amount: amount,
-					currency: currency,
-					name: 'SiloCat Encrypted Storage',
-					description: type === 'plan' ? `Upgrade to ${identifier}` : `Add-on: ${identifier}`,
-					order_id: order_id,
-					handler: async function (response) {
-						// 3. Verify Payment
-						try {
-							await FrontendClient.post('/api/v1/billing/verify', {
-								order_id: response.razorpay_order_id,
-								payment_id: response.razorpay_payment_id,
-								signature: response.razorpay_signature
-							});
-							toast.success('Payment successful! Benefits applied.');
-							setTimeout(() => location.reload(), 1500);
-						} catch (e) {
-							console.error(e);
-							toast.error('Payment verification failed. Contact support.');
-							processing = false;
-						}
-					},
-					prefill: {
-						email: data.user?.email
-					},
-					theme: {
-						color: '#ff4655'
-					},
-					modal: {
-						ondismiss: function () {
-							processing = false;
-						}
+			const Razorpay = await loadRazorpay();
+			const rzp = new Razorpay({
+				key: key_id,
+				amount,
+				currency,
+				name: 'Silocat',
+				description: type === 'plan' ? `${identifier} (${cycle})` : `Add-on: ${identifier}`,
+				order_id,
+				handler: async (response) => {
+					try {
+						await FrontendClient.post('/api/v1/billing/verify', {
+							order_id: response.razorpay_order_id,
+							payment_id: response.razorpay_payment_id,
+							signature: response.razorpay_signature
+						});
+						toast.success('Payment successful. Benefits applied.');
+						setTimeout(() => location.reload(), 1200);
+					} catch (e) {
+						toast.error('Payment verification failed. Contact support.');
+						processing = null;
 					}
-				};
-
-				const Razorpay = await loadRazorpay();
-				const rzp = new Razorpay(options);
-				rzp.open();
-			} else {
-				toast.info('This gateway is coming soon!');
-				processing = false;
-			}
+				},
+				prefill: { email: data.user?.email },
+				theme: { color: '#ff4655' },
+				modal: { ondismiss: () => (processing = null) }
+			});
+			rzp.open();
 		} catch (e) {
-			console.error(e);
-			const errorMessage = e.response?.data?.message || 'Failed to initiate payment.';
-			toast.error(errorMessage);
-			processing = false;
+			toast.error(e.response?.data?.message || 'Failed to start checkout.');
+			processing = null;
 		}
-	}
-
-	function formatPrice(amount) {
-		const symbol = currencies.find((c) => c.code === selectedCurrency)?.symbol || '$';
-		return `${symbol}${amount}`;
-	}
-
-	function calculateDiscountedPrice(price) {
-		if (!discountApplied) return formatPrice(price);
-		const discounted = Math.round(price * (1 - discount / 100));
-		return formatPrice(discounted);
 	}
 </script>
 
-<div class="subscription-page">
-	<header class="page-header">
-		<div class="title-group">
-			<h1>Subscription</h1>
-			<p class="subtitle">Upgrade your storage and security.</p>
+<div class="view sub-page">
+	<header class="page-head">
+		<div>
+			<h1 class="page-title">Plans</h1>
+			<p class="page-subtitle">Every feature is free. Upgrade only for more space.</p>
 		</div>
-		<div class="currency-switch" role="group" aria-label="Currency">
-			{#each currencies as c}
-				<button
-					class={selectedCurrency === c.code ? 'active' : ''}
-					onclick={() => (selectedCurrency = c.code)}
-				>
-					{c.symbol} {c.code}
-				</button>
-			{/each}
-		</div>
+		<Segmented
+			bind:value={selectedCurrency}
+			size="sm"
+			options={[
+				{ value: 'USD', label: 'USD' },
+				{ value: 'EUR', label: 'EUR' },
+				{ value: 'INR', label: 'INR' }
+			]}
+		/>
 	</header>
 
-	<!-- Current plan status -->
-	<div class="status-hero {isPro ? 'pro' : ''}">
-		<div class="status-icon">
-			<Icon icon={isPro ? 'ri:vip-crown-2-fill' : 'ri:shield-check-fill'} width="28" />
+	<!-- Current plan + live usage -->
+	<div class="current">
+		<div class="current-main">
+			<span class="cur-eyebrow">Current plan</span>
+			<div class="cur-name">
+				{planName}
+				{#if isPaid}<Badge tone="accent">Active</Badge>{/if}
+			</div>
+			{#if isPaid && expiresOn}
+				<span class="cur-expiry">Active until {expiresOn} · renew anytime, no auto-charge</span>
+			{/if}
 		</div>
-		<div class="status-text">
-			<span class="status-eyebrow">Current plan</span>
-			<h2>{isPro ? 'Pro' : 'Free'}</h2>
-			<p>
-				{isPro
-					? 'You have full access to Pro features and storage add-ons.'
-					: 'You are on the free plan with 50 GB of end-to-end encrypted storage.'}
-			</p>
+		<div class="current-usage">
+			<div class="usage-top">
+				<span>{fmtSize(usage.used)} used</span>
+				<span class="muted">of {fmtSize(usage.total)}</span>
+			</div>
+			<Progress value={usedPct} size="sm" tone={usedPct > 90 ? 'warn' : 'accent'} label="Storage used" />
 		</div>
-		{#if isPro}
-			<div class="status-badge"><Icon icon="ri:vip-crown-2-fill" width="16" /> Pro member</div>
-		{:else}
-			<button class="hero-cta" disabled={processing} onclick={() => handleSubscribe('plan', 'pro')}>
-				{processing ? 'Processing…' : 'Upgrade to Pro'}
-			</button>
-		{/if}
 	</div>
 
-	<section class="block">
-		<div class="block-head"><h2>Plans</h2></div>
-		<div class="pricing-grid">
-			<!-- Free Plan -->
-			<div class="card pricing-card">
-				<div class="card-header">
-					<h2>Free</h2>
-					<p class="description">For personal use</p>
-				</div>
-				<div class="price">
-					<span class="amount">{formatPrice(pricing[selectedCurrency].Free)}</span>
-					<span class="period">/mo</span>
-				</div>
-				<ul class="features">
-					<li><Icon icon="ri:checkbox-circle-fill" class="check-icon" /> 50 GB Storage</li>
-					<li><Icon icon="ri:checkbox-circle-fill" class="check-icon" /> End-to-End Encryption</li>
-				</ul>
-				<button class="btn btn-outline" disabled={!isPro}>
-					{isPro ? 'Downgrade' : 'Current Plan'}
-				</button>
-			</div>
+	<!-- Billing cycle -->
+	<div class="cycle-row">
+		<Segmented
+			bind:value={cycle}
+			options={[
+				{ value: 'monthly', label: 'Monthly' },
+				{ value: 'annual', label: 'Annual' }
+			]}
+		/>
+		<span class="save-hint">Save ~17% with annual billing (2 months free)</span>
+	</div>
 
-			<!-- Pro Plan -->
-			<div class="card pricing-card popular">
-				<div class="popular-tag">Recommended</div>
-				<div class="card-header">
-					<h2>Pro</h2>
-					<p class="description">For power users</p>
-				</div>
-				<div class="price">
-					{#if discountApplied && pricing[selectedCurrency].Pro > 0}
-						<span class="original-price">{formatPrice(pricing[selectedCurrency].Pro)}</span>
-						<span class="amount">{calculateDiscountedPrice(pricing[selectedCurrency].Pro)}</span>
-					{:else}
-						<span class="amount">{formatPrice(pricing[selectedCurrency].Pro)}</span>
-					{/if}
-					<span class="period">/mo</span>
-				</div>
-				<ul class="features">
-					<li><Icon icon="ri:checkbox-circle-fill" class="check-icon" /> 1 TB Storage</li>
-					<li><Icon icon="ri:checkbox-circle-fill" class="check-icon" /> Priority Support</li>
-					<li><Icon icon="ri:checkbox-circle-fill" class="check-icon" /> Zero Ads</li>
-				</ul>
-				<button
-					class="btn btn-primary"
-					disabled={isPro || processing}
-					onclick={() => handleSubscribe('plan', 'pro')}
-				>
-					{isPro ? 'Current Plan' : processing ? 'Processing...' : 'Upgrade to Pro'}
-				</button>
-			</div>
-		</div>
-	</section>
-
-	<section class="block">
-		<div class="block-head">
-			<h2>Storage add-ons</h2>
-			<p class="muted">Need more space? Exclusive for Pro members.</p>
-		</div>
-
-		<div class="addons-grid">
-			{#each addons as addon}
-				<div class="card addon-card {isPro ? '' : 'locked'}">
-					{#if !isPro}
-						<div class="lock-overlay">
-							<Icon icon="ri:lock-fill" width="32" />
-							<span>Pro Only</span>
-						</div>
-					{/if}
-					<div class="addon-header">
-						<h3>{addon.name}</h3>
-						<span class="addon-size">{addon.size}</span>
+	<!-- Plans -->
+	<div class="plan-grid">
+		{#each plans as plan (plan.id)}
+			{@const cta = planCta(plan.id)}
+			{@const isCurrent = plan.name === planName}
+			<div class="plan" class:featured={plan.recommended} class:current={isCurrent}>
+				<div class="plan-top">
+					<div class="plan-name">
+						<h3>{plan.name}</h3>
+						{#if plan.recommended}<Badge tone="accent">Recommended</Badge>{/if}
+						{#if isCurrent}<Badge tone="ok">Current</Badge>{/if}
 					</div>
-					<div class="addon-price">
-						{formatPrice(addon.price)} <span class="period">/mo</span>
+					<p class="plan-tagline">{plan.tagline}</p>
+					<div class="plan-price">
+						{#if discountApplied && priceOf(plan.id) > 0}
+							<span class="was">{symbol}{priceOf(plan.id)}</span>
+						{/if}
+						<span class="amount">{symbol}{displayPrice(plan.id)}</span>
+						<span class="per">{plan.id === 'free' ? '/mo' : suffix}</span>
 					</div>
-					<button
-						class="btn btn-secondary"
-						disabled={!isPro || processing}
-						onclick={() => handleSubscribe('quota', addon.id)}
-					>
-						{processing ? '...' : 'Add to Plan'}
-					</button>
-				</div>
-			{/each}
-		</div>
-	</section>
-
-	<!-- Billing options: promo + payment -->
-	<section class="block">
-		<div class="block-head"><h2>Billing</h2></div>
-		<div class="bill-grid">
-			<div class="bill-card">
-				<div class="bill-head">
-					<Icon icon="ri:price-tag-3-line" width="18" />
-					<h3>Promo code</h3>
-				</div>
-				<div class="promo-row">
-					<input
-						type="text"
-						placeholder="Enter code (e.g. 10-off-pro-1m)"
-						bind:value={promoCode}
-						disabled={discountApplied}
-					/>
-					{#if discountApplied}
-						<button
-							class="promo-btn remove"
-							onclick={() => {
-								discountApplied = false;
-								discount = 0;
-								verifiedCode = '';
-								promoCode = '';
-							}}>Remove</button
-						>
-					{:else}
-						<button class="promo-btn" onclick={checkPromo} disabled={!promoCode || validatingPromo}>
-							{validatingPromo ? '…' : 'Apply'}
-						</button>
+					{#if plan.id !== 'free' && cycle === 'annual'}
+						<span class="billed-note">billed annually</span>
 					{/if}
 				</div>
-				{#if discountApplied}
-					<p class="promo-success">
-						<Icon icon="ri:checkbox-circle-fill" width="16" /> {discount}% discount applied
-					</p>
-				{/if}
-			</div>
 
-			<div class="bill-card">
-				<div class="bill-head">
-					<Icon icon="ri:bank-card-line" width="18" />
-					<h3>Payment method</h3>
-				</div>
-				<div class="gateways-grid">
-					{#each gateways as gateway}
-						<button
-							class="gateway-card {selectedGateway === gateway.id ? 'selected' : ''} {gateway.enabled
-								? ''
-								: 'disabled'}"
-							onclick={() => gateway.enabled && (selectedGateway = gateway.id)}
-							disabled={!gateway.enabled}
-						>
-							<Icon icon={gateway.icon} width="26" class="gateway-icon" />
-							<span class="gateway-name">{gateway.name}</span>
-							{#if !gateway.enabled}
-								<span class="coming-soon">Soon</span>
-							{/if}
-						</button>
+				<ul class="plan-features">
+					{#each plan.features as f (f)}
+						<li><Icon icon="ri:check-line" width="15" class="ck" /> {f}</li>
 					{/each}
-				</div>
+				</ul>
+
+				<Button
+					block
+					variant={cta.variant}
+					disabled={cta.disabled || processing === plan.id}
+					loading={processing === plan.id}
+					onclick={cta.action}
+				>
+					{cta.label}
+				</Button>
 			</div>
+		{/each}
+	</div>
+
+	<!-- Checkout helpers: promo + trust -->
+	<div class="checkout-row">
+		<div class="promo">
+			{#if discountApplied}
+				<div class="promo-applied">
+					<Icon icon="ri:checkbox-circle-fill" width="16" />
+					<span><b>{verifiedCode}</b> · {discount}% off</span>
+					<button class="promo-clear" onclick={clearPromo}>Remove</button>
+				</div>
+			{:else}
+				<div class="promo-input">
+					<Input bind:value={promoCode} placeholder="Promo code" icon="ri:price-tag-3-line" />
+					<Button variant="ghost" loading={validatingPromo} disabled={!promoCode} onclick={checkPromo}>
+						Apply
+					</Button>
+				</div>
+			{/if}
 		</div>
-	</section>
+		<div class="trust">
+			<Icon icon="ri:shield-check-line" width="15" />
+			Payments secured by Razorpay
+		</div>
+	</div>
+
+	<p class="prepaid-note">
+		Plans are prepaid for the term you pick. No card is stored and nothing auto-renews, you're
+		never charged without clicking. We'll remind you before your plan ends.
+	</p>
 </div>
 
 <style lang="scss">
-	.subscription-page {
-		width: 100%;
-		color: var(--text-primary);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-8);
+	.sub-page {
+		gap: var(--space-5);
 	}
 
-	.page-header {
+	/* current plan strip */
+	.current {
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
-		align-items: flex-end;
-		gap: var(--space-4);
+		gap: var(--space-6);
 		flex-wrap: wrap;
-
-		h1 {
-			font-size: var(--fs-h3);
-			font-weight: var(--fw-semibold);
-			margin: 0 0 var(--space-1) 0;
-		}
-		.subtitle {
-			color: var(--text-muted);
-			font-size: var(--fs-sm);
-			margin: 0;
-		}
-	}
-
-	.currency-switch {
-		display: flex;
-		background: var(--tint-soft);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		padding: 2px;
-		gap: 2px;
-
-		button {
-			background: transparent;
-			border: none;
-			color: var(--text-muted);
-			font-family: inherit;
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			padding: var(--space-2) var(--space-3);
-			border-radius: var(--radius-sm);
-			cursor: pointer;
-			transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-			&:hover {
-				color: var(--text-primary);
-			}
-			&.active {
-				background: var(--bg-elevated);
-				color: var(--text-primary);
-				box-shadow: var(--shadow-card);
-			}
-		}
-	}
-
-	/* Current plan hero */
-	.status-hero {
-		display: flex;
-		align-items: center;
-		gap: var(--space-4);
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		padding: var(--space-5) var(--space-6);
-		box-shadow: var(--shadow-card);
-
-		&.pro {
-			border-color: var(--primary);
-			background: linear-gradient(110deg, rgba(255, 70, 85, 0.08), var(--bg-card) 60%);
-		}
-
-		.status-icon {
-			display: grid;
-			place-items: center;
-			width: 54px;
-			height: 54px;
-			flex-shrink: 0;
-			border-radius: var(--radius-md);
-			background: var(--tint-soft);
-			color: var(--text-secondary);
-		}
-		&.pro .status-icon {
-			background: rgba(255, 70, 85, 0.12);
-			color: var(--primary);
-		}
-		.status-text {
-			flex: 1;
-			min-width: 0;
-			.status-eyebrow {
-				font-size: var(--fs-xs);
-				text-transform: uppercase;
-				letter-spacing: 0.06em;
-				color: var(--text-muted);
-			}
-			h2 {
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-bold);
-				margin: 2px 0 var(--space-1);
-			}
-			p {
-				margin: 0;
-				color: var(--text-secondary);
-				font-size: var(--fs-sm);
-			}
-		}
-		.status-badge {
-			display: inline-flex;
-			align-items: center;
-			gap: var(--space-1);
-			flex-shrink: 0;
-			background: rgba(255, 70, 85, 0.12);
-			color: var(--primary);
-			font-weight: var(--fw-semibold);
-			font-size: var(--fs-sm);
-			padding: var(--space-2) var(--space-4);
-			border-radius: var(--radius-pill, 999px);
-		}
-		.hero-cta {
-			flex-shrink: 0;
-			background: var(--accent-gradient);
-			color: #fff;
-			border: none;
-			border-radius: var(--radius-pill, 999px);
-			padding: var(--space-3) var(--space-5);
-			font-family: inherit;
-			font-weight: var(--fw-semibold);
-			cursor: pointer;
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
-			transition: filter var(--dur) var(--ease);
-			&:hover:not(:disabled) {
-				filter: brightness(1.06);
-			}
-			&:disabled {
-				opacity: 0.6;
-				cursor: not-allowed;
-			}
-		}
-	}
-
-	/* Section blocks */
-	.block {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5);
-	}
-	.block-head {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-3);
-		flex-wrap: wrap;
-		h2 {
-			font-size: var(--fs-lg);
-			font-weight: var(--fw-semibold);
-			margin: 0;
-		}
-		.muted {
-			color: var(--text-muted);
-			font-size: var(--fs-sm);
-			margin: 0;
-		}
-	}
-
-	.pricing-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: var(--space-5);
-	}
-
-	/* Billing block */
-	.bill-grid {
-		display: grid;
-		grid-template-columns: 1fr 1.2fr;
-		gap: var(--space-5);
-	}
-	.bill-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		padding: var(--space-5);
-		box-shadow: var(--shadow-card);
-
-		.bill-head {
-			display: flex;
-			align-items: center;
-			gap: var(--space-2);
-			margin-bottom: var(--space-4);
-			color: var(--text-secondary);
-			h3 {
-				margin: 0;
-				font-size: var(--fs-body);
-				font-weight: var(--fw-semibold);
-				color: var(--text-primary);
-			}
-		}
-	}
-	.promo-row {
-		display: flex;
-		gap: var(--space-2);
-		input {
-			flex: 1;
-			min-width: 0;
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			padding: 0.7rem 0.9rem;
-			border-radius: var(--radius-sm);
-			color: var(--text-primary);
-			font-family: var(--font-mono);
-			text-transform: uppercase;
-			letter-spacing: 0.04em;
-			outline: none;
-			&:focus {
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
-			&:disabled {
-				opacity: 0.7;
-			}
-		}
-		.promo-btn {
-			flex: none;
-			padding: 0 var(--space-4);
-			border-radius: var(--radius-sm);
-			border: 1px solid transparent;
-			font-family: inherit;
-			font-weight: var(--fw-semibold);
-			cursor: pointer;
-			background: var(--accent-gradient);
-			color: #fff;
-			&:hover:not(:disabled) {
-				filter: brightness(1.06);
-			}
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
-			&.remove {
-				background: var(--tint-soft);
-				border-color: var(--border-default);
-				color: var(--text-primary);
-			}
-		}
-	}
-	.promo-success {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--success);
-		font-size: var(--fs-sm);
-		font-weight: var(--fw-medium);
-		margin: var(--space-3) 0 0;
-	}
-
-	.gateways-grid {
-		display: flex;
-		gap: var(--space-3);
-		flex-wrap: wrap;
-	}
-
-	.gateway-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
+		background: var(--surface);
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
 		padding: var(--space-4) var(--space-5);
+	}
+	.cur-eyebrow {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+	.cur-name {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--fs-h3);
+		font-weight: var(--fw-semibold);
+		margin-top: 2px;
+	}
+	.cur-expiry {
+		display: block;
+		margin-top: var(--space-1);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+	.current-usage {
+		flex: 1;
+		min-width: 220px;
+		max-width: 360px;
+	}
+	.usage-top {
+		display: flex;
+		justify-content: space-between;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		margin-bottom: var(--space-2);
+		.muted {
+			color: var(--ink-faint);
+		}
+	}
+
+	/* cycle toggle */
+	.cycle-row {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		cursor: pointer;
-		transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease),
-			color var(--dur) var(--ease);
-		color: var(--text-primary);
-		min-width: 140px;
-
-		&:hover:not(.disabled) {
-			border-color: var(--border-strong);
-			background: var(--bg-card-hover);
-		}
-
-		&.selected {
-			border-color: var(--primary);
-			background: var(--tint-soft);
-			color: var(--primary);
-			.gateway-icon {
-				color: var(--primary);
-			}
-		}
-
-		&.disabled {
-			opacity: 0.5;
-			cursor: not-allowed;
-			border-style: dashed;
-		}
-
-		.gateway-icon {
-			color: var(--text-secondary);
-		}
-
-		.gateway-name {
-			font-weight: var(--fw-semibold);
-		}
-
-		.coming-soon {
-			font-size: var(--fs-xs);
-			background: var(--tint-softer);
-			padding: 2px 6px;
-			border-radius: var(--radius-sm);
-			color: var(--text-muted);
-			margin-left: auto;
-		}
+		flex-wrap: wrap;
+	}
+	.save-hint {
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
 	}
 
-	.addons-grid {
+	/* plan grid */
+	.plan-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: var(--space-5);
-	}
+		grid-template-columns: repeat(3, 1fr);
+		gap: var(--space-4);
+		align-items: stretch;
 
-	.card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-card);
-		padding: var(--space-6);
+		@media (max-width: 860px) {
+			grid-template-columns: 1fr;
+			max-width: 460px;
+		}
+	}
+	.plan {
 		display: flex;
 		flex-direction: column;
-		position: relative;
-		overflow: hidden;
+		gap: var(--space-5);
+		background: var(--surface);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		padding: var(--space-6);
 
-		&.popular {
-			border-color: var(--primary);
-			background: linear-gradient(180deg, rgba(255, 70, 85, 0.06) 0%, var(--bg-card) 100%);
-		}
-
-		.popular-tag {
-			background: var(--accent-gradient);
-			color: #fff;
-			font-size: var(--fs-xs);
-			font-weight: var(--fw-semibold);
-			padding: var(--space-1) var(--space-4);
-			position: absolute;
-			top: 12px;
-			left: 50%;
-			transform: translateX(-50%);
-			border-radius: var(--radius-pill);
+		&.featured {
+			border-color: var(--accent);
 		}
 	}
-
-	.price {
-		margin: var(--space-5) 0;
+	.plan-top {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.plan-name {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		h3 {
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
+		}
+	}
+	.plan-tagline {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		margin: 0;
+	}
+	.plan-price {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-1);
+		margin-top: var(--space-2);
+		.was {
+			text-decoration: line-through;
+			color: var(--ink-faint);
+			font-size: var(--fs-lg);
+			margin-right: var(--space-1);
+		}
 		.amount {
 			font-size: var(--fs-h1);
-			font-weight: var(--fw-black);
-			font-family: var(--font-mono);
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
 		}
-		.period {
-			color: var(--text-muted);
+		.per {
+			color: var(--ink-faint);
+			font-size: var(--fs-sm);
 		}
 	}
-
-	.features {
+	.billed-note {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+	.plan-features {
 		list-style: none;
 		padding: 0;
-		margin: 0 0 var(--space-6);
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		flex: 1;
 		li {
 			display: flex;
 			gap: var(--space-2);
-			margin-bottom: var(--space-3);
-			color: var(--text-secondary);
-			.check-icon {
-				color: var(--primary);
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+			line-height: var(--lh-snug);
+			:global(.ck) {
+				color: var(--ink-faint);
+				flex-shrink: 0;
+				margin-top: 2px;
 			}
 		}
 	}
 
-	.addon-card {
-		padding: var(--space-5);
-		&.locked {
-			opacity: 0.5;
-			pointer-events: none;
-		}
-
-		.lock-overlay {
-			position: absolute;
-			inset: 0;
-			background: rgba(0, 0, 0, 0.6);
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			z-index: 10;
+	/* checkout helpers */
+	.checkout-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		flex-wrap: wrap;
+	}
+	.promo {
+		flex: 1;
+		min-width: 260px;
+		max-width: 420px;
+	}
+	.promo-input {
+		display: flex;
+		gap: var(--space-2);
+	}
+	.promo-applied {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--fs-sm);
+		color: var(--ok);
+		background: var(--ok-soft);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		b {
 			font-weight: var(--fw-semibold);
-			color: var(--text-primary);
-		}
-
-		.addon-header {
-			display: flex;
-			justify-content: space-between;
-			align-items: center;
-			margin-bottom: var(--space-4);
-			h3 {
-				margin: 0;
-				font-size: var(--fs-lg);
-			}
-			.addon-size {
-				background: var(--tint-softer);
-				padding: 2px 8px;
-				border-radius: var(--radius-sm);
-				font-size: var(--fs-xs);
-			}
-		}
-
-		.addon-price {
-			font-size: var(--fs-h3);
-			font-weight: var(--fw-bold);
-			margin-bottom: var(--space-4);
-			font-family: var(--font-mono);
-			.period {
-				font-size: var(--fs-sm);
-				font-weight: var(--fw-regular);
-				color: var(--text-muted);
-			}
 		}
 	}
-
-	.btn {
-		width: 100%;
-		padding: 0.75rem;
-		border-radius: var(--radius-pill);
-		font-weight: var(--fw-semibold);
+	.promo-clear {
+		margin-left: auto;
+		background: none;
+		border: none;
+		color: var(--ink-mute);
+		font-family: inherit;
+		font-size: var(--fs-sm);
 		cursor: pointer;
-		border: 1px solid transparent;
-		margin-top: auto;
-		transition: filter var(--dur) var(--ease), background var(--dur) var(--ease),
-			border-color var(--dur) var(--ease);
-
-		&.btn-primary {
-			background: var(--accent-gradient);
-			color: #fff;
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
-			&:hover:not(:disabled) {
-				filter: brightness(1.06);
-			}
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
-		}
-
-		&.btn-secondary {
-			background: var(--text-primary);
-			color: var(--bg-app);
-			&:hover:not(:disabled) {
-				filter: brightness(0.92);
-			}
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
-		}
-
-		&.btn-outline {
-			background: var(--tint-soft);
-			border-color: var(--border-default);
-			color: var(--text-primary);
-			&:hover:not(:disabled) {
-				background: var(--tint-softer);
-				border-color: var(--border-strong);
-			}
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
+		&:hover {
+			color: var(--ink);
+			text-decoration: underline;
 		}
 	}
-
-	.original-price {
-		text-decoration: line-through;
-		color: var(--text-muted);
-		font-size: var(--fs-h3);
-		margin-right: var(--space-2);
-		font-weight: var(--fw-semibold);
+	.trust {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
 	}
 
-	@media (max-width: 760px) {
-		.bill-grid {
-			grid-template-columns: 1fr;
-		}
-	}
-
-	@media (max-width: 600px) {
-		.page-header {
-			align-items: flex-start;
-		}
-		.status-hero {
-			flex-wrap: wrap;
-			.hero-cta,
-			.status-badge {
-				width: 100%;
-				justify-content: center;
-			}
-		}
+	.prepaid-note {
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+		line-height: var(--lh-normal);
+		max-width: 60ch;
+		margin: var(--space-2) 0 0;
 	}
 </style>

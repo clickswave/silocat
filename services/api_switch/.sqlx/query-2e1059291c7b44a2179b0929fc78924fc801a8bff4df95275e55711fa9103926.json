@@ -22,6 +22,21 @@
         "ordinal": 3,
         "name": "active",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_uses",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "uses_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -35,6 +50,9 @@
     "nullable": [
       false,
       false,
+      false,
+      true,
+      true,
       false,
       true
     ]

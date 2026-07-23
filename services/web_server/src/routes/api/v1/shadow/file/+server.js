@@ -37,7 +37,6 @@ async function validateRequest({ request }) {
 	let payload = {
 		api_key: apiKey, user_agent: userAgent, ip: clientIp, geo
 	};
-	console.log("[payload]", { payload });
 	try {
 		let validate = await ApiServerClient.post(ApiServerRoutes.validateShadowUser, payload, {
 			headers: { 'CF-Connecting-IP': clientIp }
@@ -94,8 +93,10 @@ export async function POST({ request, locals }) {
 
 	try {
 		const clientIp = getClientIp(request.headers) || '127.0.0.1';
+		const sessionUser = await locals.session.user.get();
+		const apiKey = sessionUser?.api_key || request.headers.get('X-Api-Key') || undefined;
 		let response = await ApiServerClient.post(ApiServerRoutes.createFile, body, {
-			headers: { 'CF-Connecting-IP': clientIp }
+			headers: { 'CF-Connecting-IP': clientIp, 'X-Api-Key': apiKey }
 		}).then(res => res.data);
 		return json(response);
 	} catch (err) {

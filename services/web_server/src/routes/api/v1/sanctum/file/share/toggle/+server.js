@@ -43,7 +43,7 @@ export async function POST({ request, locals }) {
 
             // I will write the proxy assuming I will fix backend to take user_id.
             user_id: user.id
-        });
+        }, { headers: { 'X-Api-Key': user.api_key } });
 
         if (res.data.status === 200) {
             return json({

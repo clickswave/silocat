@@ -11,7 +11,7 @@ export async function POST({ request, locals }) {
         }
         payload.user_id = sessionUser.id;
 
-        const response = await ApiServerClient.post('/folder/update', payload);
+        const response = await ApiServerClient.post('/folder/update', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
 
         return json(response.data);
     } catch (error) {

@@ -6,6 +6,7 @@
 	import { fade, scale } from 'svelte/transition';
 	import { toast } from 'svelte-sonner';
 	import { deriveKeyFromPassword, decryptChunk } from '$lib/chacha.js';
+	import Prompt from '$lib/ui/Prompt.svelte';
 	import sodium from 'libsodium-wrappers-sumo';
 	import JSZip from 'jszip';
 
@@ -286,10 +287,26 @@
 		}
 		return `${bytes.toFixed(1)} ${units[i]}`;
 	}
+
+	let reporting = false;
+	let showReportModal = false;
+	async function submitReport(reason) {
+		if (!reason || !reason.trim()) return;
+		showReportModal = false;
+		reporting = true;
+		try {
+			await axios.post('/api/v1/public/report', { share_token: token, reason: reason.trim() });
+			toast.success('Report submitted. Thank you, our team will review it.');
+		} catch {
+			toast.error('Could not submit your report. Please try again later.');
+		} finally {
+			reporting = false;
+		}
+	}
 </script>
 
 <svelte:head>
-	<title>Secure Download - SiloCat</title>
+	<title>Secure download - Silocat</title>
 	<!-- Private share link: never index or follow. -->
 	<meta name="robots" content="noindex, nofollow" />
 </svelte:head>
@@ -347,7 +364,7 @@
 										<div class="file-meta">
 											{formatSize(f.size)}
 											{#if f.encrypted}
-												<Icon icon="ri:lock-fill" width="12" style="color: #fbbf24;" />
+												<Icon icon="ri:lock-fill" width="12" style="color: var(--warn);" />
 											{/if}
 										</div>
 									</div>
@@ -396,12 +413,26 @@
 				</div>
 				<div class="secure-note">
 					<Icon icon="ri:shield-check-line" width="14" />
-					<span>Securely shared via SiloCat</span>
+					<span>Securely shared via Silocat</span>
 				</div>
+				<button class="report-link" type="button" on:click={() => (showReportModal = true)} disabled={reporting}>
+					<Icon icon="ri:flag-line" width="12" />
+					{reporting ? 'Reporting…' : 'Report this link'}
+				</button>
 			</div>
 		{/if}
 	</div>
 </div>
+
+<Prompt
+	open={showReportModal}
+	title="Report this link"
+	message="Briefly, what is the problem? For example copyright infringement, or illegal or harmful content."
+	placeholder="Reason"
+	submitLabel="Submit report"
+	onsubmit={submitReport}
+	onclose={() => (showReportModal = false)}
+/>
 
 <style lang="scss">
 	.page-container {
@@ -644,6 +675,28 @@
 		font-size: var(--fs-xs);
 		color: var(--text-muted);
 		flex-shrink: 0;
+	}
+
+	.report-link {
+		margin-top: var(--space-3);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: var(--fs-xs);
+		color: var(--text-muted);
+		opacity: 0.7;
+		transition: opacity 0.15s ease;
+	}
+	.report-link:hover:not(:disabled) {
+		opacity: 1;
+		color: var(--text-secondary, var(--text-muted));
+	}
+	.report-link:disabled {
+		cursor: default;
+		opacity: 0.5;
 	}
 
 	@keyframes spin {

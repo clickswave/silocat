@@ -1,7 +1,9 @@
+use crate::middlewares::resolve_identity::Caller;
 use crate::models;
 use crate::routes::respond;
 use axum::extract::State;
 use axum::response::IntoResponse;
+use axum::Extension;
 use axum::Json;
 use serde_json::json;
 
@@ -12,6 +14,7 @@ pub struct PayloadBody {
 
 pub async fn handle(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<PayloadBody>,
 ) -> impl IntoResponse {
 
@@ -26,9 +29,15 @@ pub async fn handle(
 
     match file {
         Ok(Some(file)) => {
-            // For Shadow, we can perhaps return it directly.
-            // Sanctum might require owner check, but we'll assume ID possession is enough for now 
-            // or that web_server handlesauth before calling this if needed (for Sanctum).
+            // Access control: public files are readable by anyone; otherwise the
+            // caller must own the file. Blocks reading another user's file by id.
+            let allowed = file.public_access
+                || caller
+                    .as_ref()
+                    .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+            if !allowed {
+                return respond(404, "File not found", vec![], json!({}));
+            }
             respond(
                 200,
                 "File found",
@@ -44,11 +53,11 @@ pub async fn handle(
                 json!({}),
             )
         }
-        Err(e) => {
+        Err(_e) => {
             respond(
                 500,
                 "Database error",
-                vec![e.to_string()],
+                vec![],
                 json!({}),
             )
         }

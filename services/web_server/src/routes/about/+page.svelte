@@ -6,8 +6,8 @@
 </script>
 
 <Seo
-	title="About SiloCat: Privacy-first encrypted storage"
-	description="SiloCat's mission is private, zero-knowledge file sharing and cloud storage. Learn how end-to-end encryption keeps your files yours, and yours alone."
+	title="About Silocat: Privacy-first encrypted storage"
+	description="Silocat's mission is private, zero-knowledge file sharing and cloud storage. Learn how end-to-end encryption keeps your files yours, and yours alone."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'About', path: '/about' }
@@ -19,178 +19,82 @@
 
 	<main class="content">
 		<section class="section">
-			<div class="container">
-				<div class="hero">
-					<span class="eyebrow">about silocat</span>
-					<h1>We are <span class="text-gradient">SiloCat</span></h1>
-					<p class="subtitle">Redefining secure, anonymous file sharing for the modern web.</p>
-				</div>
+			<div class="container narrow">
+				<h1>About</h1>
 
-				<section class="mission">
-					<div class="text-block">
-						<h2>Built for the <span class="accent">Digital Feline</span></h2>
-						<p>
-							SiloCat operates in the shadows. We are built for those who value agility, silence, and
-							absolute control. Whether you're a developer moving artifacts or a researcher sharing
-							samples, our infrastructure is designed to be as elusive as a cat in the night.
-						</p>
-						<p>
-							We operate under the vigilant eye of <strong>WatchCat</strong>, our
-							internal storage sentinel. WatchCat ensures your data lands in the optimal encrypted vault
-							(R2 or B2) while remaining completely invisible to the outside world.
-						</p>
-						<p>
-							However, we are not lawless. We strictly adhere to DMCA and government compliance
-							regulations. We protect your privacy against prying eyes, not against the law. If you
-							abuse the platform, the cat bites back.
-						</p>
-					</div>
-			<div class="stats-grid">
-				<div class="stat">
-					<span class="value">Zero</span>
-					<span class="label">Knowledge</span>
+				<div class="prose">
+					<p>
+						Silocat is a zero-knowledge file service. Files are encrypted in your browser before
+						they leave your device; what reaches our servers is ciphertext we cannot read. Sharing
+						works without an account, and downloads pull chunks in parallel so big files arrive
+						fast.
+					</p>
+					<p>
+						Storage is replicated across independent cloud providers, watched over by an internal
+						sentinel that keeps uploads healthy and reclaims anything orphaned. You see a link;
+						the plumbing stays out of the way.
+					</p>
+					<p>
+						Silocat is open source under AGPL-3.0. You can
+						<a href="https://github.com/clickswave/silocat" target="_blank" rel="noreferrer">read every line</a>
+						of the code that handles your files, or run the whole thing on your own hardware.
+					</p>
+					<p>
+						Privacy is not lawlessness. We comply with DMCA and applicable law, and abuse gets
+						accounts closed. We protect your files from prying eyes, not from consequences.
+					</p>
+					<p class="byline">
+						Built by <a href="https://clickswave.org" target="_blank" rel="noreferrer">Clickswave Labs</a>.
+					</p>
 				</div>
-				<div class="stat">
-					<span class="value">WatchCat</span>
-					<span class="label">Sentinel</span>
-				</div>
-				<div class="stat">
-						<span class="value">R2 / B2</span>
-						<span class="label">Multi-Cloud</span>
-					</div>
-				</div>
-			</section>
 			</div>
 		</section>
 	</main>
 
 	<Footer />
-
-	<div class="bg-effects">
-		<div class="glow-spot top"></div>
-	</div>
 </div>
 
 <style lang="scss">
 	.page-container {
 		min-height: 100vh;
-		position: relative;
-		overflow-x: hidden;
 		display: flex;
 		flex-direction: column;
 	}
 
 	.content {
-		position: relative;
-		z-index: 10;
 		flex: 1;
 	}
 
-	.hero {
-		text-align: center;
+	h1 {
+		font-size: var(--fs-h1);
+		margin-bottom: var(--space-6);
+	}
+
+	.prose {
 		display: flex;
 		flex-direction: column;
-		align-items: center;
 		gap: var(--space-4);
-		margin-bottom: var(--space-12);
 
-		h1 {
-			font-size: var(--fs-display);
-			font-weight: var(--fw-black);
+		p {
+			color: var(--ink-mute);
+			line-height: var(--lh-normal);
+			font-size: var(--fs-body);
 		}
 
-		.subtitle {
-			font-size: var(--fs-lg);
-			color: var(--text-secondary);
-			max-width: 600px;
-			margin: 0 auto;
-		}
-	}
+		a {
+			color: var(--ink);
+			text-decoration: underline;
+			text-underline-offset: 3px;
 
-	.mission {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-8);
-		align-items: center;
-
-		@media (max-width: 768px) {
-			grid-template-columns: 1fr;
-			gap: var(--space-6);
-		}
-
-		.text-block {
-			h2 {
-				font-size: var(--fs-h2);
-				margin-bottom: var(--space-5);
-
-				.accent {
-					color: var(--primary);
-				}
-			}
-			p {
-				color: var(--text-secondary);
-				line-height: var(--lh-normal);
-				margin-bottom: var(--space-5);
-				font-size: var(--fs-lg);
-
-				strong {
-					color: var(--text-primary);
-				}
+			&:hover {
+				color: var(--accent);
 			}
 		}
 
-		.stats-grid {
-			display: grid;
-			grid-template-columns: 1fr;
-			gap: var(--space-5);
-
-			.stat {
-				background: var(--bg-card);
-				border: 1px solid var(--border-default);
-				box-shadow: var(--shadow-card);
-				padding: var(--space-6);
-				border-radius: var(--radius-md);
-				text-align: center;
-				transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease);
-
-				&:hover {
-					transform: translateY(-2px);
-					border-color: var(--border-strong);
-				}
-
-				.value {
-					display: block;
-					font-size: var(--fs-h2);
-					font-weight: var(--fw-black);
-					margin-bottom: var(--space-2);
-					color: var(--text-primary);
-				}
-
-				.label {
-					color: var(--text-secondary);
-					font-weight: var(--fw-medium);
-				}
-			}
-		}
-	}
-
-	.bg-effects {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
-		pointer-events: none;
-
-		.glow-spot {
-			position: absolute;
-			width: 800px;
-			height: 800px;
-			background: radial-gradient(circle, rgba(255, 70, 85, 0.08) 0%, transparent 70%);
-			filter: blur(100px);
-
-			&.top {
-				top: -20%;
-				right: -20%;
-			}
+		.byline {
+			margin-top: var(--space-4);
+			font-size: var(--fs-sm);
+			color: var(--ink-faint);
 		}
 	}
 </style>

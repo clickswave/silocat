@@ -32,7 +32,7 @@ pub async fn upload(
 
     let normalized = match libs::image_dp::normalize(&body) {
         Ok(bytes) => bytes,
-        Err(e) => return respond(400, "Invalid image", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(400, "Invalid image", vec![], json!({})),
     };
 
     if let Err(e) = state
@@ -75,12 +75,12 @@ pub async fn remove(
     // Best-effort object delete; clearing the DB field is what matters.
     let _ = state.r2.delete_object("dp", &user.id).await;
 
-    if let Err(e) = sqlx::query("UPDATE users SET profile_image = NULL WHERE id = $1")
+    if let Err(_e) = sqlx::query("UPDATE users SET profile_image = NULL WHERE id = $1")
         .bind(&user.id)
         .execute(&state.pg_pool)
         .await
     {
-        return respond(500, "Failed to remove display picture", vec![e.to_string()], json!({}));
+        return respond(500, "Failed to remove display picture", vec![], json!({}));
     }
 
     respond(
@@ -104,6 +104,6 @@ pub async fn presigned(
 ) -> impl IntoResponse {
     match state.r2.presigned_get_url("dp", &q.user_id).await {
         Ok(url) => respond(200, "ok", vec![], json!({ "url": url })),
-        Err(e) => respond(404, "Avatar not found", vec![e.to_string()], json!({})),
+        Err(_e) => respond(404, "Avatar not found", vec![], json!({})),
     }
 }

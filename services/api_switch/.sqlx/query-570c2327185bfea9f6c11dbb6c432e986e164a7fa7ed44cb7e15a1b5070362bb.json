@@ -132,6 +132,16 @@
         "ordinal": 25,
         "name": "pending_email_otp",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 26,
+        "name": "otp_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 27,
+        "name": "otp_attempts",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -163,7 +173,9 @@
       true,
       true,
       true,
-      true
+      true,
+      true,
+      false
     ]
   },
   "hash": "570c2327185bfea9f6c11dbb6c432e986e164a7fa7ed44cb7e15a1b5070362bb"

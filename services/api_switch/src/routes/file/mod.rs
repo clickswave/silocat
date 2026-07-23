@@ -21,7 +21,7 @@ mod share;
 
 use axum::Router;
 
-pub fn router() -> Router<crate::AppState> {
+pub fn router(state: crate::AppState) -> Router<crate::AppState> {
     Router::new()
         .route("/create-files", axum::routing::post(create_files::handle))
         .route("/mark-chunk-complete", axum::routing::post(mark_chunk_complete::handle))
@@ -56,4 +56,11 @@ pub fn router() -> Router<crate::AppState> {
         .route("/public/share/authorize", axum::routing::post(share::public_authorize_download))
         .route("/public/share/fetch-chunks", axum::routing::post(share::public_fetch_file_chunks))
         // .route("/fetch-progress", axum::routing::post(fetch_progress::handle))
+        // Resolve the X-Api-Key into an Option<Caller> (user or shadow) for every
+        // file route. Non-rejecting: public/share routes simply see no caller.
+        // Handlers derive ownership from the Caller, never from body user_id.
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::middlewares::resolve_identity::resolve_identity,
+        ))
 }

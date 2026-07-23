@@ -49,8 +49,6 @@ export const load = async ({ locals, url }) => {
 			}
 		}
 
-		console.log({ "auth": { user, storage, subscription: user?.subscription } });
-
 		return {
 			user,
 			storage

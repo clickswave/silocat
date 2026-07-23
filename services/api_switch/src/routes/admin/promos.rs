@@ -34,10 +34,10 @@ async fn list_promos(
             vec![],
             json!({ "promos": promos }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to fetch promos",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }
@@ -71,10 +71,10 @@ async fn create_promo(
                 } 
             }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to create promo",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }

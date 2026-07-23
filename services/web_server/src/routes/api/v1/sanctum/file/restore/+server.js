@@ -19,7 +19,7 @@ export async function POST({ request, locals }) {
             file_id
         };
 
-        let response = await ApiServerClient.post('/file/restore-files', payload);
+        let response = await ApiServerClient.post('/file/restore-files', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
         return json(response.data);
     } catch (err) {
         console.error('[RESTORE_FILE]', err);

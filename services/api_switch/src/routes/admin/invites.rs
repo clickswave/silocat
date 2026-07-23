@@ -45,10 +45,10 @@ async fn list_invites(
             vec![],
             json!({ "invites": invites }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to fetch invites",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }
@@ -106,10 +106,10 @@ async fn create_invite(
                 } 
             }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to create invite",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }
@@ -133,10 +133,10 @@ async fn delete_invite(
             vec![],
             json!({}),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to delete invite",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }

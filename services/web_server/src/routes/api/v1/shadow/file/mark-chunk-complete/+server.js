@@ -18,7 +18,9 @@ export async function POST({ request, locals }) {
     }
 
     try {
-        let response = await ApiServerClient.post(ApiServerRoutes.markChunkAsComplete, body).then(res => res.data);
+        const sessionUser = await locals.session.user.get();
+        const apiKey = sessionUser?.api_key || request.headers.get('X-Api-Key') || undefined;
+        let response = await ApiServerClient.post(ApiServerRoutes.markChunkAsComplete, body, { headers: { 'X-Api-Key': apiKey } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[MARK_CHUNK_COMPLETE]', err);

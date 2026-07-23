@@ -46,7 +46,7 @@ pub async fn handle(
         .unwrap_or(false);
 
     // Persist the ticket — this is the source of truth (admin panel reads these).
-    if let Err(e) = sqlx::query(
+    if let Err(_e) = sqlx::query(
         "INSERT INTO support_tickets (user_id, username, email, category, subject, message, is_pro) \
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
@@ -60,7 +60,7 @@ pub async fn handle(
     .execute(&state.pg_pool)
     .await
     {
-        return respond(500, "Could not submit your message", vec![e.to_string()], json!({}));
+        return respond(500, "Could not submit your message", vec![], json!({}));
     }
 
     // Email notification is best-effort: the ticket is already saved.
@@ -94,7 +94,7 @@ pub async fn list(
 
     match tickets {
         Ok(tickets) => respond(200, "Tickets fetched", vec![], json!({ "tickets": tickets })),
-        Err(e) => respond(500, "Failed to fetch tickets", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to fetch tickets", vec![], json!({})),
     }
 }
 
@@ -115,7 +115,7 @@ pub async fn get_one(
     let ticket = match ticket {
         Ok(Some(t)) => t,
         Ok(None) => return respond(404, "Ticket not found", vec![], json!({})),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
     let replies = sqlx::query_as::<_, models::SupportReply>(
@@ -160,10 +160,10 @@ pub async fn reply(
     match owns {
         Ok(c) if c > 0 => {}
         Ok(_) => return respond(404, "Ticket not found", vec![], json!({})),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     }
 
-    if let Err(e) = sqlx::query(
+    if let Err(_e) = sqlx::query(
         "INSERT INTO support_ticket_replies (ticket_id, author_role, author_name, body) \
          VALUES ($1, 'user', $2, $3)",
     )
@@ -173,7 +173,7 @@ pub async fn reply(
     .execute(&state.pg_pool)
     .await
     {
-        return respond(500, "Failed to add reply", vec![e.to_string()], json!({}));
+        return respond(500, "Failed to add reply", vec![], json!({}));
     }
 
     // A user reply reopens the ticket.
@@ -209,6 +209,6 @@ pub async fn set_status(
     match res {
         Ok(r) if r.rows_affected() > 0 => respond(200, "Ticket updated", vec![], json!({})),
         Ok(_) => respond(404, "Ticket not found", vec![], json!({})),
-        Err(e) => respond(500, "Failed to update ticket", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to update ticket", vec![], json!({})),
     }
 }

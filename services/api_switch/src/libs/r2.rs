@@ -129,9 +129,13 @@ impl R2 {
         key: &str
     ) -> anyhow::Result<String> {
 
+        // Shorter download-URL lifetime bounds the window in which an
+        // already-issued URL keeps working after a share is revoked / a "once"
+        // link is spent. 2h is ample for chunked downloads (clients can request
+        // fresh URLs). Avatars ("dp") can live longer.
         let (client, bucket, time) = match storage {
-            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str(), 24),
-            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str(), 24),
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str(), 2),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str(), 2),
             "dp" => (&self.dp_client, self.dp_bucket.as_str(), 24),
             _ => return Err(anyhow::anyhow!("Invalid storage option")),
         };

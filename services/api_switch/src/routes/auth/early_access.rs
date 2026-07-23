@@ -36,7 +36,7 @@ pub async fn handle(
         }
         Err(e) => {
             println!("Error saving early access request: {:?}", e);
-            respond(500, "Failed to save request", vec![e.to_string()], json!({}))
+            respond(500, "Failed to save request", vec![], json!({}))
         }
     }
 }

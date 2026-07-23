@@ -1,7 +1,9 @@
+use crate::middlewares::resolve_identity::Caller;
 use crate::models;
 use crate::routes::respond;
 use axum::extract::State;
 use axum::response::IntoResponse;
+use axum::Extension;
 use axum::Json;
 use serde_json::json;
 
@@ -24,6 +26,7 @@ pub struct ChunkResponse {
 
 pub async fn handle(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<PayloadBody>,
 ) -> impl IntoResponse {
 
@@ -39,8 +42,19 @@ pub async fn handle(
     let file = match file_query {
         Ok(Some(f)) => f,
         Ok(None) => return respond(404, "File not found", vec![], json!({})),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
+
+    // Access control: only public files, or files the caller owns, hand out
+    // download URLs. Anonymous downloads of shared items go through the
+    // token-checked /file/public/share/* path, not this by-id endpoint.
+    let allowed = file.public_access
+        || caller
+            .as_ref()
+            .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+    if !allowed {
+        return respond(404, "File not found", vec![], json!({}));
+    }
 
     let storage_type = if file.user_id.is_some() { "sanctum" } else { "shadow" };
 
@@ -71,8 +85,8 @@ pub async fn handle(
                             salt: chunk.salt,
                         });
                     },
-                    Err(e) => {
-                        return respond(500, "Failed to generate download URL", vec![e.to_string()], json!({}));
+                    Err(_e) => {
+                        return respond(500, "Failed to generate download URL", vec![], json!({}));
                     }
                 }
             }
@@ -84,11 +98,11 @@ pub async fn handle(
                 json!({ "chunks": response_chunks }),
             )
         },
-        Err(e) => {
+        Err(_e) => {
              respond(
                 500,
                 "Failed to fetch chunks",
-                vec![e.to_string()],
+                vec![],
                 json!({}),
             )
         }

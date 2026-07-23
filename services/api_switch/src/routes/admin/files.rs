@@ -41,10 +41,10 @@ pub async fn list_files(
             vec![],
             json!({ "files": files }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to retrieve files",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }
@@ -70,7 +70,7 @@ async fn download_file(
     let (user_id, name, mime, size, encrypted) = match row {
         Ok(Some(r)) => r,
         Ok(None) => return respond(404, "File not found", vec![], json!({})).into_response(),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})).into_response(),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
     };
 
     if encrypted {
@@ -104,15 +104,15 @@ async fn download_file(
 
     let chunk_ids = match chunk_rows {
         Ok(c) => c,
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})).into_response(),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
     };
 
     let mut buf: Vec<u8> = Vec::with_capacity(size.max(0) as usize);
     for (cid,) in chunk_ids {
         match state.r2.get_object(bucket, &cid).await {
             Ok(mut bytes) => buf.append(&mut bytes),
-            Err(e) => {
-                return respond(502, "Storage error", vec![e.to_string()], json!({})).into_response()
+            Err(_e) => {
+                return respond(502, "Storage error", vec![], json!({})).into_response()
             }
         }
     }

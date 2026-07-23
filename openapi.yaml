@@ -9,7 +9,7 @@ info:
     ### Trust model
     This API is service-to-service. Every request must carry the `X-Authority-Sign`
     header whose value equals the server's `AUTHORITY_SIGN` secret; only silocat's own
-    backends (web_server SSR, admin_dashboard) hold it. A missing or wrong header yields
+    backends (web_server SSR, the clickswave admin panel) hold it. A missing or wrong header yields
     `401 {"status":401,"message":"Unauthorized Origin","errors":[],"data":{}}` on every path.
 
     On top of that, a subset of `/user/*` routes additionally require the end user's

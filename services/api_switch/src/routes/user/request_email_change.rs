@@ -45,11 +45,11 @@ pub async fn handle(
             )
         }
         Ok(_) => {}
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     }
 
     let otp = libs::rng::number(6);
-    if let Err(e) = sqlx::query(
+    if let Err(_e) = sqlx::query(
         "UPDATE users SET pending_email = $1, pending_email_otp = $2 WHERE id = $3",
     )
     .bind(&new_email)
@@ -58,13 +58,13 @@ pub async fn handle(
     .execute(&state.pg_pool)
     .await
     {
-        return respond(500, "Failed to start email change", vec![e.to_string()], json!({}));
+        return respond(500, "Failed to start email change", vec![], json!({}));
     }
 
     if let Err(e) =
         libs::email::send_verification_email(&state.smtp_config, &user.username, &new_email, &otp).await
     {
-        println!("Failed to send email-change code to {}: {}", new_email, e);
+        println!("Failed to send email-change code: {}", e);
         return respond(500, "Could not send verification email", vec![], json!({}));
     }
 

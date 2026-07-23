@@ -28,12 +28,20 @@ pub async fn run(pool: Pool<Postgres>, r2: R2) {
         if let Err(e) = gc_orphan_uploads(&pool, &r2).await {
             eprintln!("[watchcat] orphan gc failed: {:?}", e);
         }
+        if let Err(e) = gc_expired_shadow_files(&pool, &r2).await {
+            eprintln!("[watchcat] shadow ttl gc failed: {:?}", e);
+        }
+        if let Err(e) = downgrade_expired_subscriptions(&pool).await {
+            eprintln!("[watchcat] subscription downgrade failed: {:?}", e);
+        }
         sleep(Duration::from_secs(interval)).await;
     }
 }
 
 async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> {
-    let ttl_hours = env_u64("WATCHCAT_GC_TTL_HOURS", 2).max(0) as i64;
+    // Floor at 1h so a misconfigured TTL of 0 can never reap uploads that are
+    // still actively in progress.
+    let ttl_hours = env_u64("WATCHCAT_GC_TTL_HOURS", 2).max(1) as i64;
     let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
 
     // ttl_hours/batch are our own integers — safe to inline into the interval.
@@ -78,5 +86,67 @@ async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()>
     }
 
     println!("[watchcat] orphan gc: reaped {} upload(s), removed {} chunk object(s)", reaped, objects);
+    Ok(())
+}
+
+/// Job 2 — shadow TTL GC: anonymous ("shadow") uploads are not permanent
+/// storage. This reaps completed shadow files (`user_id IS NULL`) older than the
+/// TTL, deleting their chunk objects from the shadow bucket and the file rows
+/// (chunks cascade). Bounds unbounded free-storage growth / cost.
+async fn gc_expired_shadow_files(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> {
+    let ttl_days = env_u64("WATCHCAT_SHADOW_TTL_DAYS", 30).max(1) as i64;
+    let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
+
+    // ttl_days/batch are our own integers — safe to inline into the interval.
+    let q = format!(
+        "SELECT id FROM files \
+         WHERE user_id IS NULL AND deleted = false \
+           AND created_on < NOW() - INTERVAL '{} days' \
+         ORDER BY created_on ASC LIMIT {}",
+        ttl_days, batch
+    );
+    let files: Vec<(String,)> = sqlx::query_as(&q).fetch_all(pool).await?;
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    let mut reaped = 0usize;
+    let mut objects = 0usize;
+    for (file_id,) in &files {
+        let chunk_ids: Vec<String> = sqlx::query_scalar("SELECT id FROM chunks WHERE file_id = $1")
+            .bind(file_id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+        for cid in &chunk_ids {
+            match r2.delete_object("shadow", cid).await {
+                Ok(_) => objects += 1,
+                Err(e) => eprintln!("[watchcat] r2 delete shadow/{} failed: {:?}", cid, e),
+            }
+        }
+        match sqlx::query("DELETE FROM files WHERE id = $1").bind(file_id).execute(pool).await {
+            Ok(_) => reaped += 1,
+            Err(e) => eprintln!("[watchcat] delete shadow file {} failed: {:?}", file_id, e),
+        }
+    }
+
+    println!("[watchcat] shadow ttl gc: reaped {} file(s), removed {} object(s)", reaped, objects);
+    Ok(())
+}
+
+/// Job 3 — subscription downgrade: detach expired subscriptions from users so an
+/// account cleanly reverts to Free. The request-path token load already ignores
+/// expired subscriptions; this keeps the stored pointer consistent.
+async fn downgrade_expired_subscriptions(pool: &Pool<Postgres>) -> anyhow::Result<()> {
+    let res = sqlx::query(
+        "UPDATE users SET subscription_id = NULL \
+         WHERE subscription_id IS NOT NULL \
+           AND subscription_id IN (SELECT id FROM subscriptions WHERE expires_on <= NOW())",
+    )
+    .execute(pool)
+    .await?;
+    if res.rows_affected() > 0 {
+        println!("[watchcat] downgraded {} expired subscription(s)", res.rows_affected());
+    }
     Ok(())
 }

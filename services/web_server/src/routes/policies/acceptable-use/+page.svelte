@@ -5,7 +5,7 @@
 
 <Seo
 	title="Acceptable Use Policy | SiloCat"
-	description="SiloCat's Acceptable Use Policy: what is and isn't allowed, and how we keep the platform safe while preserving your privacy."
+	description="SiloCat's Acceptable Use Policy: the content and activities that are prohibited on our zero-knowledge platform, your responsibilities, and how we enforce these rules."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'Acceptable Use Policy', path: '/policies/acceptable-use' }
@@ -14,25 +14,29 @@
 
 <div class="policy-document">
 	<h1>Acceptable Use Policy</h1>
-	<p class="last-updated">Last Updated: January 4, 2026</p>
+	<p class="last-updated">Last Updated: 2026-07-20</p>
+
+	<p>
+		SiloCat is a zero-knowledge, end-to-end encrypted file sharing and cloud storage service built
+		for everyone, including security researchers. Because we cannot read your encrypted content, we
+		rely on this policy to keep the platform safe and lawful. By using the Service, you agree to the
+		terms below.
+	</p>
 
 	<section>
 		<h2>1. Prohibited Content</h2>
-		<p>
-			SiloCat is designed for everyone, including security researchers. However, lines must be
-			drawn. You agree not to upload:
-		</p>
+		<p>You agree not to upload:</p>
 		<ul>
 			<li>
-				<strong>Illegal Content:</strong> CSAM, non-consensual sexual content, or content illegal under
-				applicable US/International laws.
+				<strong>Illegal Content:</strong> CSAM, non-consensual sexual content, or any content that is
+				illegal under applicable Indian or international law.
 			</li>
 			<li>
 				<strong>Terrorist Material:</strong> Content promoting terrorism or violent extremism.
 			</li>
 			<li>
-				<strong>Malicious Distribution:</strong> Active malware intended for infection/botnet distribution.
-				(Research samples/dumps are permitted if password-protected/inert).
+				<strong>Malicious Distribution:</strong> Active malware intended for infection or botnet
+				distribution. Inert, password-protected research samples are permitted.
 			</li>
 		</ul>
 	</section>
@@ -42,21 +46,37 @@
 		<p>You may not:</p>
 		<ul>
 			<li>
-				Abuse the **WatchCat** infrastructure (e.g., attempt to overload storage backends or bypass
-				quotas).
+				Abuse the WatchCat infrastructure (for example, attempting to overload storage backends or
+				bypass quotas).
 			</li>
-			<li>Reverse engineer the `api_switch` or internal APIs.</li>
-			<li>Use SiloCat as a CDN for hotlinking high-traffic assets (we are a silo, not a hose).</li>
-			<li>Spam or unsolicited advertising.</li>
+			<li>Reverse engineer our systems or internal APIs.</li>
+			<li>Use SiloCat as a CDN for hotlinking high-traffic assets.</li>
+			<li>Send spam or unsolicited advertising.</li>
+			<li>
+				Attempt to break, probe, or circumvent the platform's security or access controls without
+				authorization.
+			</li>
 		</ul>
 	</section>
 
 	<section>
-		<h2>3. Enforcement</h2>
+		<h2>3. Your Responsibility</h2>
 		<p>
-			The Cat Bites Back. We reserve the right to remove content (delete the encrypted blob) and ban
-			users who violate this policy. We cooperate with law enforcement for serious violations (CSAM,
-			terrorism).
+			You are solely responsible for the content you upload and for the legality of your use of the
+			Service. To the extent permitted by law, you agree to indemnify and hold harmless Clickswave
+			Labs Private Limited against any claim, loss, or penalty arising from your use of the Service
+			in breach of this policy or the law.
 		</p>
 	</section>
+
+	<section>
+		<h2>4. Enforcement</h2>
+		<p>
+			We reserve the right to remove content by deleting the encrypted blob and to ban users or IP
+			addresses who violate this policy. We cooperate with valid legal process, and we report
+			serious or unlawful violations, such as CSAM or terrorism, to the relevant authorities.
+		</p>
+	</section>
+
+	<p>Operator: Clickswave Labs Private Limited, Gujarat, India. Contact: team@silo.cat.</p>
 </div>

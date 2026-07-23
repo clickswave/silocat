@@ -1,7 +1,9 @@
+use crate::middlewares::resolve_identity::Caller;
 use crate::models;
 use crate::routes::respond;
 use axum::extract::State;
 use axum::response::IntoResponse;
+use axum::Extension;
 use axum::Json;
 use serde_json::json;
 
@@ -12,6 +14,7 @@ pub struct PayloadBody {
 
 pub async fn handle(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<PayloadBody>,
 ) -> impl IntoResponse {
 
@@ -26,6 +29,13 @@ pub async fn handle(
 
     match file_query {
         Ok(Some(file)) => {
+            let allowed = file.public_access
+                || caller
+                    .as_ref()
+                    .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+            if !allowed {
+                return respond(404, "Resource not found", vec![], json!({}));
+            }
             return respond(
                 200,
                 "Resource found (File)",
@@ -39,8 +49,8 @@ pub async fn handle(
         Ok(None) => {
             // Not a file, proceed to check folders
         }
-        Err(e) => {
-            return respond(500, "Database error checking file", vec![e.to_string()], json!({}));
+        Err(_e) => {
+            return respond(500, "Database error checking file", vec![], json!({}));
         }
     }
 
@@ -62,6 +72,13 @@ pub async fn handle(
 
     match folder_query {
         Ok(Some(folder)) => {
+            // Owner-only: public folders are served via the share-token path.
+            let allowed = caller
+                .as_ref()
+                .map_or(false, |c| c.owns(&folder.user_id, &folder.owner_api_key));
+            if !allowed {
+                return respond(404, "Resource not found", vec!["ID does not match any file or folder".to_string()], json!({}));
+            }
             // Fetch children too? Yes, usually needed.
             let files_query = sqlx::query_as!(
                 models::File,
@@ -105,8 +122,8 @@ pub async fn handle(
              // Not a file, not a folder
              return respond(404, "Resource not found", vec!["ID does not match any file or folder".to_string()], json!({}));
         }
-        Err(e) => {
-            return respond(500, "Database error checking folder", vec![e.to_string()], json!({}));
+        Err(_e) => {
+            return respond(500, "Database error checking folder", vec![], json!({}));
         }
     }
 }

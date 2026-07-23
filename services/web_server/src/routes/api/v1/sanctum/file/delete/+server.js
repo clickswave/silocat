@@ -21,7 +21,7 @@ export async function POST({ request, locals }) {
         };
 
         // Using existing delete-files endpoint
-        let response = await ApiServerClient.post('/file/delete-files', payload).then(res => res.data);
+        let response = await ApiServerClient.post('/file/delete-files', payload, { headers: { 'X-Api-Key': sessionUser.api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[DELETE_FILE]', err);

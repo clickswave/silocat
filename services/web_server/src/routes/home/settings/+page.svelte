@@ -6,6 +6,8 @@
 	import { invalidateAll } from '$app/navigation';
 	import CountrySelect from '$lib/components/CountrySelect.svelte';
 	import { browser } from '$app/environment';
+	import { toast } from 'svelte-sonner';
+	import { theme as themeStore, setTheme as applyTheme } from '$lib/theme.js';
 
 	let { data } = $props();
 
@@ -16,6 +18,7 @@
 	};
 
 	let user = $derived(data.user || defaultUser);
+	let isPro = $derived(!!data.user?.subscription);
 
 	// Username change limit (max 2 per rolling 30 days), surfaced from the load.
 	let usernameStatus = $derived(data.usernameStatus);
@@ -33,8 +36,6 @@
 	}
 
 	let theme = $state('dark');
-	let emailNotifications = $state(true);
-	let pushNotifications = $state(false);
 	let saving = $state(false);
 
 	// --- Email change (inline verify) ---
@@ -66,14 +67,14 @@
 			});
 			const d = await res.json();
 			if (!res.ok) {
-				alert(d.message || (d.errors && d.errors.join(', ')) || d.error || 'Could not send code');
+				toast.error(d.message || (d.errors && d.errors.join(', ')) || d.error || 'Could not send code');
 			} else {
 				emailStage = 'sent';
 				otpInput = '';
 			}
 		} catch (e) {
 			console.error(e);
-			alert('Could not send verification code');
+			toast.error('Could not send verification code');
 		} finally {
 			emailBusy = false;
 		}
@@ -89,7 +90,7 @@
 				body: JSON.stringify({ email: emailInput.trim() })
 			});
 			const d = await res.json();
-			if (!res.ok) alert(d.message || d.error || 'Could not resend code');
+			if (!res.ok) toast.error(d.message || d.error || 'Could not resend code');
 		} catch (e) {
 			console.error(e);
 		} finally {
@@ -108,7 +109,7 @@
 			});
 			const d = await res.json();
 			if (!res.ok) {
-				alert(d.message || (d.errors && d.errors.join(', ')) || d.error || 'Incorrect code');
+				toast.error(d.message || (d.errors && d.errors.join(', ')) || d.error || 'Incorrect code');
 			} else {
 				emailStage = 'idle';
 				otpInput = '';
@@ -116,7 +117,7 @@
 			}
 		} catch (e) {
 			console.error(e);
-			alert('Could not verify code');
+			toast.error('Could not verify code');
 		} finally {
 			otpBusy = false;
 		}
@@ -138,7 +139,7 @@
 		const file = e.target.files?.[0];
 		if (!file) return;
 		if (file.size > 1024 * 1024) {
-			alert('Image must be 1 MB or smaller.');
+			toast.error('Image must be 1 MB or smaller.');
 			e.target.value = '';
 			return;
 		}
@@ -151,13 +152,13 @@
 			});
 			const result = await res.json();
 			if (!res.ok) {
-				alert(result.error || 'Upload failed');
+				toast.error(result.error || 'Upload failed');
 			} else {
 				currentAvatar = result.profile_image;
 			}
 		} catch (err) {
 			console.error(err);
-			alert('Upload failed');
+			toast.error('Upload failed');
 		} finally {
 			avatarBusy = false;
 			if (e.target) e.target.value = '';
@@ -172,11 +173,11 @@
 			if (res.ok) {
 				currentAvatar = null;
 			} else {
-				alert('Failed to remove display picture');
+				toast.error('Failed to remove display picture');
 			}
 		} catch (err) {
 			console.error(err);
-			alert('Failed to remove display picture');
+			toast.error('Failed to remove display picture');
 		} finally {
 			avatarBusy = false;
 		}
@@ -191,17 +192,13 @@
 
 	onMount(() => {
 		if (browser) {
-			const savedTheme = localStorage.getItem('theme') || 'dark';
-			setTheme(savedTheme);
+			theme = localStorage.getItem('theme') || 'dark';
 		}
 	});
 
 	function setTheme(newTheme) {
 		theme = newTheme;
-		if (browser) {
-			document.documentElement.setAttribute('data-theme', newTheme);
-			localStorage.setItem('theme', newTheme);
-		}
+		applyTheme(newTheme);
 	}
 
 	$effect(() => {
@@ -219,9 +216,9 @@
 				// SvelteKit automatically invalidates load functions
 				await update({ reset: false });
 			} else if (result.type === 'failure') {
-				alert(result.data?.message || 'Failed to update profile');
+				toast.error(result.data?.message || 'Failed to update profile');
 			} else {
-				alert('An error occurred');
+				toast.error('An error occurred');
 			}
 			saving = false;
 		};
@@ -235,11 +232,11 @@
 	async function submitPassword(e) {
 		e?.preventDefault?.();
 		if (pwForm.next !== pwForm.confirm) {
-			alert('New passwords do not match');
+			toast.error('New passwords do not match');
 			return;
 		}
 		if (hasPassword && !pwForm.current) {
-			alert('Enter your current password');
+			toast.error('Enter your current password');
 			return;
 		}
 		pwBusy = true;
@@ -253,15 +250,15 @@
 			});
 			const d = await res.json();
 			if (!res.ok) {
-				alert(d.error || (d.errors && d.errors.join(', ')) || 'Could not update password');
+				toast.error(d.error || (d.errors && d.errors.join(', ')) || 'Could not update password');
 			} else {
-				alert(hasPassword ? 'Password updated' : 'Password set');
+				toast.success(hasPassword ? 'Password updated' : 'Password set');
 				pwForm = { current: '', next: '', confirm: '' };
 				hasPassword = true;
 			}
 		} catch (err) {
 			console.error(err);
-			alert('Could not update password');
+			toast.error('Could not update password');
 		} finally {
 			pwBusy = false;
 		}
@@ -287,7 +284,7 @@
 			<div class="setting-item">
 				<div class="label">
 					<span class="title">Theme</span>
-					<span class="desc">Customize the look and feel of SiloCat.</span>
+					<span class="desc">Dark by default. Light if you insist.</span>
 				</div>
 				<div class="controls">
 					<button
@@ -305,35 +302,6 @@
 				</div>
 			</div>
 
-			<div class="setting-item">
-				<div class="label">
-					<span class="title">Email Notifications</span>
-					<span class="desc">Receive emails about your account activity.</span>
-				</div>
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={emailNotifications}
-						onchange={(e) => (emailNotifications = e.target.checked)}
-					/>
-					<span class="slider round"></span>
-				</label>
-			</div>
-
-			<div class="setting-item">
-				<div class="label">
-					<span class="title">Push Notifications</span>
-					<span class="desc">Receive push notifications on your device.</span>
-				</div>
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={pushNotifications}
-						onchange={(e) => (pushNotifications = e.target.checked)}
-					/>
-					<span class="slider round"></span>
-				</label>
-			</div>
 		</section>
 
 		<!-- Section: Profile Settings -->
@@ -372,7 +340,7 @@
 				</div>
 				<div class="user-meta">
 					<h3>{user.username}</h3>
-					<span class="role">Pro Member</span>
+					<span class="role" class:pro={isPro}>{isPro ? 'Pro' : 'Free'}</span>
 					<span class="country-badge" title="Country">
 						{getCountryName(user.country)}
 					</span>
@@ -785,12 +753,18 @@
 			}
 			.role {
 				background: var(--tint-soft);
-				color: var(--primary);
+				color: var(--ink-mute);
+				border: 1px solid var(--edge);
 				padding: 2px 8px;
-				border-radius: var(--radius-sm);
+				border-radius: var(--radius-full);
 				font-size: var(--fs-xs);
-				font-weight: var(--fw-semibold);
-				text-transform: uppercase;
+				font-weight: var(--fw-medium);
+
+				&.pro {
+					background: var(--accent-soft);
+					color: var(--accent);
+					border-color: transparent;
+				}
 			}
 			.country-badge {
 				color: var(--text-muted);

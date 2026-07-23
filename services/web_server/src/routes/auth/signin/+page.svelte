@@ -8,6 +8,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { Button, Input, PasswordInput, OtpInput } from '$lib/ui';
 
 	let { data } = $props();
 
@@ -84,7 +85,7 @@
 			if (!res.ok) {
 				toast.error(d.error || 'Could not reset your password');
 			} else {
-				toast.success('Password reset. Welcome back!');
+				toast.success('Password reset. Welcome back.');
 				await goto('/home');
 			}
 		} catch {
@@ -106,9 +107,6 @@
 	function handleSubmit(event) {
 		loading = true;
 		return async ({ update, result }) => {
-			// on success
-			// if (result.data.success) await goto('/dashboard');
-			// on error
 			if (result.data.error) {
 				let response = result.data.error;
 				toast.error(response.message, {
@@ -122,199 +120,122 @@
 	}
 </script>
 
-<Seo
-	title="Sign in | SiloCat"
-	description="Access your encrypted SiloCat vault."
-	noindex
-/>
+<Seo title="Sign in | Silocat" description="Access your encrypted Silocat storage." noindex />
 
-<section class="auth-card card">
+<section class="auth-card">
 	<div class="card-header">
-		<div class="logo">
-			<img src={SiloCatLogo} alt="SiloCat Logo" />
-		</div>
-		<div class="title-group">
-			{#if mode === 'login'}
-				<h1>Enter the Sanctum</h1>
-				<p>Access your encrypted vault.</p>
-			{:else if mode === 'forgot'}
-				<h1>Reset password</h1>
-				<p>We'll email you a one-time code.</p>
-			{:else}
-				<h1>Choose a new password</h1>
-				<p>Enter the code we emailed and your new password.</p>
-			{/if}
-		</div>
+		<img class="mark" src={SiloCatLogo} alt="" />
+		{#if mode === 'login'}
+			<h1>Sign in</h1>
+		{:else if mode === 'forgot'}
+			<h1>Reset password</h1>
+			<p>We'll email you a one-time code.</p>
+		{:else}
+			<h1>Choose a new password</h1>
+			<p>Enter the code we emailed and a new password.</p>
+		{/if}
 	</div>
 
 	{#if mode === 'login'}
-	<form method="POST" use:enhance={handleSubmit}>
-		<div class="form-group">
-			<label for="email">Email</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:mail-line" class="input-icon" width="18" />
-				<input
-					id="email"
-					name="email"
-					type="email"
-					class="field"
-					placeholder="name@example.com"
-					bind:value={form.email}
-					autocomplete="email"
-					required
-				/>
-			</div>
-		</div>
+		<form method="POST" use:enhance={handleSubmit}>
+			<Input
+				bind:value={form.email}
+				name="email"
+				type="email"
+				label="Email"
+				icon="ri:mail-line"
+				placeholder="name@example.com"
+				autocomplete="email"
+				required
+			/>
 
-		<div class="form-group">
-			<label for="password">Password</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:lock-password-line" class="input-icon" width="18" />
-				<input
-					id="password"
+			<div class="password-group">
+				<Input
+					bind:value={form.password}
 					name="password"
 					type="password"
-					class="field"
+					label="Password"
+					icon="ri:lock-2-line"
 					placeholder="••••••••"
-					bind:value={form.password}
 					autocomplete="current-password"
 					required
 				/>
+				<button type="button" class="link-btn forgot-link" onclick={openForgot}>
+					Forgot password?
+				</button>
 			</div>
-			<button type="button" class="link-btn forgot-link" onclick={openForgot}>
-				Forgot password?
-			</button>
+
+			<div class="turnstile-group">
+				<Turnstile siteKey={data.turnstileSiteKey} bind:this={turnstileRef} theme="auto" />
+			</div>
+
+			<Button type="submit" block {loading}>Sign in</Button>
+		</form>
+
+		<div class="or-divider"><span>or</span></div>
+
+		<Button variant="ghost" block href={googleAuthUrl}>
+			<Icon icon="logos:google-icon" width="16" /> Continue with Google
+		</Button>
+
+		<div class="footer">
+			<p>New here? <a href="/auth/signup">Create account</a></p>
 		</div>
-
-		<div class="form-group turnstile-group">
-			<Turnstile siteKey={data.turnstileSiteKey} bind:this={turnstileRef} theme="auto" />
-		</div>
-
-		<button type="submit" disabled={loading} class="btn btn-primary btn-block submit-btn">
-			{#if loading}
-				<Icon icon="line-md:loading-loop" width="20" /> Authenticating...
-			{:else}
-				<Icon icon="ri:login-circle-line" width="20" /> Access Vault
-			{/if}
-		</button>
-	</form>
-
-	<div class="or-divider"><span>or</span></div>
-
-	<a href={googleAuthUrl} class="btn btn-ghost btn-block google-btn">
-		<Icon icon="logos:google-icon" width="20" /> Continue with Google
-	</a>
-
-	<div class="footer">
-		<p>New here? <a href="/auth/signup">Join the Watch</a></p>
-	</div>
-
 	{:else if mode === 'forgot'}
-	<form onsubmit={sendResetCode}>
-		<div class="form-group">
-			<label for="reset-email">Email</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:mail-line" class="input-icon" width="18" />
-				<input
-					id="reset-email"
-					type="email"
-					class="field"
-					placeholder="name@example.com"
-					bind:value={resetEmail}
-					autocomplete="email"
-					required
-				/>
-			</div>
+		<form onsubmit={sendResetCode}>
+			<Input
+				bind:value={resetEmail}
+				type="email"
+				label="Email"
+				icon="ri:mail-line"
+				placeholder="name@example.com"
+				autocomplete="email"
+				required
+			/>
+
+			<Button type="submit" block loading={resetBusy}>Send reset code</Button>
+		</form>
+
+		<div class="footer">
+			<p><button type="button" class="link-btn" onclick={() => (mode = 'login')}>Back to sign in</button></p>
 		</div>
-
-		<button type="submit" disabled={resetBusy} class="btn btn-primary btn-block submit-btn">
-			{#if resetBusy}
-				<Icon icon="line-md:loading-loop" width="20" /> Sending...
-			{:else}
-				<Icon icon="ri:mail-send-line" width="20" /> Send reset code
-			{/if}
-		</button>
-	</form>
-
-	<div class="footer">
-		<p><button type="button" class="link-btn" onclick={() => (mode = 'login')}>Back to sign in</button></p>
-	</div>
-
 	{:else}
-	<form onsubmit={submitReset}>
-		<div class="form-group">
-			<label for="reset-otp">Reset code</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:shield-keyhole-line" class="input-icon" width="18" />
-				<input
-					id="reset-otp"
-					type="text"
-					inputmode="numeric"
-					class="field"
-					placeholder="6-digit code"
-					bind:value={resetOtp}
-					autocomplete="one-time-code"
-					required
-				/>
+		<form onsubmit={submitReset}>
+			<div class="otp-group">
+				<span class="otp-label">Reset code</span>
+				<OtpInput bind:value={resetOtp} />
 			</div>
+
+			<PasswordInput
+				bind:value={resetNewPassword}
+				label="New password"
+				autocomplete="new-password"
+				required
+			/>
+
+			<Button type="submit" block loading={resetBusy}>Reset password</Button>
+		</form>
+
+		<div class="footer">
+			<p>
+				<button type="button" class="link-btn" onclick={sendResetCode} disabled={resetBusy}>Resend code</button>
+				<span class="sep">·</span>
+				<button type="button" class="link-btn" onclick={() => (mode = 'login')}>Back to sign in</button>
+			</p>
 		</div>
-
-		<div class="form-group">
-			<label for="reset-new-password">New password</label>
-			<div class="input-wrapper">
-				<Icon icon="ri:lock-password-line" class="input-icon" width="18" />
-				<input
-					id="reset-new-password"
-					type="password"
-					class="field"
-					placeholder="••••••••"
-					bind:value={resetNewPassword}
-					autocomplete="new-password"
-					required
-				/>
-			</div>
-		</div>
-
-		<button type="submit" disabled={resetBusy} class="btn btn-primary btn-block submit-btn">
-			{#if resetBusy}
-				<Icon icon="line-md:loading-loop" width="20" /> Resetting...
-			{:else}
-				<Icon icon="ri:lock-unlock-line" width="20" /> Reset password & sign in
-			{/if}
-		</button>
-	</form>
-
-	<div class="footer">
-		<p>
-			<button type="button" class="link-btn" onclick={sendResetCode} disabled={resetBusy}>Resend code</button>
-			<span class="sep">·</span>
-			<button type="button" class="link-btn" onclick={() => (mode = 'login')}>Back to sign in</button>
-		</p>
-	</div>
 	{/if}
 </section>
 
 <style lang="scss">
 	.auth-card {
 		width: 100%;
-		max-width: 480px;
+		background: var(--surface);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-lg);
 		padding: var(--space-6);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
-		position: relative;
-		overflow: hidden;
-
-		/* Top accent edge */
-		&::before {
-			content: '';
-			position: absolute;
-			top: 0;
-			left: 0;
-			right: 0;
-			height: 1px;
-			background: linear-gradient(90deg, transparent, var(--primary), transparent);
-		}
+		gap: var(--space-5);
 	}
 
 	.card-header {
@@ -322,50 +243,66 @@
 		flex-direction: column;
 		gap: var(--space-2);
 		align-items: center;
+		text-align: center;
 
-		.logo {
-			width: 48px;
-			height: 48px;
-			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-md);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			box-shadow: var(--shadow-glow);
-
-			img {
-				width: 26px;
-				height: 26px;
-			}
+		.mark {
+			width: 32px;
+			height: 32px;
+			margin-bottom: var(--space-1);
 		}
 
-		.title-group {
-			text-align: center;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-1);
-
-			h1 {
-				margin: 0;
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-bold);
-			}
-
-			p {
-				margin: 0;
-				color: var(--text-secondary);
-				font-size: var(--fs-sm);
-			}
+		h1 {
+			font-size: var(--fs-h3);
+			margin: 0;
 		}
+
+		p {
+			color: var(--ink-mute);
+			font-size: var(--fs-sm);
+			margin: 0;
+		}
+	}
+
+	form {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.password-group {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.forgot-link {
+		align-self: flex-end;
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.otp-group {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+
+		.otp-label {
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--ink-mute);
+		}
+	}
+
+	.turnstile-group {
+		display: flex;
+		justify-content: center;
 	}
 
 	.or-divider {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		color: var(--text-muted);
+		color: var(--ink-faint);
 		font-size: var(--fs-xs);
 		text-transform: uppercase;
 		letter-spacing: 0.12em;
@@ -375,58 +312,8 @@
 			content: '';
 			flex: 1;
 			height: 1px;
-			background: var(--hairline);
+			background: var(--edge);
 		}
-	}
-
-	form {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-	}
-
-	.form-group {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-
-		label {
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			color: var(--text-secondary);
-		}
-
-		.input-wrapper {
-			position: relative;
-			display: flex;
-			align-items: center;
-			width: 100%;
-
-			:global(.input-icon) {
-				position: absolute;
-				left: var(--space-3);
-				color: var(--text-muted);
-				pointer-events: none;
-				transition: color var(--dur) var(--ease);
-			}
-
-			&:focus-within :global(.input-icon) {
-				color: var(--primary);
-			}
-		}
-
-		.field {
-			padding-left: 2.6rem;
-		}
-	}
-
-	.turnstile-group {
-		align-items: center;
-		margin-top: var(--space-1);
-	}
-
-	.submit-btn {
-		margin-top: var(--space-1);
 	}
 
 	.link-btn {
@@ -434,13 +321,13 @@
 		border: none;
 		padding: 0;
 		cursor: pointer;
-		color: var(--text-primary);
+		color: var(--ink-mute);
 		font-size: var(--fs-sm);
 		font-weight: var(--fw-medium);
 		font-family: inherit;
 
 		&:hover {
-			color: var(--primary);
+			color: var(--ink);
 			text-decoration: underline;
 		}
 
@@ -450,41 +337,26 @@
 		}
 	}
 
-	.forgot-link {
-		align-self: flex-end;
-		margin-top: calc(-1 * var(--space-1));
-		font-size: var(--fs-xs);
-		color: var(--text-muted);
-	}
-
-	.footer .sep {
-		color: var(--text-muted);
-		margin: 0 var(--space-2);
-	}
-
-	.google-btn {
-		text-decoration: none;
-	}
-
 	.footer {
 		text-align: center;
 
 		p {
-			color: var(--text-muted);
+			color: var(--ink-faint);
 			font-size: var(--fs-sm);
 			margin: 0;
 
 			a {
-				color: var(--text-primary);
-				text-decoration: none;
+				color: var(--ink);
 				font-weight: var(--fw-medium);
-				transition: color var(--dur) var(--ease);
 
 				&:hover {
-					color: var(--primary);
 					text-decoration: underline;
 				}
 			}
+		}
+
+		.sep {
+			margin: 0 var(--space-2);
 		}
 	}
 </style>

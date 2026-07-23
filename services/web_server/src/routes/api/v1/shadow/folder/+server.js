@@ -30,13 +30,11 @@ export async function POST({ request, locals }) {
 
         if (apiKey) {
             payload.owner_api_key = apiKey;
-            console.log('[SHADOW_CREATE_FOLDER] Injecting owner_api_key:', apiKey);
         } else if (!sessionUser) {
             console.log('[SHADOW_CREATE_FOLDER] No API Key or Session found');
         }
 
-        console.log('[SHADOW_CREATE_FOLDER] Payload to backend:', JSON.stringify(payload));
-        let response = await ApiServerClient.post(ApiServerRoutes.createFolder, payload).then(res => res.data);
+        let response = await ApiServerClient.post(ApiServerRoutes.createFolder, payload, { headers: { 'X-Api-Key': sessionUser?.api_key || apiKey || undefined } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[CREATE_FOLDER]', err);

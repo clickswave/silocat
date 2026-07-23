@@ -43,7 +43,6 @@
 
 	function handleShare(e) {
 		e.stopPropagation();
-		console.log('FileCard: Share clicked');
 		closeMenu();
 		if (onshare) onshare();
 	}
@@ -76,41 +75,36 @@
 	tabindex="0"
 	on:keydown={(e) => e.key === 'Enter' && onclick()}
 >
-	<div class="file-content">
-		<div class="icon-section">
-			<div class="file-icon {type}">
-				{#if type === 'image'}<Icon icon="ri:image-2-fill" width="32" />
-				{:else if type === 'video'}<Icon icon="ri:film-fill" width="32" />
-				{:else if type === 'doc'}<Icon icon="ri:file-text-fill" width="32" />
-				{:else if type === 'audio'}<Icon icon="ri:music-fill" width="32" />
-				{:else}<Icon icon="ri:file-fill" width="32" />
-				{/if}
-			</div>
-			<div class="indicators">
-				{#if starred}
-					<div class="star-indicator" title="Starred">
-						<Icon icon="ri:star-fill" width="14" />
-					</div>
-				{/if}
-				{#if encrypted}
-					<div class="lock-indicator" title="Encrypted">
-						<Icon icon="ri:lock-fill" width="14" />
-					</div>
-				{/if}
-			</div>
+	<div class="top">
+		<div class="file-icon {type}">
+			{#if type === 'image'}<Icon icon="ri:image-2-line" width="20" />
+			{:else if type === 'video'}<Icon icon="ri:film-line" width="20" />
+			{:else if type === 'doc'}<Icon icon="ri:file-text-line" width="20" />
+			{:else if type === 'audio'}<Icon icon="ri:music-2-line" width="20" />
+			{:else}<Icon icon="ri:file-3-line" width="20" />
+			{/if}
 		</div>
+		<div class="indicators">
+			{#if starred}
+				<span class="ind star" title="Starred"><Icon icon="ri:star-fill" width="13" /></span>
+			{/if}
+			{#if encrypted}
+				<span class="ind" title="Encrypted"><Icon icon="ri:lock-2-line" width="13" /></span>
+			{/if}
+		</div>
+	</div>
 
-		<div class="info-section">
-			<span class="name" title={name}>{name}</span>
-			<div class="meta">
-				<span class="size">{size}</span>
-			</div>
+	<div class="info-section">
+		<span class="name" title={name}>{name}</span>
+		<div class="meta">
+			<span class="size">{size}</span>
+			{#if date}<span class="date">{date}</span>{/if}
 		</div>
 	</div>
 
 	<div class="menu-container {showMenu ? 'visible' : ''}" bind:this={menuRef}>
-		<button class="menu-btn" on:click={toggleMenu}>
-			<Icon icon="ri:more-2-fill" width="20" />
+		<button class="menu-btn" on:click={toggleMenu} aria-label="More actions">
+			<Icon icon="ri:more-2-fill" width="18" />
 		</button>
 		{#if showMenu}
 			<div class="dropdown-menu">
@@ -152,90 +146,103 @@
 
 <style lang="scss">
 	.file-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
+		background: var(--surface);
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
 		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		justify-content: space-between;
+		gap: var(--space-4);
+		height: 100%;
 		position: relative;
 		cursor: pointer;
-		min-height: 160px;
-		box-shadow: var(--shadow-card);
-		transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
-			box-shadow var(--dur) var(--ease);
+		transition:
+			background var(--dur) var(--ease),
+			border-color var(--dur) var(--ease);
 
 		&:hover {
-			background: var(--bg-card-hover);
-			border-color: var(--border-active);
-			box-shadow: var(--shadow-card);
+			background: var(--surface-hover);
+			border-color: var(--edge-strong);
 
 			.menu-container .menu-btn {
 				opacity: 1;
 			}
 		}
 
-		.file-content {
-			display: flex;
-			flex-direction: column;
-			flex: 1;
-			gap: var(--space-4);
-		}
-
-		.icon-section {
+		.top {
 			display: flex;
 			align-items: flex-start;
-			justify-content: flex-start;
-			gap: var(--space-3);
+			justify-content: space-between;
+			gap: var(--space-2);
+		}
 
-			.file-icon {
-				color: var(--text-secondary);
-				transition: color var(--dur) var(--ease);
+		.file-icon {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 40px;
+			height: 40px;
+			border: 1px solid var(--edge);
+			border-radius: var(--radius-sm);
+			color: var(--ink-faint);
+			flex-shrink: 0;
+			transition: color var(--dur) var(--ease);
+
+			&.image,
+			&.video {
+				color: var(--ink-mute);
 			}
+		}
 
-			.indicators {
+		.indicators {
+			display: flex;
+			gap: var(--space-1);
+			align-items: center;
+			/* keep clear of the hover kebab in the corner */
+			margin-right: var(--space-6);
+
+			.ind {
 				display: flex;
-				gap: var(--space-1);
-				align-items: center;
+				color: var(--ink-faint);
 
-				.lock-indicator {
-					color: var(--warning);
-					opacity: 0.85;
-				}
-				.star-indicator {
-					color: var(--warning);
-					opacity: 0.85;
+				&.star {
+					color: var(--warn);
 				}
 			}
 		}
 
 		.info-section {
-			margin-top: auto;
 			display: flex;
 			flex-direction: column;
 			gap: var(--space-1);
+			margin-top: auto;
 
 			.name {
 				font-size: var(--fs-sm);
 				font-weight: var(--fw-medium);
-				color: var(--text-primary);
+				color: var(--ink);
 				line-height: var(--lh-snug);
-
-				/* Multi-line truncation logic */
 				display: -webkit-box;
 				-webkit-line-clamp: 2;
 				-webkit-box-orient: vertical;
 				overflow: hidden;
-				word-break: break-all;
+				word-break: break-word;
+				/* reserve two lines so single-line names align across the row */
+				min-height: calc(2 * var(--fs-sm) * var(--lh-snug));
 			}
 
 			.meta {
 				display: flex;
 				align-items: center;
 				gap: var(--space-2);
+				font-family: var(--font-mono);
 				font-size: var(--fs-xs);
-				color: var(--text-muted);
+				color: var(--ink-faint);
+
+				.date::before {
+					content: '·';
+					margin-right: var(--space-2);
+				}
 			}
 		}
 
@@ -249,18 +256,22 @@
 			}
 
 			.menu-btn {
+				display: flex;
 				background: transparent;
 				border: none;
-				color: var(--text-muted);
+				color: var(--ink-faint);
 				cursor: pointer;
 				padding: var(--space-1);
 				border-radius: var(--radius-sm);
 				opacity: 0;
-				transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+				transition:
+					color var(--dur) var(--ease),
+					background var(--dur) var(--ease),
+					opacity var(--dur) var(--ease);
 
 				&:hover {
-					color: var(--text-primary);
-					background: var(--tint-softer);
+					color: var(--ink);
+					background: var(--tint-soft);
 				}
 			}
 
@@ -268,13 +279,13 @@
 				position: absolute;
 				top: 100%;
 				right: 0;
-				background: var(--bg-elevated);
-				border: 1px solid var(--border-default);
+				background: var(--raised);
+				border: 1px solid var(--edge);
 				border-radius: var(--radius-md);
 				padding: var(--space-1);
-				min-width: 140px;
+				min-width: 150px;
 				z-index: 100;
-				box-shadow: var(--shadow-lg);
+				box-shadow: var(--shadow-overlay);
 				display: flex;
 				flex-direction: column;
 				gap: 2px;
@@ -287,25 +298,30 @@
 					padding: var(--space-2) var(--space-3);
 					background: transparent;
 					border: none;
-					color: var(--text-secondary);
+					color: var(--ink);
 					font-family: inherit;
 					font-size: var(--fs-sm);
 					cursor: pointer;
 					border-radius: var(--radius-sm);
 					text-align: left;
 					width: 100%;
-					transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-					font-weight: var(--fw-medium);
+					transition: background var(--dur-fast) var(--ease);
+
+					:global(.iconify) {
+						color: var(--ink-faint);
+					}
 
 					&:hover {
 						background: var(--tint-soft);
-						color: var(--text-primary);
 					}
 
 					&.danger {
 						color: var(--danger);
+						:global(.iconify) {
+							color: var(--danger);
+						}
 						&:hover {
-							background: rgba(255, 70, 85, 0.1);
+							background: var(--danger-soft);
 						}
 					}
 				}

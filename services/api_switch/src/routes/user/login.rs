@@ -5,6 +5,10 @@ use serde_json::{json};
 use crate::{libs, models};
 use crate::routes::respond;
 
+/// A real argon2id hash used only to equalize verify timing when the email is
+/// unknown (defeats login-timing account enumeration). Not a credential.
+const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$REDACTED$REDACTED";
+
 #[derive(Deserialize, Debug)]
 pub struct Payload {
     pub email: String,
@@ -12,9 +16,22 @@ pub struct Payload {
 }
 
 pub async fn handle(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
+    // Per-IP throttle to blunt credential stuffing / password brute-force.
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    if !axum_state.rate_limiter.check(&format!("login:{}", ip), 10, std::time::Duration::from_secs(300)) {
+        return respond(
+            429,
+            "Too Many Requests",
+            vec!["Too many attempts. Please try again in a few minutes.".to_string()],
+            json!({}),
+        );
+    }
+
     // input validation
     let mut validation_errors = vec![];
     // validate email
@@ -38,6 +55,9 @@ pub async fn handle(
     let user = match find_user_query {
         Ok(user) => user,
         Err(sqlx::Error::RowNotFound) => {
+            // Run a verify against a dummy hash so an unknown email takes the
+            // same time as a wrong password — no email enumeration by timing.
+            let _ = libs::argon2::verify(&payload.password, DUMMY_HASH.to_string());
             return respond(
                 401,
                 "Could not login",
@@ -73,7 +93,7 @@ pub async fn handle(
     let find_subscription_query = sqlx::query_as!(models::Subscription,
         "
         SELECT * FROM subscriptions \
-        WHERE id = $1 \
+        WHERE id = $1 AND expires_on > NOW() \
         ORDER BY created_on DESC
         ",
         user.subscription_id

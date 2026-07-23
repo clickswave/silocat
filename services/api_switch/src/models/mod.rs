@@ -9,15 +9,22 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub email: String,
+    #[serde(skip_serializing)]
     pub password_hash: String,
+    #[serde(skip_serializing)]
     pub api_key: String,
     pub created_on: DateTime<Utc>,
     pub account_type: String,
 
     pub profile_image: Option<String>,
     pub email_verified: bool,
+    #[serde(skip_serializing)]
     pub otp: String,
     pub otp_last_sent_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub otp_expires_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub otp_attempts: i32,
 
     pub sessions: Vec<String>,
     pub is_restricted: bool,
@@ -105,13 +112,16 @@ pub struct File {
     pub blake3_checksum: String,
     pub public_access: bool,
     pub folder_id: Option<String>,
+    #[serde(skip_serializing)]
     pub owner_api_key: Option<String>,
     pub starred: bool,
+    #[serde(skip_serializing)]
     pub share_token: Option<String>,
     pub share_type: Option<String>,
     pub link_downloads: Option<i64>,
     pub link_max_downloads: Option<i64>,
     pub share_expires_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
     pub share_password_hash: Option<String>,
     pub deleted_on: Option<DateTime<Utc>>,
 }
@@ -125,13 +135,16 @@ pub struct Folder {
     pub uploaded_as_files: bool,
     pub created_on: DateTime<Utc>,
     pub updated_on: DateTime<Utc>,
+    #[serde(skip_serializing)]
     pub owner_api_key: Option<String>,
     pub starred: bool,
+    #[serde(skip_serializing)]
     pub share_token: Option<String>,
     pub share_type: Option<String>,
     pub link_downloads: Option<i64>,
     pub link_max_downloads: Option<i64>,
     pub share_expires_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
     pub share_password_hash: Option<String>,
     pub deleted: bool,
     pub deleted_on: Option<DateTime<Utc>>,

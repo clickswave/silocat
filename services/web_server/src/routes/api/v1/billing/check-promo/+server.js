@@ -14,7 +14,7 @@ export async function POST({ request, locals }) {
     try {
         const payload = await request.json();
 
-        let response = await ApiServerClient.post('/billing/check-promo', payload)
+        let response = await ApiServerClient.post('/billing/check-promo', payload, { headers: { 'X-Api-Key': user.api_key } })
             .then(res => res.data);
 
         // Return the full backend response as is

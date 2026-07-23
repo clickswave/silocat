@@ -35,19 +35,22 @@ pub async fn send(
     let mail_from = format!("{} <{}>", &email_data.from_name, &email_data.from_email);
     let mail_reply_to = format!("{} <{}>", &email_data.reply_to_name, &email_data.reply_to_email);
     // construct email: HTML + inline logo (multipart/related, cid:silocat-logo)
+    // Never panic on address/content parsing — a bad address returns an error
+    // the caller handles (log + continue), it doesn't take the worker down.
+    let logo_ct = "image/png".parse().map_err(|e| format!("content type: {e}"))?;
     let logo_part = Attachment::new_inline(LOGO_CID.to_string())
-        .body(LOGO_PNG.to_vec(), "image/png".parse().expect("invalid logo content type"));
+        .body(LOGO_PNG.to_vec(), logo_ct);
     let email = Message::builder()
-        .from(mail_from.parse().expect("Exception while parsing mail_from"))
-        .reply_to(mail_reply_to.parse().expect("Exception while parsing mail_reply_to"))
-        .to(mail_to.parse().expect("Exception while parsing mail_to"))
+        .from(mail_from.parse().map_err(|e| format!("from address: {e}"))?)
+        .reply_to(mail_reply_to.parse().map_err(|e| format!("reply-to address: {e}"))?)
+        .to(mail_to.parse().map_err(|e| format!("to address: {e}"))?)
         .subject(&email_data.email_subject)
         .multipart(
             MultiPart::related()
                 .singlepart(SinglePart::html(email_data.email_body.clone()))
                 .singlepart(logo_part),
         )
-        .expect("Exception while constructing email");
+        .map_err(|e| format!("build email: {e}"))?;
 
     // parse smtp creds
     let creds = Credentials::new(smtp_config.username.clone(), smtp_config.password.clone());
@@ -63,7 +66,7 @@ pub async fn send(
     let mailer = SmtpTransport::relay(
         smtp_config.address.as_str()
     )
-        .expect("Exception while parsing relay_address")
+        .map_err(|e| e.to_string())?
         .port(587)
         .tls(Tls::Required(tls_config))
         .credentials(creds)
@@ -75,7 +78,6 @@ pub async fn send(
             Ok(response)
         }
         Err(err) => {
-            dbg!(&err);
             Err(err.to_string())
         }
     }
@@ -166,7 +168,7 @@ fn render_otp_email(
                 <a href="https://silo.cat" target="_blank" style="color:#9a9aa3;">silo.cat</a> &nbsp;&middot;&nbsp;
                 <a href="https://silo.cat/privacy" target="_blank" style="color:#9a9aa3;">Privacy</a> &nbsp;&middot;&nbsp;
                 <a href="https://silo.cat/policies/terms-of-service" target="_blank" style="color:#9a9aa3;">Terms</a> &nbsp;&middot;&nbsp;
-                <a href="mailto:support@silo.cat" style="color:#9a9aa3;">Support</a>
+                <a href="mailto:team@silo.cat" style="color:#9a9aa3;">Support</a>
               </p>
               <p style="margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#52525b;">&copy; 2026 Clickswave Labs Private Limited. Zero-knowledge by design.</p>
               <p style="margin:6px 0 0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#3f3f46;">You received this email because this address was used on silo.cat.</p>
@@ -264,7 +266,7 @@ Reply directly to this email to respond to {user_name}.
 
     let email_data = EmailData {
         to_name: "SiloCat Support".to_string(),
-        to_email: "support@silo.cat".to_string(),
+        to_email: "team@silo.cat".to_string(),
         from_name: smtp_config.from_name.clone(),
         from_email: smtp_config.from_email.clone(),
         // Reply-to is the user so the team can answer them directly.

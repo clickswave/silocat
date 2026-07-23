@@ -1,28 +1,37 @@
-use axum::{extract::State, Json, response::IntoResponse};
+use crate::middlewares::resolve_identity::Caller;
+use crate::routes::respond;
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use crate::routes::respond;
 
 #[derive(Deserialize, Debug)]
 pub struct Payload {
     pub folder_id: String,
-    pub user_id: String,
 }
 
 pub async fn handle(
     State(state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
+    // Identity comes from the authenticated X-Api-Key, never the request body.
+    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
+        Some(uid) => uid,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
 
-    // Ideally, we should soft delete subfolders/files too, or check if empty.
-    // For now, let's just delete the folder record itself (soft delete preferred if schema supports it, but checking schema first might be good).
-    // Assuming 'deleted' column exists on folders table like files table.
-    
     // Check if folder belongs to user
     let folder = sqlx::query!(
         "SELECT id FROM folders WHERE id = $1 AND user_id = $2",
         payload.folder_id,
-        payload.user_id
+        user_id
     )
     .fetch_optional(&state.pg_pool)
     .await;

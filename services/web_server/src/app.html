@@ -7,22 +7,13 @@
 		<!-- Apply the saved theme before first paint (avoids flash + dark-on-refresh) -->
 		<script>
 			try {
-				document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+				var __theme = localStorage.getItem('theme') || 'dark';
+				document.documentElement.setAttribute('data-theme', __theme);
+				document.currentScript.insertAdjacentHTML(
+					'afterend',
+					'<meta name="theme-color" content="' + (__theme === 'light' ? '#fafafa' : '#0b0b0d') + '" />'
+				);
 			} catch (e) {}
-		</script>
-
-		<!-- Google Analytics (gtag.js) — production host only, so dev/staging traffic is excluded -->
-		<script>
-			if (location.hostname === 'silo.cat') {
-				var gaScript = document.createElement('script');
-				gaScript.async = true;
-				gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=G-8L85JCPKJ3';
-				document.head.appendChild(gaScript);
-				window.dataLayer = window.dataLayer || [];
-				function gtag() { dataLayer.push(arguments); }
-				gtag('js', new Date());
-				gtag('config', 'G-8L85JCPKJ3');
-			}
 		</script>
 
 		<!-- Icons & PWA -->
@@ -32,14 +23,13 @@
 		<link rel="icon" href="/favicon.ico" />
 		<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 		<link rel="manifest" href="/site.webmanifest" />
-		<meta name="theme-color" content="#0a0a0c" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-		<meta name="apple-mobile-web-app-title" content="SiloCat" />
+		<meta name="apple-mobile-web-app-title" content="Silocat" />
 
-		<!-- Perf hints -->
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<!-- Self-hosted fonts -->
+		<link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+		<link rel="preload" href="/fonts/JetBrainsMono.woff2" as="font" type="font/woff2" crossorigin />
 
 		%sveltekit.head%
 	</head>

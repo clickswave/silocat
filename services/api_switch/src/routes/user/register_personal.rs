@@ -38,6 +38,15 @@ pub async fn handle(
     // Default the new user's country from the IP they register from (best-effort;
     // None for unresolvable/private IPs, e.g. local dev).
     let registration_ip = libs::geoip::client_ip(&headers, addr);
+    // Per-IP throttle on account creation to blunt mass signup abuse.
+    if !axum_state.rate_limiter.check(&format!("register:{}", registration_ip), 5, std::time::Duration::from_secs(600)) {
+        return respond(
+            429,
+            "Too Many Requests",
+            vec!["Too many accounts created from your network. Please try again later.".to_string()],
+            json!({}),
+        );
+    }
     let geo_country = axum_state
         .geoip
         .as_ref()
@@ -132,8 +141,9 @@ pub async fn handle(
     let user_id = rng::uuid();
 
 
-    // Determine initial storage
-    let mut initial_storage_bytes: i64 = 53687091200; // 50 GB default
+    // Determine initial storage. Free tier is 10 GB (existing users keep whatever
+    // their row already holds — this default only applies to new signups).
+    let mut initial_storage_bytes: i64 = 10 * 1024 * 1024 * 1024; // 10 GB default
 
     if let Some(ref invite) = valid_invite_code {
         if invite.benefit.ends_with("GB") {
@@ -153,6 +163,7 @@ pub async fn handle(
              email,
              password_hash,
              otp,
+             otp_expires_at,
              api_key,
              team_id,
              subscription_id,
@@ -161,7 +172,7 @@ pub async fn handle(
              country
             )
         VALUES
-            ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ( $1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes', $6, $7, $8, $9, $10, $11)
         RETURNING *
         "
     )
@@ -305,7 +316,7 @@ pub async fn handle(
                 &payload.email,
                 &otp
             ).await {
-                println!("Failed to send verification email to {}: {}", payload.email, e);
+                println!("Failed to send verification email: {}", e);
                 // We typically don't fail the request here, but logging is essential.
             }
 

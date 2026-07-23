@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET otp = $1, otp_last_sent_at = NOW(), otp_expires_at = NOW() + INTERVAL '10 minutes', otp_attempts = 0 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7384060f5f7ec333099c830a59a35382ae330bc6daa603948e93cc2a055859f0"
+}

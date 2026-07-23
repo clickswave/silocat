@@ -43,8 +43,8 @@ pub async fn handle(
     let otp = libs::rng::number(6);
 
     // Update user with new OTP and timestamp
-    if let Err(e) = sqlx::query!(
-        "UPDATE users SET otp = $1, otp_last_sent_at = NOW() WHERE id = $2",
+    if let Err(_e) = sqlx::query!(
+        "UPDATE users SET otp = $1, otp_last_sent_at = NOW(), otp_expires_at = NOW() + INTERVAL '10 minutes', otp_attempts = 0 WHERE id = $2",
         otp,
         user.id
     )
@@ -53,13 +53,13 @@ pub async fn handle(
          return respond(
             500,
             "Failed to update OTP",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         );
     }
 
     // send verification email
-    if let Err(e) = libs::email::send_verification_email(
+    if let Err(_e) = libs::email::send_verification_email(
         &axum_state.smtp_config,
         &user.username,
         &user.email,
@@ -68,7 +68,7 @@ pub async fn handle(
          return respond(
             500,
             "Failed to send email",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         );
     }

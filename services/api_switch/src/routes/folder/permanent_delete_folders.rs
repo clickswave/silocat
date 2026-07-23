@@ -1,18 +1,31 @@
-use axum::{extract::State, Json, response::IntoResponse};
+use crate::middlewares::resolve_identity::Caller;
+use crate::routes::respond;
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
-use crate::routes::respond;
 
 #[derive(Deserialize)]
 pub struct DeletePayload {
     pub folder_id: String,
-    pub api_key: String,
 }
 
 pub async fn handle(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<DeletePayload>,
 ) -> impl IntoResponse {
+    // Identity + ownership come from the authenticated X-Api-Key, never the body.
+    let caller = match caller.as_ref() {
+        Some(c) => c,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
 
     // 1. Fetch folder ownership info
     let folder_query = sqlx::query!(
@@ -25,56 +38,27 @@ pub async fn handle(
     match folder_query {
         Ok(Some(record)) => {
             // 2. Verify ownership
-            let mut is_owner = false;
-
-            if let Some(key) = record.owner_api_key {
-                if key == payload.api_key {
-                    is_owner = true;
-                }
-            }
-            
-            if !is_owner {
-                if let Some(folder_user_id) = record.user_id {
-                    let user_check = sqlx::query!(
-                        "SELECT id FROM users WHERE api_key = $1",
-                        payload.api_key
-                    )
-                    .fetch_optional(&axum_state.pg_pool)
-                    .await;
-
-                    if let Ok(Some(user)) = user_check {
-                        if user.id == folder_user_id {
-                            is_owner = true;
-                        }
-                    }
-                }
+            if !caller.owns(&record.user_id, &record.owner_api_key) {
+                return respond(404, "Folder not found", vec![], json!({}));
             }
 
-            if is_owner {
-                // 3. Permanently delete
-                // Note: This operation should ideally be recursive or cascade.
-                // If cascade is set up in DB, deleting the folder row will delete children.
-                // If not, we risk orphaned files. 
-                // For this MVP, we rely on DB definition or we accept it.
-                // However, standard practice suggests deleting children first if not cascaded.
-                // Assuming CASCADE ON DELETE for parent_id in folders and folder_id in files.
-                
-                let delete_result = sqlx::query!(
-                    "DELETE FROM folders WHERE id = $1",
-                    payload.folder_id
-                )
-                .execute(&axum_state.pg_pool)
-                .await;
+            // 3. Permanently delete
+            // Note: This operation should ideally be recursive or cascade.
+            // If cascade is set up in DB, deleting the folder row will delete children.
+            // Assuming CASCADE ON DELETE for parent_id in folders and folder_id in files.
+            let delete_result = sqlx::query!(
+                "DELETE FROM folders WHERE id = $1",
+                payload.folder_id
+            )
+            .execute(&axum_state.pg_pool)
+            .await;
 
-                match delete_result {
-                    Ok(_) => respond(200, "Folder permanently deleted", vec![], json!({})),
-                    Err(e) => respond(500, "Failed to delete folder", vec![e.to_string()], json!({})),
-                }
-            } else {
-                respond(403, "Unauthorized", vec!["API Key does not match folder owner".to_string()], json!({}))
+            match delete_result {
+                Ok(_) => respond(200, "Folder permanently deleted", vec![], json!({})),
+                Err(_e) => respond(500, "Failed to delete folder", vec![], json!({})),
             }
         },
         Ok(None) => respond(404, "Folder not found", vec![], json!({})),
-        Err(e) => respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Database error", vec![], json!({})),
     }
 }

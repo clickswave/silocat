@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { env } from '$env/dynamic/private';
 const { AUTHORITY_SIGN, INTERNAL_API_URL } = env;
-console.log({AUTHORITY_SIGN, INTERNAL_API_URL});
 
 // USER MANAGEMENT SERVER DOWN ERROR
 export const ApiServerError = {
@@ -20,6 +19,7 @@ export let ApiServerClient = axios.create({
 export const ApiServerRoutes = {
 
 	validateShadowUser: '/validate-shadow-user',
+	report: '/report',
 	earlyAccess: '/auth/early-access',
 
 	login: '/user/login',

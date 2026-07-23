@@ -6,6 +6,8 @@ use serde_json::json;
 use crate::routes::respond;
 
 pub mod validate_token;
+pub mod validate_admin_token;
+pub mod resolve_identity;
 
 pub async fn authority_sign_check(
     request: Request,

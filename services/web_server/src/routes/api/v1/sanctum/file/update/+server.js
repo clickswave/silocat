@@ -19,7 +19,7 @@ export async function POST({ request, locals }) {
         const userId = sessionUser.id;
         payload.user_id = userId;
 
-        const response = await ApiServerClient.post('/file/update-files', payload);
+        const response = await ApiServerClient.post('/file/update-files', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
 
         return json(response.data);
     } catch (error) {

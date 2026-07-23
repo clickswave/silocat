@@ -22,7 +22,7 @@ pub async fn handle(
     let (count, window_start) = match row {
         Ok(Some(r)) => r,
         Ok(None) => return respond(404, "User not found", vec![], json!({})),
-        Err(e) => return respond(500, "Failed to read profile", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to read profile", vec![], json!({})),
     };
 
     let now = chrono::Utc::now();

@@ -9,6 +9,14 @@
 	import { toast } from 'svelte-sonner';
 	import { flip } from 'svelte/animate';
 	import { fade } from 'svelte/transition';
+	import { useQueryClient } from '@tanstack/svelte-query';
+
+	const queryClient = useQueryClient();
+	// Restore/permanent-delete change quota usage; refresh the shared storage
+	// query so the sidebar + dashboard meters update without a manual reload.
+	function refreshStorage() {
+		queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
+	}
 
 	let trashItems = $state([]);
 	let loading = $state(true);
@@ -162,6 +170,7 @@
 			const payload = item.type === 'folder' ? { folder_id: item.id } : { file_id: item.id };
 			await FrontendClient.post(endpoint, payload);
 			toast.success('Restored ' + item.name);
+			refreshStorage();
 			selected.delete(keyOf(item));
 			await loadTrash();
 		} catch (e) {
@@ -202,6 +211,7 @@
 		try {
 			await permanentDelete(itemToDelete);
 			toast.success('Deleted ' + itemToDelete.name);
+		refreshStorage();
 			await loadTrash();
 		} catch (e) {
 			console.error(e);
@@ -230,6 +240,7 @@
 			}
 		}
 		toast.success(`Restored ${ok} item${ok === 1 ? '' : 's'}`);
+		refreshStorage();
 		clearSelection();
 		await loadTrash();
 	}
@@ -253,6 +264,7 @@
 			}
 		}
 		toast.success(`Permanently deleted ${ok} item${ok === 1 ? '' : 's'}`);
+		refreshStorage();
 		clearSelection();
 		await loadTrash();
 	}
@@ -283,6 +295,7 @@
 		}
 		emptying = false;
 		toast.success(`Emptied trash (${ok} item${ok === 1 ? '' : 's'} permanently deleted)`);
+		refreshStorage();
 		clearSelection();
 		await loadTrash();
 	}
@@ -804,7 +817,7 @@
 			&.danger {
 				color: var(--danger);
 				&:hover {
-					background: rgba(255, 70, 85, 0.1);
+					background: var(--danger-soft);
 				}
 			}
 		}
@@ -818,6 +831,7 @@
 		&.grid {
 			display: grid;
 			grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+			grid-auto-rows: 1fr;
 			gap: var(--space-5);
 		}
 		&.list {
@@ -962,7 +976,7 @@
 			}
 			&.danger:hover {
 				color: var(--danger);
-				background: rgba(255, 70, 85, 0.1);
+				background: var(--danger-soft);
 			}
 		}
 	}

@@ -51,6 +51,6 @@
 	<meta name="twitter:image" content={ogImageUrl} />
 
 	{#each schemas as s}
-		{@html `<script type="application/ld+json">${JSON.stringify(s)}<\/script>`}
+		{@html `<script type="application/ld+json">${JSON.stringify(s).replace(/</g, '\\u003c')}<\/script>`}
 	{/each}
 </svelte:head>

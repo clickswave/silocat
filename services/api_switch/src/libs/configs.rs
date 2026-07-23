@@ -31,14 +31,16 @@ pub fn smtp_config() -> anyhow::Result<SmtpConfig> {
     let config_available = address.is_ok() && username.is_ok() && password.is_ok();
 
     if config_available {
+        let from_email = env::var("SMTP_FROM_EMAIL").unwrap_or_else(|_| "team@silo.cat".to_string());
         Ok(SmtpConfig {
-            address: "smtp.postmarkapp.com".to_string(),
+            address: address?,
             username: username?,
             password: password?,
-            from_name: "SiloCat".to_string(),
-            from_email: "support@silo.cat".to_string(),
-            reply_to_name: "SiloCat Support".to_string(),
-            reply_to_email: "support@silo.cat".to_string(),
+            from_name: env::var("SMTP_FROM_NAME").unwrap_or_else(|_| "Silocat".to_string()),
+            from_email: from_email.clone(),
+            reply_to_name: env::var("SMTP_REPLY_TO_NAME")
+                .unwrap_or_else(|_| "Silocat Support".to_string()),
+            reply_to_email: env::var("SMTP_REPLY_TO_EMAIL").unwrap_or_else(|_| from_email),
         })
 
     } else {

@@ -29,7 +29,7 @@ async fn get_ticket(
     let ticket = match ticket {
         Ok(Some(t)) => t,
         Ok(None) => return respond(404, "Ticket not found", vec![], json!({})),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
     let replies = sqlx::query_as::<_, models::SupportReply>(
@@ -73,10 +73,10 @@ async fn reply(
     match exists {
         Ok(c) if c > 0 => {}
         Ok(_) => return respond(404, "Ticket not found", vec![], json!({})),
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     }
 
-    if let Err(e) = sqlx::query(
+    if let Err(_e) = sqlx::query(
         "INSERT INTO support_ticket_replies (ticket_id, author_role, author_name, body) \
          VALUES ($1, 'admin', $2, $3)",
     )
@@ -86,7 +86,7 @@ async fn reply(
     .execute(&state.pg_pool)
     .await
     {
-        return respond(500, "Failed to add reply", vec![e.to_string()], json!({}));
+        return respond(500, "Failed to add reply", vec![], json!({}));
     }
 
     // Notify the ticket owner by email (best-effort).
@@ -174,7 +174,7 @@ async fn list_tickets(
 
     match tickets {
         Ok(tickets) => respond(200, "Tickets fetched", vec![], json!({ "tickets": tickets })),
-        Err(e) => respond(500, "Failed to fetch tickets", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to fetch tickets", vec![], json!({})),
     }
 }
 
@@ -205,6 +205,6 @@ async fn update_status(
             respond(200, "Ticket updated", vec![], json!({}))
         }
         Ok(_) => respond(404, "Ticket not found", vec![], json!({})),
-        Err(e) => respond(500, "Failed to update ticket", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to update ticket", vec![], json!({})),
     }
 }

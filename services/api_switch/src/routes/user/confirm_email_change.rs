@@ -32,7 +32,7 @@ pub async fn handle(
                 json!({}),
             )
         }
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
     if payload.otp.trim() != pending_otp {
@@ -75,7 +75,7 @@ pub async fn handle(
                 json!({}),
             );
         }
-        return respond(500, "Failed to update email", vec![e.to_string()], json!({}));
+        return respond(500, "Failed to update email", vec![], json!({}));
     }
 
     let updated_user = match sqlx::query_as::<_, models::User>("SELECT * FROM users WHERE id = $1")
@@ -84,7 +84,7 @@ pub async fn handle(
         .await
     {
         Ok(u) => u,
-        Err(e) => return respond(500, "Failed to fetch updated profile", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to fetch updated profile", vec![], json!({})),
     };
 
     let token_data = models::token_data(updated_user, user.subscription.clone());

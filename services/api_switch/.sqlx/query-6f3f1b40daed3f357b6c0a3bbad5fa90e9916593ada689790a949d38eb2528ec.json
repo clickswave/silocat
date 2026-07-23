@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folders SET link_downloads = COALESCE(link_downloads, 0) + 1 WHERE id = $1 AND (share_type <> 'once' OR COALESCE(link_downloads, 0) < COALESCE(link_max_downloads, 1)) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f3f1b40daed3f357b6c0a3bbad5fa90e9916593ada689790a949d38eb2528ec"
+}

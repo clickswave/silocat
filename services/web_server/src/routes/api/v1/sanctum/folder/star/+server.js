@@ -11,12 +11,11 @@ export async function POST({ request, locals }) {
         const payload = await request.json();
 
         console.log('[STAR_FOLDER_PROXY] User ID:', user.id);
-        console.log('[STAR_FOLDER_PROXY] Payload:', JSON.stringify(payload));
 
         const res = await ApiServerClient.post('/file/star/folder', {
             ...payload,
             user_id: user.id
-        });
+        }, { headers: { 'X-Api-Key': user.api_key } });
 
         console.log('[STAR_FOLDER_PROXY] Backend Status:', res.data?.status);
         console.log('[STAR_FOLDER_PROXY] Backend Message:', res.data?.message);

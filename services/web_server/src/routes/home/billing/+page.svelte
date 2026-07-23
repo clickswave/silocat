@@ -16,7 +16,7 @@
 
 	let usage = $state({
 		storage: 0,
-		limit: 50,
+		limit: 10,
 		bandwidth: 'Unlimited',
 		bandwidthLimit: 'Unlimited'
 	});
@@ -30,7 +30,7 @@
 			// Plan
 			if (data.user.subscription?.name === 'Pro') {
 				plan.name = 'Pro Plan';
-				plan.price = '$9.00'; // Or adjust currency
+				plan.price = '$10.00';
 				plan.status = data.user.subscription.status || 'Active';
 
 				if (data.user.subscription.expires_on) {
@@ -43,7 +43,7 @@
 
 			// Usage
 			// Convert bytes to GB
-			let limitBytes = data.user.default_storage_bytes || 53687091200; // 50GB default
+			let limitBytes = data.user.default_storage_bytes || 10737418240; // 10GB default
 			if (data.user.subscription?.additional_space) {
 				limitBytes += data.user.subscription.additional_space;
 			}
@@ -65,7 +65,7 @@
 				invoices = res.data.data.orders.map((order) => ({
 					id: order.reference_id || order.id.substring(0, 8),
 					date: new Date(order.created_on).toLocaleDateString(),
-					amount: `${order.currency === 'USD' ? '$' : '₹'}${order.amount / 100}`,
+					amount: `${{ USD: '$', EUR: '€', INR: '₹' }[order.currency] || ''}${order.amount / 100}`,
 					status: order.status,
 					currency: order.currency,
 					raw_amount: order.amount,
@@ -91,11 +91,11 @@
 			Date: ${invoice.date}
 			Status: ${invoice.status}
 			
-			Item: SiloCat Subscription
+			Item: Silocat Subscription
 			Amount: ${invoice.amount}
 			
 			Thank you for your business.
-			ClisksWave Labs Private Limited
+			Clickswave Labs Private Limited
 		`;
 
 		const blob = new Blob([content], { type: 'text/plain' });
@@ -238,18 +238,6 @@
 <style lang="scss">
 	.billing-page {
 		width: 100%;
-		animation: fade-in 0.3s ease-out;
-	}
-
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
 	}
 
 	.page-header {
@@ -510,7 +498,7 @@
 				}
 
 				&.failed {
-					background: rgba(255, 70, 85, 0.12);
+					background: var(--danger-soft);
 					color: var(--danger);
 				}
 			}

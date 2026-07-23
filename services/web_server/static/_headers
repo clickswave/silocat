@@ -1,0 +1,16 @@
+# Security headers for all responses (Cloudflare Pages honours this file).
+#
+# NOTE: a full Content-Security-Policy (script-src / connect-src / frame-src /
+# worker-src) still needs to be added and validated against the app's real
+# origins — self, Cloudflare Turnstile (challenges.cloudflare.com), Razorpay
+# (checkout.razorpay.com), the R2 upload/download endpoints
+# (*.r2.cloudflarestorage.com), the CDN, Google Analytics, WASM
+# ('wasm-unsafe-eval' for libsodium) and blob: workers. Shipping a strict CSP
+# blind would break uploads/payments, so only frame-ancestors is enforced here.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: frame-ancestors 'none'

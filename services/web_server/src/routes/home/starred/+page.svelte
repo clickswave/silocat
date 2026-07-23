@@ -1,94 +1,87 @@
 <script>
 	import FolderCard from '$lib/components/FolderCard.svelte';
 	import FileCard from '$lib/components/FileCard.svelte';
+	import ResourceToolbar from '$lib/components/ResourceToolbar.svelte';
+	import Icon from '@iconify/svelte';
 	import { flip } from 'svelte/animate';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { browser } from '$app/environment';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import Icon from '@iconify/svelte';
 	import { toast } from 'svelte-sonner';
 	import axios from 'axios';
-	import { fade } from 'svelte/transition';
 	import { downloadFile } from '$lib/download.js';
+	import { EmptyState, Prompt, Skeleton } from '$lib/ui';
 
+	let passwordPrompt = $state({ open: false, file: null });
 	function handleDownload(file) {
-		if (file.encrypted) {
-			const pw = window.prompt(`"${file.name}" is encrypted. Enter the password to decrypt it:`);
-			if (!pw) return;
-			downloadFile(file, { password: pw });
-		} else {
-			downloadFile(file);
-		}
+		if (file.encrypted) passwordPrompt = { open: true, file };
+		else downloadFile(file);
+	}
+	function submitPassword(pw) {
+		const f = passwordPrompt.file;
+		passwordPrompt = { open: false, file: null };
+		if (f && pw) downloadFile(f, { password: pw });
 	}
 
-	// Fetch Starred Files
 	async function fetchStarredFilesFn() {
 		try {
-			// Using GET proxy with starred param
-			let { data } = await FrontendClient.get('/api/v1/sanctum/file/list', {
-				params: { starred: true }
-			});
-
-			if (data?.status === 200) {
-				return data?.data?.files || [];
-			} else {
-				throw new Error(data.message || 'Unknown error');
-			}
+			let { data } = await FrontendClient.get('/api/v1/sanctum/file/list', { params: { starred: true } });
+			if (data?.status === 200) return data?.data?.files || [];
+			throw new Error(data.message || 'Unknown error');
 		} catch (e) {
 			console.error('Error fetching starred files:', e);
 			return [];
 		}
 	}
+	const fetchStarredFiles = createQuery(() => ({ queryKey: ['fetchStarredFiles'], queryFn: fetchStarredFilesFn, enabled: browser }));
 
-	const fetchStarredFiles = createQuery(() => ({
-		queryKey: ['fetchStarredFiles'],
-		queryFn: fetchStarredFilesFn,
-		enabled: browser
-	}));
-
-	// Fetch Starred Folders
 	async function fetchStarredFoldersFn() {
 		try {
-			// Using POST proxy with starred body
-			let { data } = await FrontendClient.post('/api/v1/sanctum/folder/list', {
-				starred: true
-			});
-
-			if (data && data.data && data.data.folders) {
-				return data.data.folders;
-			}
-			return [];
+			let { data } = await FrontendClient.post('/api/v1/sanctum/folder/list', { starred: true });
+			return data?.data?.folders || [];
 		} catch (e) {
 			console.error('Error fetching starred folders:', e);
 			return [];
 		}
 	}
-
-	const fetchStarredFolders = createQuery(() => ({
-		queryKey: ['fetchStarredFolders'],
-		queryFn: fetchStarredFoldersFn,
-		enabled: browser
-	}));
+	const fetchStarredFolders = createQuery(() => ({ queryKey: ['fetchStarredFolders'], queryFn: fetchStarredFoldersFn, enabled: browser }));
 
 	const queryClient = useQueryClient();
 
-	let folders = $derived(
-		fetchStarredFolders?.data?.map((f) => ({
-			...f,
-			starred: true // Implicitly true since we fetched starred list, but backend returns it too
-		})) || []
-	);
+	let loading = $derived(fetchStarredFiles.isLoading || fetchStarredFolders.isLoading);
+	let rawFolders = $derived((fetchStarredFolders?.data || []).map((f) => ({ ...f, starred: true })));
+	let rawFiles = $derived((fetchStarredFiles?.data || []).map((f) => ({ ...f, starred: true })));
 
-	let files = $derived(
-		fetchStarredFiles?.data?.map((file) => ({
-			...file,
-			starred: true
-		})) || []
-	);
+	// ---- search / sort / view ----
+	let search = $state('');
+	let sortKey = $state('name');
+	let sortDir = $state('asc');
+	let view = $state('grid');
 
-	// Handlers
+	function match(name) {
+		const q = search.trim().toLowerCase();
+		return !q || (name || '').toLowerCase().includes(q);
+	}
+	function sortList(list, isFolder) {
+		const dir = sortDir === 'asc' ? 1 : -1;
+		return [...list].sort((a, b) => {
+			if (sortKey === 'size') {
+				const sa = isFolder ? 0 : Number(a.size) || 0;
+				const sb = isFolder ? 0 : Number(b.size) || 0;
+				if (sa !== sb) return dir * (sa - sb);
+			} else if (sortKey === 'date') {
+				const da = new Date(a.created_on || 0).getTime();
+				const db = new Date(b.created_on || 0).getTime();
+				if (da !== db) return dir * (da - db);
+			}
+			return dir * (a.name || '').localeCompare(b.name || '');
+		});
+	}
+	let folders = $derived(sortList(rawFolders.filter((f) => match(f.name)), true));
+	let files = $derived(sortList(rawFiles.filter((f) => match(f.name)), false));
+	let isEmpty = $derived(folders.length === 0 && files.length === 0);
+
 	async function handleStar(item, type) {
-		// Toggle star (remove from list in this view)
 		const newStatus = !item.starred;
 		try {
 			await axios.post(`/api/v1/sanctum/${type}/star`, {
@@ -98,156 +91,216 @@
 			toast.success(newStatus ? 'Added to starred' : 'Removed from starred');
 			queryClient.invalidateQueries({ queryKey: ['fetchStarredFiles'] });
 			queryClient.invalidateQueries({ queryKey: ['fetchStarredFolders'] });
-			// Also invalidate global lists just in case
 			queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
 			queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
 		} catch (e) {
-			console.error('Star failed:', e);
 			toast.error('Failed to update star status');
 		}
 	}
 
-	// Helpers (copied/simplified)
 	function formatSize(bytes) {
-		if (bytes === 0) return '0 B';
+		if (!bytes) return '0 B';
 		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+		const s = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), s.length - 1);
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
 	}
-
-	function formatTime(dateString) {
-		const date = new Date(dateString);
-		const now = new Date();
-		const diff = Math.floor((now - date) / 1000);
-		if (diff < 60) return 'Just now';
-		if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-		if (diff < 86400) return `${Math.floor(diff / 3600)} hour ago`;
-		return `${Math.floor(diff / 86400)} days ago`;
+	function relTime(dateString) {
+		const then = new Date(dateString).getTime();
+		if (!then) return '';
+		const s = Math.max(0, (Date.now() - then) / 1000);
+		if (s < 60) return 'just now';
+		if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+		if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+		if (s < 86400 * 7) return `${Math.floor(s / 86400)}d ago`;
+		return new Date(dateString).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
-
-	function getFileType(mime) {
-		if (mime.includes('image')) return 'image';
-		if (mime.includes('video')) return 'video';
-		if (mime.includes('audio')) return 'audio';
-		if (mime.includes('pdf') || mime.includes('document')) return 'doc';
+	function getType(mime) {
+		if (mime?.includes('image')) return 'image';
+		if (mime?.includes('video')) return 'video';
+		if (mime?.includes('audio')) return 'audio';
+		if (mime?.includes('pdf') || mime?.includes('document')) return 'doc';
 		return 'file';
 	}
-
-	function handleItemClick(e, item, type) {
-		// Placeholder for selection or navigation logic if needed
-		// For now, no navigation in Starred view? Or navigate to folder containing it?
-		// Navigation might be complex since we don't have context of parent.
-		// Let's just allow generic click.
-	}
+	const typeIcons = {
+		image: 'ri:image-line', video: 'ri:film-line', audio: 'ri:music-2-line',
+		doc: 'ri:file-text-line', file: 'ri:file-3-line'
+	};
 </script>
 
-<div class="page-container">
-	<header class="page-header">
-		<div class="title-group">
-			<h1>Starred</h1>
-			<p>Your important files and folders</p>
+<div class="view">
+	<header class="page-head">
+		<div>
+			<h1 class="page-title">Starred</h1>
+			<p class="page-subtitle">Your important files and folders.</p>
 		</div>
 	</header>
 
-	<div class="resource-grid">
-		<!-- Folders -->
-		{#each folders as folder (folder.id)}
-			<div animate:flip={{ duration: 300 }}>
-				<FolderCard
-					name={folder.name}
-					count={folder.count}
-					starred={true}
-					onstar={() => handleStar(folder, 'folder')}
-					onclick={(e) => handleItemClick(e, folder, 'folder')}
-				/>
-			</div>
-		{/each}
+	<ResourceToolbar bind:search bind:sortKey bind:sortDir bind:view placeholder="Search starred" />
 
-		<!-- Files -->
-		{#each files as file (file.id)}
-			<div animate:flip={{ duration: 300 }}>
-				<FileCard
-					name={file.name}
-					size={formatSize(file.size)}
-					date={formatTime(file.created_on)}
-					type={getFileType(file.mime)}
-					encrypted={file.encrypted}
-					starred={true}
-					ondownload={() => handleDownload(file)}
-					onstar={() => handleStar(file, 'file')}
-					onclick={(e) => handleItemClick(e, file, 'file')}
-				/>
-			</div>
-		{/each}
-
-		{#if folders.length === 0 && files.length === 0}
-			<div class="empty-state">
-				<Icon icon="ri:star-line" width="64" />
-				<p>No starred items yet</p>
-				<div class="sub-text">Star files or folders to access them quickly here</div>
-			</div>
-		{/if}
-	</div>
+	{#if loading}
+		<div class="grid">
+			{#each Array(4) as _, i (i)}<Skeleton height="118px" radius="var(--radius-md)" />{/each}
+		</div>
+	{:else if isEmpty}
+		<EmptyState icon="ri:star-line" title="No starred items" line={search ? 'No starred items match your search.' : 'Star a file or folder to keep it handy here.'} />
+	{:else if view === 'grid'}
+		<div class="grid">
+			{#each folders as folder (folder.id)}
+				<div animate:flip={{ duration: 200 }}>
+					<FolderCard name={folder.name} count={folder.count} starred={folder.starred}
+						onstar={() => handleStar(folder, 'folder')} />
+				</div>
+			{/each}
+			{#each files as file (file.id)}
+				<div animate:flip={{ duration: 200 }}>
+					<FileCard name={file.name} size={formatSize(file.size)} date={relTime(file.created_on)}
+						type={getType(file.mime)} encrypted={file.encrypted} starred={file.starred}
+						ondownload={() => handleDownload(file)} onstar={() => handleStar(file, 'file')} />
+				</div>
+			{/each}
+		</div>
+	{:else}
+		<div class="list">
+			{#each folders as folder (folder.id)}
+				<div class="row">
+					<span class="ic"><Icon icon="ri:folder-3-line" width="16" /></span>
+					<span class="name">{folder.name}</span>
+					<span class="meta">{folder.count ?? 0} items</span>
+					<span class="meta" />
+					<div class="row-actions">
+						<button aria-label="Unstar" onclick={() => handleStar(folder, 'folder')}><Icon icon="ri:star-fill" width="16" /></button>
+					</div>
+				</div>
+			{/each}
+			{#each files as file (file.id)}
+				<div class="row">
+					<span class="ic"><Icon icon={typeIcons[getType(file.mime)]} width="16" /></span>
+					<span class="name">{file.name}{#if file.encrypted}<Icon icon="ri:lock-2-line" width="12" class="lk" />{/if}</span>
+					<span class="meta">{formatSize(file.size)}</span>
+					<span class="meta">{relTime(file.created_on)}</span>
+					<div class="row-actions">
+						<button aria-label="Download" onclick={() => handleDownload(file)}><Icon icon="ri:download-line" width="16" /></button>
+						<button aria-label="Unstar" onclick={() => handleStar(file, 'file')}><Icon icon="ri:star-fill" width="16" /></button>
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
 </div>
 
+<Prompt
+	open={passwordPrompt.open}
+	title={passwordPrompt.file ? `Decrypt ${passwordPrompt.file.name}` : 'Decrypt file'}
+	message="This file is encrypted. Enter the password to download and decrypt it."
+	placeholder="Password"
+	type="password"
+	submitLabel="Download"
+	onsubmit={submitPassword}
+	onclose={() => (passwordPrompt = { open: false, file: null })}
+/>
+
 <style lang="scss">
-	.page-container {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-6);
-		color: var(--text-primary);
-	}
-
-	.page-header {
-		.title-group {
-			h1 {
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-semibold);
-				margin: 0 0 var(--space-1) 0;
-			}
-			p {
-				color: var(--text-muted);
-				margin: 0;
-				font-size: var(--fs-sm);
-			}
-		}
-	}
-
-	.resource-grid {
+	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: var(--space-5);
-		padding-bottom: var(--space-8);
+		grid-auto-rows: 1fr;
+		gap: var(--space-4);
+	}
 
-		.empty-state {
-			grid-column: 1 / -1;
+	.list {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+	.row {
+		display: grid;
+		grid-template-columns: 32px 1fr 90px 90px auto;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-4);
+		background: var(--surface);
+		transition: background var(--dur-fast) var(--ease);
+
+		& + .row {
+			border-top: 1px solid var(--edge);
+		}
+		&:hover {
+			background: var(--surface-hover);
+		}
+		&:hover .row-actions {
+			opacity: 1;
+		}
+	}
+	.ic {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+	}
+	.name {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		:global(.lk) {
+			color: var(--ink-faint);
+			flex-shrink: 0;
+		}
+	}
+	.meta {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+	.row-actions {
+		display: flex;
+		gap: 2px;
+		opacity: 0;
+		transition: opacity var(--dur) var(--ease);
+
+		button {
 			display: flex;
-			flex-direction: column;
 			align-items: center;
 			justify-content: center;
-			padding: var(--space-10) 0;
-			gap: var(--space-4);
-			color: var(--text-secondary);
-
-			p {
-				font-size: var(--fs-lg);
-				font-weight: var(--fw-medium);
-				margin: 0;
-			}
-			.sub-text {
-				font-size: var(--fs-sm);
-				color: var(--text-muted);
+			width: 28px;
+			height: 28px;
+			background: none;
+			border: none;
+			border-radius: var(--radius-sm);
+			color: var(--ink-mute);
+			cursor: pointer;
+			&:hover {
+				background: var(--tint-soft);
+				color: var(--ink);
 			}
 		}
 	}
 
-	@media (max-width: 600px) {
-		.resource-grid {
-			grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	@media (max-width: 620px) {
+		.grid {
+			grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 			gap: var(--space-3);
+		}
+		.row {
+			grid-template-columns: 32px 1fr auto;
+		}
+		.row .meta {
+			display: none;
+		}
+		.row-actions {
+			opacity: 1;
 		}
 	}
 </style>

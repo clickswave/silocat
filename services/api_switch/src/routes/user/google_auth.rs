@@ -81,7 +81,7 @@ pub async fn handle(
 
     let token_res = match token_res {
         Ok(res) => res,
-        Err(e) => return respond(500, "Failed to connect to Google", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to connect to Google", vec![], json!({})),
     };
 
     if !token_res.status().is_success() {
@@ -91,7 +91,7 @@ pub async fn handle(
 
     let token_data: GoogleTokenResponse = match token_res.json().await {
         Ok(data) => data,
-        Err(e) => return respond(500, "Failed to parse Google response", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to parse Google response", vec![], json!({})),
     };
 
     // 2. Fetch User Info
@@ -102,13 +102,24 @@ pub async fn handle(
 
     let user_info_res = match user_info_res {
         Ok(res) => res,
-        Err(e) => return respond(500, "Failed to fetch Google profile", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to fetch Google profile", vec![], json!({})),
     };
 
     let google_user: GoogleUserInfo = match user_info_res.json().await {
         Ok(data) => data,
-        Err(e) => return respond(500, "Failed to parse Google profile", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to parse Google profile", vec![], json!({})),
     };
+
+    // Only trust a Google-verified email — otherwise an unverified Google email
+    // could be used to log into / claim an existing account with that address.
+    if !google_user.verified_email {
+        return respond(
+            400,
+            "Email not verified",
+            vec!["Your Google account's email address is not verified.".to_string()],
+            json!({}),
+        );
+    }
 
     // 3. Find or Create User
     let existing_user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
@@ -179,13 +190,13 @@ pub async fn handle(
                     let token_data = crate::models::token_data(user, None);
                     return respond(200, "Signup successful", vec![], json!(token_data));
                 }
-                Err(e) => {
-                    return respond(500, "Could not create account", vec![e.to_string()], json!({}));
+                Err(_e) => {
+                    return respond(500, "Could not create account", vec![], json!({}));
                 }
             }
         },
-        Err(e) => {
-             return respond(500, "Database error", vec![e.to_string()], json!({}));
+        Err(_e) => {
+             return respond(500, "Database error", vec![], json!({}));
         }
     }
 }

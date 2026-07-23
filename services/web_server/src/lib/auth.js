@@ -1,4 +1,5 @@
 import { createToken } from '$lib/jwt.js';
+import { dev } from '$app/environment';
 
 const SESSION_COOKIE = {
 	name: 'silocat-session',
@@ -16,7 +17,9 @@ let createSession = (sessionData) => {
 			path: SESSION_COOKIE.path,
 			httpOnly: true,
 			sameSite: 'lax',
-			secure: false,
+			// Secure everywhere except local dev (http://localhost). The cookie
+			// carries the session JWT (incl. the api_key) — never send it cleartext.
+			secure: !dev,
 			maxAge: SESSION_COOKIE.age
 		}
 	};

@@ -42,7 +42,7 @@ async fn list_ip_bans(State(state): State<crate::AppState>) -> impl IntoResponse
                 .collect();
             respond(200, "IP bans fetched", vec![], json!({ "bans": bans }))
         }
-        Err(e) => respond(500, "Failed to fetch IP bans", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to fetch IP bans", vec![], json!({})),
     }
 }
 
@@ -80,7 +80,7 @@ async fn create_ip_ban(
 
     match res {
         Ok(_) => respond(200, "IP banned", vec![], json!({ "id": id })),
-        Err(e) => respond(500, "Failed to create IP ban", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to create IP ban", vec![], json!({})),
     }
 }
 
@@ -94,6 +94,6 @@ async fn delete_ip_ban(
         .await;
     match res {
         Ok(_) => respond(200, "IP ban removed", vec![], json!({})),
-        Err(e) => respond(500, "Failed to remove IP ban", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to remove IP ban", vec![], json!({})),
     }
 }

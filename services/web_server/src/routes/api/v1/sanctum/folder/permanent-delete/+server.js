@@ -19,7 +19,7 @@ export async function POST({ request, locals }) {
             folder_id
         };
 
-        let response = await ApiServerClient.post('/folder/permanent-delete', payload);
+        let response = await ApiServerClient.post('/folder/permanent-delete', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
         return json(response.data);
     } catch (err) {
         console.error('[PERMANENT_DELETE_FOLDER]', err);

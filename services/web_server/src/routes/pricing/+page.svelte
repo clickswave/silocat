@@ -4,79 +4,71 @@
 	import { softwareApplicationSchema, breadcrumbSchema } from '$lib/seo.js';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
+	import { Button, Segmented, Badge } from '$lib/ui';
 
-	let selectedCurrency = $state('USD');
+	let currency = $state('USD');
+	let cycle = $state('monthly');
 
-	const pricingData = {
-		USD: { price: '$9', period: '/month', symbol: '$' },
-		EUR: { price: '€8', period: '/month', symbol: '€' },
-		INR: { price: '₹950', period: '/month', symbol: '₹' }
+	const SYMBOL = { USD: '$', EUR: '€', INR: '₹' };
+	let symbol = $derived(SYMBOL[currency]);
+
+	const PRICES = {
+		USD: { plus: { monthly: 4, annual: 39 }, pro: { monthly: 10, annual: 96 } },
+		EUR: { plus: { monthly: 4, annual: 39 }, pro: { monthly: 9, annual: 90 } },
+		INR: { plus: { monthly: 349, annual: 3490 }, pro: { monthly: 899, annual: 8990 } }
 	};
 
-	let currentPricing = $derived(pricingData[selectedCurrency]);
+	function price(id) {
+		return PRICES[currency][id][cycle];
+	}
+	let per = $derived(cycle === 'annual' ? '/yr' : '/mo');
 
 	let plans = $derived([
 		{
+			id: 'free',
 			name: 'Free',
-			price: '0',
-			currencySymbol: currentPricing.symbol,
-			period: '/month',
-			description: 'For the wandering dev who needs a quick drop.',
+			amount: `${symbol}0`,
+			per: '/mo',
+			description: 'Everything, 10 GB of space.',
 			features: [
-				'20GB Shadow Limit (Anon)',
-				'50GB Sanctum Limit (Auth)',
-				'7-Day Retention',
-				'ChaCha20 Encryption',
-				'Watched by WatchCat'
+				'10 GB encrypted storage',
+				'End-to-end encryption',
+				'Password + expiring share links',
+				'Up to 20 GB anonymous drops'
 			],
-			cta: 'Get Started',
-			highlight: false
+			cta: 'Get started',
+			href: '/auth/signup',
+			variant: 'ghost'
 		},
 		{
+			id: 'plus',
+			name: 'Plus',
+			amount: `${symbol}${price('plus')}`,
+			per,
+			description: '20× the space.',
+			features: ['200 GB encrypted storage', 'Everything in Free', 'Email support'],
+			cta: 'Choose Plus',
+			href: '/auth/signup',
+			variant: 'ghost'
+		},
+		{
+			id: 'pro',
 			name: 'Pro',
-			price: selectedCurrency === 'INR' ? '950' : selectedCurrency === 'EUR' ? '8' : '9',
-			currencySymbol: currentPricing.symbol,
-			period: '/month',
-			description: 'For technical beasts who roam the digital wild.',
-			features: [
-				'Unlimited Shadow Uploads',
-				'1TB Sanctum Vault',
-				'Custom Expiry & Passwords',
-				'Priority Network Paths',
-				'Direct Access'
-			],
+			amount: `${symbol}${price('pro')}`,
+			per,
+			description: 'Room for everything.',
+			highlight: true,
+			features: ['2 TB encrypted storage', 'Everything in Free', 'Priority support'],
 			cta: 'Go Pro',
-			highlight: true
-		},
-		{
-			name: 'Enterprise',
-			price: 'Custom',
-			currencySymbol: '',
-			period: '',
-			description: 'Managed territories for your entire pack.',
-			features: [
-				'Unlimited Everything',
-				'SSO / SAML Integration',
-				'Audit Trails & Compliance',
-				'Custom Retention Policies',
-				'Dedicated Support',
-				'DMCA / Legal Compliance Tools'
-			],
-			cta: 'Contact Sales',
-			highlight: false
+			href: '/auth/signup',
+			variant: 'solid'
 		}
 	]);
-
-	const currencies = [
-		{ code: 'USD', label: 'USD' },
-		{ code: 'EUR', label: 'EUR' },
-		{ code: 'INR', label: 'INR' }
-	];
 </script>
 
 <Seo
-	title="Pricing: Simple, transparent, secure | SiloCat"
-	description="Flexible SiloCat plans for anonymous and power users. Zero-knowledge end-to-end encrypted file sharing and cloud storage, with a free tier and affordable upgrades."
+	title="Pricing: Simple, transparent, secure | Silocat"
+	description="Silocat plans for anonymous and power users. Zero-knowledge end-to-end encrypted file sharing and storage, with a free tier, affordable upgrades, and a free self-host option."
 	schema={[
 		softwareApplicationSchema(),
 		breadcrumbSchema([
@@ -91,268 +83,224 @@
 
 	<main class="content">
 		<section class="section">
-			<div class="container wide">
-		<div class="header">
-			<span class="eyebrow">pricing</span>
-			<h1>Simple, Transparent <span class="text-gradient">Pricing</span></h1>
-			<p>Choose the plan that fits your needs.</p>
-
-			<div class="currency-toggle">
-				{#each currencies as currency}
-					<button
-						class="toggle-btn {selectedCurrency === currency.code ? 'active' : ''}"
-						onclick={() => (selectedCurrency = currency.code)}
-					>
-						{currency.label}
-					</button>
-				{/each}
-			</div>
-
-			<div class="storage-info">
-				<p>
-					<span class="highlight">Volatile:</span> Temporary storage, auto-deleted after 7 days.
-				</p>
-				<p>
-					<span class="highlight">Permanent:</span> Secure storage, kept indefinitely until you delete
-					it.
-				</p>
-			</div>
-		</div>
-
-		<div class="pricing-grid">
-			{#each plans as plan}
-				<div class="plan-card {plan.highlight ? 'highlight' : ''}">
-					<div class="plan-header">
-						<h3>{plan.name}</h3>
-						<div class="price">
-							{#if plan.price === 'Custom'}
-								<span class="amount">Custom</span>
-							{:else}
-								<span class="amount">{plan.currencySymbol}{plan.price}</span>
-								<span class="period">{plan.period}</span>
-							{/if}
-						</div>
-						<p class="description">{plan.description}</p>
+			<div class="container">
+				<div class="header">
+					<h1>Pricing</h1>
+					<p>Every feature is free. You only pay for space.</p>
+					<div class="controls">
+						<Segmented
+							bind:value={cycle}
+							options={[
+								{ value: 'monthly', label: 'Monthly' },
+								{ value: 'annual', label: 'Annual · save 17%' }
+							]}
+						/>
+						<Segmented
+							bind:value={currency}
+							size="sm"
+							options={[
+								{ value: 'USD', label: 'USD' },
+								{ value: 'EUR', label: 'EUR' },
+								{ value: 'INR', label: 'INR' }
+							]}
+						/>
 					</div>
-
-					<ul class="features">
-						{#each plan.features as feature}
-							<li>
-								<Icon icon="ri:checkbox-circle-fill" class="check-icon" />
-								{feature}
-							</li>
-						{/each}
-					</ul>
-
-					<button class="cta-btn btn btn-block {plan.highlight ? 'primary btn-primary' : 'secondary btn-ghost'}">
-						{plan.cta}
-					</button>
 				</div>
-			{/each}
-		</div>
+
+				<div class="pricing-grid">
+					{#each plans as plan (plan.id)}
+						<div class="plan-card" class:highlight={plan.highlight}>
+							<div class="plan-top">
+								<div class="plan-name">
+									<h3>{plan.name}</h3>
+									{#if plan.highlight}<Badge tone="accent">Recommended</Badge>{/if}
+								</div>
+								<div class="price">
+									<span class="amount">{plan.amount}</span>
+									<span class="period">{plan.per}</span>
+								</div>
+								<p class="description">{plan.description}</p>
+							</div>
+
+							<ul class="features">
+								{#each plan.features as feature (feature)}
+									<li><Icon icon="ri:check-line" class="check-icon" width="15" /> {feature}</li>
+								{/each}
+							</ul>
+
+							<Button block variant={plan.variant} href={plan.href}>{plan.cta}</Button>
+						</div>
+					{/each}
+				</div>
+
+				<div class="selfhost">
+					<div class="sh-text">
+						<span class="sh-title">Self-host</span>
+						<span class="sh-desc">Run Silocat on your own hardware. Free forever, AGPL-3.0, no limits.</span>
+					</div>
+					<Button variant="ghost" href="https://github.com/clickswave/silocat" target="_blank">
+						<Icon icon="ri:github-fill" width="16" /> View on GitHub
+					</Button>
+				</div>
+
+				<p class="footnote">
+					Plans are prepaid, no stored card and no auto-renewal. Anonymous drops are always free and
+					expire after 7 days; account storage stays until you delete it.
+				</p>
 			</div>
 		</section>
 	</main>
 
 	<Footer />
-
-	<div class="bg-effects">
-		<div class="glow-spot top"></div>
-	</div>
 </div>
 
 <style lang="scss">
 	.page-container {
 		min-height: 100vh;
-		position: relative;
-		overflow: hidden;
 		display: flex;
 		flex-direction: column;
 	}
-
 	.content {
-		position: relative;
-		z-index: 10;
 		flex: 1;
+	}
 
-		.header {
-			text-align: center;
-			margin-bottom: var(--space-8);
+	.header {
+		text-align: center;
+		margin-bottom: var(--space-8);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-3);
+
+		h1 {
+			font-size: var(--fs-h1);
+		}
+		p {
+			color: var(--ink-mute);
+			font-size: var(--fs-body);
+			margin-bottom: var(--space-2);
+		}
+		.controls {
 			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-4);
-
-			h1 {
-				font-size: var(--fs-h1);
-				font-weight: var(--fw-bold);
-			}
-
-			p {
-				color: var(--text-secondary);
-				font-size: var(--fs-lg);
-			}
-
-			.currency-toggle {
-				display: inline-flex;
-				background: var(--tint-soft);
-				padding: var(--space-1);
-				border-radius: var(--radius-md);
-				border: 1px solid var(--border-default);
-
-				.toggle-btn {
-					background: transparent;
-					border: none;
-					color: var(--text-secondary);
-					padding: 0.5rem 1.5rem;
-					border-radius: var(--radius-sm);
-					cursor: pointer;
-					font-weight: var(--fw-semibold);
-					font-family: inherit;
-					font-size: var(--fs-body);
-					transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-
-					&:hover {
-						color: var(--text-primary);
-					}
-
-					&.active {
-						background: var(--accent-gradient);
-						color: #fff;
-					}
-				}
-			}
-
-			.storage-info {
-				display: flex;
-				flex-wrap: wrap;
-				gap: var(--space-5);
-				justify-content: center;
-				font-size: var(--fs-sm);
-
-				p {
-					margin: 0;
-					font-size: var(--fs-sm);
-					color: var(--text-secondary);
-				}
-
-				.highlight {
-					color: var(--primary);
-					font-weight: var(--fw-semibold);
-					margin-right: var(--space-1);
-				}
-			}
+			gap: var(--space-3);
+			flex-wrap: wrap;
+			justify-content: center;
 		}
 	}
 
 	.pricing-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: var(--space-4);
+		align-items: stretch;
+
+		@media (max-width: 860px) {
+			grid-template-columns: 1fr;
+			max-width: 420px;
+			margin-inline: auto;
+		}
+	}
+
+	.plan-card {
+		background: var(--surface);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		padding: var(--space-6);
 		display: flex;
-		flex-wrap: wrap;
-		justify-content: center;
+		flex-direction: column;
 		gap: var(--space-5);
 
-		@media (max-width: 768px) {
-			flex-direction: column;
-			align-items: stretch;
+		&.highlight {
+			border-color: var(--accent);
 		}
+	}
+	.plan-top {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.plan-name {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		h3 {
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
+		}
+	}
+	.price {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-1);
+		.amount {
+			font-size: var(--fs-h2);
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+		}
+		.period {
+			color: var(--ink-faint);
+			font-size: var(--fs-sm);
+		}
+	}
+	.description {
+		color: var(--ink-mute);
+		font-size: var(--fs-sm);
+		margin: 0;
+	}
+	.features {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		flex: 1;
 
-		.plan-card {
-			flex: 1 1 300px;
-			max-width: 450px;
-			min-width: 280px;
-			background: var(--bg-card);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-md);
-			box-shadow: var(--shadow-card);
-			padding: var(--space-6);
+		li {
 			display: flex;
-			flex-direction: column;
-			gap: var(--space-6);
-			transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease);
-
-			@media (max-width: 768px) {
-				max-width: none;
-			}
-
-			&:hover {
-				transform: translateY(-2px);
-				border-color: var(--border-strong);
-			}
-
-			&.highlight {
-				background: linear-gradient(180deg, rgba(255, 70, 85, 0.1) 0%, var(--bg-card) 100%);
-				border-color: rgba(255, 70, 85, 0.3);
-				box-shadow: var(--shadow-glow);
-			}
-
-			.plan-header {
-				h3 {
-					margin: 0 0 var(--space-2);
-					font-size: var(--fs-h3);
-				}
-				.price {
-					display: flex;
-					align-items: baseline;
-					gap: var(--space-1);
-					margin-bottom: var(--space-4);
-
-					.amount {
-						font-size: var(--fs-h2);
-						font-weight: var(--fw-bold);
-					}
-					.period {
-						color: var(--text-secondary);
-					}
-				}
-				.description {
-					margin: 0;
-					color: var(--text-secondary);
-					line-height: var(--lh-snug);
-				}
-			}
-
-			.features {
-				list-style: none;
-				padding: 0;
-				margin: 0;
-				display: flex;
-				flex-direction: column;
-				gap: var(--space-4);
-				flex: 1;
-
-				li {
-					display: flex;
-					gap: var(--space-3);
-					color: var(--text-secondary);
-
-					:global(.check-icon) {
-						color: var(--primary);
-						flex-shrink: 0;
-						margin-top: 4px;
-					}
-				}
+			gap: var(--space-2);
+			color: var(--ink-mute);
+			font-size: var(--fs-sm);
+			line-height: var(--lh-snug);
+			:global(.check-icon) {
+				color: var(--ink-faint);
+				flex-shrink: 0;
+				margin-top: 2px;
 			}
 		}
 	}
 
-	.bg-effects {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
-		pointer-events: none;
+	.selfhost {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		flex-wrap: wrap;
+		margin-top: var(--space-4);
+		padding: var(--space-4) var(--space-5);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
 
-		.glow-spot {
-			position: absolute;
-			width: 800px;
-			height: 800px;
-			background: radial-gradient(circle, rgba(255, 70, 85, 0.1) 0%, transparent 70%);
-			filter: blur(100px);
-
-			&.top {
-				top: -40%;
-				left: 50%;
-				transform: translateX(-50%);
-			}
+		.sh-text {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
 		}
+		.sh-title {
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
+		}
+		.sh-desc {
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+		}
+	}
+
+	.footnote {
+		text-align: center;
+		margin-top: var(--space-6);
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
 	}
 </style>

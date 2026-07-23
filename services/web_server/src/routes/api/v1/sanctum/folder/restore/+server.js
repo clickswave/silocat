@@ -49,7 +49,7 @@ export async function POST({ request, locals }) {
         // `folder/mod.rs` registered `/restore`.
         // So path is likely `/folder/restore`.
 
-        let response = await ApiServerClient.post('/folder/restore', payload);
+        let response = await ApiServerClient.post('/folder/restore', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
         return json(response.data);
     } catch (err) {
         console.error('[RESTORE_FOLDER]', err);

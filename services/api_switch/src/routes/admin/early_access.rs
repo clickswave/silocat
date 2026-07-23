@@ -32,7 +32,7 @@ pub async fn list_requests(
         }
         Err(e) => {
             println!("Error fetching early access requests: {:?}", e);
-            respond(500, "Failed to fetch requests", vec![e.to_string()], json!({}))
+            respond(500, "Failed to fetch requests", vec![], json!({}))
         }
     }
 }

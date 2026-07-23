@@ -30,7 +30,7 @@ pub async fn handle(
     // 2. Build Query
     let mut tx = match state.pg_pool.begin().await {
         Ok(tx) => tx,
-        Err(e) => return respond(500, "Database connection error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database connection error", vec![], json!({})),
     };
 
     // Username is display-only here (no links/lookups depend on it). Validate it,
@@ -54,7 +54,7 @@ pub async fn handle(
 
             let (current_username, count, window_start) = match row {
                 Ok(r) => r,
-                Err(e) => return respond(500, "Failed to read profile", vec![e.to_string()], json!({})),
+                Err(_e) => return respond(500, "Failed to read profile", vec![], json!({})),
             };
 
             // Only enforce/record when the name actually changes.
@@ -106,7 +106,7 @@ pub async fn handle(
                                 json!({}),
                             );
                         }
-                        return respond(500, "Failed to update username", vec![e.to_string()], json!({}));
+                        return respond(500, "Failed to update username", vec![], json!({}));
                     }
                 }
             }
@@ -114,33 +114,33 @@ pub async fn handle(
     }
 
     if let Some(bio) = payload.bio {
-         if let Err(e) = sqlx::query(
+         if let Err(_e) = sqlx::query(
             "UPDATE users SET bio = $1 WHERE id = $2"
         )
         .bind(bio)
         .bind(user.id.clone())
         .execute(&mut *tx)
         .await {
-             let errors: Vec<String> = vec![e.to_string()];
+             let errors: Vec<String> = vec![];
              return respond(500, "Failed to update bio", errors, json!({}));
         }
     }
 
     if let Some(country) = payload.country {
-        if let Err(e) = sqlx::query(
+        if let Err(_e) = sqlx::query(
             "UPDATE users SET country = $1 WHERE id = $2"
         )
         .bind(country)
         .bind(user.id.clone())
         .execute(&mut *tx)
         .await {
-            let errors = vec![e.to_string()];
+            let errors = vec![];
             return respond(500, "Failed to update country", errors, json!({}));
         }
     }
 
-    if let Err(e) = tx.commit().await {
-        return respond(500, "Failed to commit changes", vec![e.to_string()], json!({}));
+    if let Err(_e) = tx.commit().await {
+        return respond(500, "Failed to commit changes", vec![], json!({}));
     }
 
     // Fetch updated user
@@ -151,7 +151,7 @@ pub async fn handle(
     {
         Ok(Some(u)) => u,
         Ok(None) => return respond(404, "User not found after update", vec![], json!({})),
-        Err(e) => return respond(500, "Failed to fetch updated profile", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to fetch updated profile", vec![], json!({})),
     };
 
     let token_data = models::token_data(updated_user, user.subscription.clone());

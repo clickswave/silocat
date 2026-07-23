@@ -1,17 +1,16 @@
-use axum::extract::{Path, State, Query};
+use axum::extract::{Path, State};
 use axum::{Json, Extension};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
 use crate::routes::respond;
-use crate::models::{UserTokenData};
+use crate::middlewares::resolve_identity::Caller;
 use rand::Rng; // Make sure rand is available or use uuid
 use sha2::{Digest, Sha256};
 use chrono::{Duration, Utc};
 
 #[derive(Deserialize)]
 pub struct ToggleSharePayload {
-    pub user_id: String,
     pub file_id: Option<String>,
     pub folder_id: Option<String>,
     pub share_type: String, // 'off', 'public', 'once'
@@ -32,14 +31,8 @@ fn hash_share_pw(pw: &str) -> String {
 
 #[derive(Deserialize)]
 pub struct RegeneratePayload {
-    pub user_id: String,
     pub file_id: Option<String>,
     pub folder_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct GetShareInfoQuery {
-    pub user_id: String,
 }
 
 fn generate_token() -> String {
@@ -50,10 +43,22 @@ fn generate_token() -> String {
 
 pub async fn toggle_share(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<ToggleSharePayload>,
 ) -> impl IntoResponse {
     let new_token = generate_token();
-    let user_id = payload.user_id.clone();
+    // Sharing is managed by the owning registered user; identity from the token.
+    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
+        Some(uid) => uid,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
 
     // Compute conditional updates: (should_update, value). When should_update is
     // false the existing column value is preserved (CASE WHEN in the UPDATE).
@@ -71,7 +76,7 @@ pub async fn toggle_share(
     if let Some(file_id) = payload.file_id {
         let mut tx = match axum_state.pg_pool.begin().await {
             Ok(tx) => tx,
-            Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
         };
 
         // Fetch current file to check ownership and current token
@@ -121,20 +126,20 @@ pub async fn toggle_share(
                             "password_protected": r.share_password_hash.is_some()
                         }))
                     },
-                    Err(e) => {
+                    Err(_e) => {
                          let _ = tx.rollback().await;
-                         respond(500, "Failed to update share settings", vec![e.to_string()], json!({}))
+                         respond(500, "Failed to update share settings", vec![], json!({}))
                     }
                 }
             },
             Ok(None) => respond(404, "File not found", vec![], json!({})),
-            Err(e) => respond(500, "Database error", vec![e.to_string()], json!({})),
+            Err(_e) => respond(500, "Database error", vec![], json!({})),
         }
 
     } else if let Some(folder_id) = payload.folder_id {
          let mut tx = match axum_state.pg_pool.begin().await {
             Ok(tx) => tx,
-            Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
         };
 
         let current_folder = sqlx::query!(
@@ -183,14 +188,14 @@ pub async fn toggle_share(
                             "password_protected": r.share_password_hash.is_some()
                         }))
                     },
-                    Err(e) => {
+                    Err(_e) => {
                          let _ = tx.rollback().await;
-                         respond(500, "Failed to update share settings", vec![e.to_string()], json!({}))
+                         respond(500, "Failed to update share settings", vec![], json!({}))
                     }
                 }
              },
              Ok(None) => respond(404, "Folder not found", vec![], json!({})),
-             Err(e) => respond(500, "Database error", vec![e.to_string()], json!({})),
+             Err(_e) => respond(500, "Database error", vec![], json!({})),
         }
 
     } else {
@@ -200,10 +205,21 @@ pub async fn toggle_share(
 
 pub async fn regenerate_token(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<RegeneratePayload>,
 ) -> impl IntoResponse {
     let new_token = generate_token();
-    let user_id = payload.user_id; // Moved out of Extension
+    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
+        Some(uid) => uid,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
     
     if let Some(file_id) = payload.file_id {
         let result = sqlx::query!(
@@ -218,7 +234,7 @@ pub async fn regenerate_token(
         match result {
             Ok(Some(r)) => respond(200, "Token regenerated", vec![], json!({ "share_token": r.share_token })),
             Ok(None) => respond(404, "File not found", vec![], json!({})),
-            Err(e) => respond(500, "Database error", vec![e.to_string()], json!({})),
+            Err(_e) => respond(500, "Database error", vec![], json!({})),
         }
     } else if let Some(folder_id) = payload.folder_id {
          let result = sqlx::query!(
@@ -233,7 +249,7 @@ pub async fn regenerate_token(
         match result {
             Ok(Some(r)) => respond(200, "Token regenerated", vec![], json!({ "share_token": r.share_token })),
             Ok(None) => respond(404, "Folder not found", vec![], json!({})),
-            Err(e) => respond(500, "Database error", vec![e.to_string()], json!({})),
+            Err(_e) => respond(500, "Database error", vec![], json!({})),
         }
     } else {
         respond(400, "Missing file_id or folder_id", vec![], json!({}))
@@ -242,10 +258,20 @@ pub async fn regenerate_token(
 
 pub async fn get_share_info(
     State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Path(id): Path<String>,
-    Query(query): Query<GetShareInfoQuery>,
 ) -> impl IntoResponse {
-    let user_id = query.user_id;
+    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
+        Some(uid) => uid,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
 
     // Check files
     let file = sqlx::query!(
@@ -351,7 +377,7 @@ pub async fn public_get_info(
             }));
         },
         Ok(None) => {},
-        Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
     }
 
     // Check folders
@@ -406,7 +432,7 @@ pub async fn public_get_info(
             }));
         },
         Ok(None) => respond(404, "Invalid or expired link", vec!["Link not found".to_string()], json!({})),
-        Err(e) => respond(500, "Database error", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Database error", vec![], json!({})),
     }
 }
 
@@ -503,7 +529,7 @@ pub async fn public_fetch_file_chunks(
                                         salt: chunk.salt,
                                     });
                                 },
-                                Err(e) => return respond(500, "Failed to generate download URL", vec![e.to_string()], json!({})),
+                                Err(_e) => return respond(500, "Failed to generate download URL", vec![], json!({})),
                             }
                         }
                         
@@ -513,12 +539,12 @@ pub async fn public_fetch_file_chunks(
                             "chunks": response_chunks
                         }));
                     },
-                    Err(e) => return respond(500, "Failed to fetch chunks", vec![e.to_string()], json!({})),
+                    Err(_e) => return respond(500, "Failed to fetch chunks", vec![], json!({})),
                 }
 
             },
             Ok(None) => return respond(404, "File not found in this folder", vec![], json!({})),
-            Err(e) => return respond(500, "Database error", vec![e.to_string()], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
         }
 
     } else {
@@ -557,21 +583,23 @@ pub async fn public_authorize_download(
                 return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
             }
         }
-        if r.share_type == Some("once".to_string()) {
-            let downloads = r.link_downloads.unwrap_or(0);
-            let max = r.link_max_downloads.unwrap_or(1);
-            if downloads >= max {
-                return respond(410, "This safe-link has expired.", vec![], json!({}));
-            }
-        }
-
-        // Increment download count
-        let _ = sqlx::query!(
-            "UPDATE files SET link_downloads = COALESCE(link_downloads, 0) + 1 WHERE id = $1",
+        // Atomically enforce the once-limit and bump the counter in one
+        // statement: a "public" link always passes; a "once" link passes only
+        // while under its cap. Concurrent requests can't all slip through the
+        // old check-then-increment race.
+        let claim = sqlx::query!(
+            "UPDATE files SET link_downloads = COALESCE(link_downloads, 0) + 1 \
+             WHERE id = $1 AND (share_type <> 'once' OR COALESCE(link_downloads, 0) < COALESCE(link_max_downloads, 1)) \
+             RETURNING id",
             r.id
         )
-        .execute(&axum_state.pg_pool)
+        .fetch_optional(&axum_state.pg_pool)
         .await;
+        match claim {
+            Ok(Some(_)) => {}
+            Ok(None) => return respond(410, "This safe-link has expired.", vec![], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
+        }
 
         // FETCH CHUNKS LOGIC
         let storage_type = if r.user_id.is_some() { "sanctum" } else { "shadow" };
@@ -600,7 +628,7 @@ pub async fn public_authorize_download(
                                 salt: chunk.salt,
                             });
                         },
-                        Err(e) => return respond(500, "Failed to generate download URL", vec![e.to_string()], json!({})),
+                        Err(_e) => return respond(500, "Failed to generate download URL", vec![], json!({})),
                     }
                 }
                 
@@ -610,7 +638,7 @@ pub async fn public_authorize_download(
                     "chunks": response_chunks
                 }));
             },
-            Err(e) => return respond(500, "Failed to fetch chunks", vec![e.to_string()], json!({})),
+            Err(_e) => return respond(500, "Failed to fetch chunks", vec![], json!({})),
         }
     }
     
@@ -633,21 +661,22 @@ pub async fn public_authorize_download(
                 return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
             }
         }
-        if r.share_type == Some("once".to_string()) {
-            let downloads = r.link_downloads.unwrap_or(0);
-            let max = r.link_max_downloads.unwrap_or(1);
-            if downloads >= max {
-                return respond(410, "This safe-link has expired.", vec![], json!({}));
-            }
-        }
-
-        let _ = sqlx::query!(
-            "UPDATE folders SET link_downloads = COALESCE(link_downloads, 0) + 1 WHERE id = $1",
+        // Atomically enforce the once-limit for the folder link (see the file
+        // branch above).
+        let claim = sqlx::query!(
+            "UPDATE folders SET link_downloads = COALESCE(link_downloads, 0) + 1 \
+             WHERE id = $1 AND (share_type <> 'once' OR COALESCE(link_downloads, 0) < COALESCE(link_max_downloads, 1)) \
+             RETURNING id",
             r.id
         )
-        .execute(&axum_state.pg_pool)
+        .fetch_optional(&axum_state.pg_pool)
         .await;
-        
+        match claim {
+            Ok(Some(_)) => {}
+            Ok(None) => return respond(410, "This safe-link has expired.", vec![], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
+        }
+
         // Fetch files in folder (Non-recursive for now to match zip logic simply)
         let files = sqlx::query!(
             "SELECT id, name, size, mime, encrypted FROM files WHERE folder_id = $1 AND deleted = false",
@@ -672,7 +701,7 @@ pub async fn public_authorize_download(
                     "files": files_data 
                 }));
             },
-            Err(e) => return respond(500, "Failed to list folder files", vec![e.to_string()], json!({}))
+            Err(_e) => return respond(500, "Failed to list folder files", vec![], json!({}))
         }
     }
 

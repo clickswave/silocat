@@ -48,7 +48,7 @@ async fn ban_user(
     match res {
         Ok(r) if r.rows_affected() == 0 => respond(404, "User not found", vec![], json!({})),
         Ok(_) => respond(200, "User banned", vec![], json!({})),
-        Err(e) => respond(500, "Failed to ban user", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to ban user", vec![], json!({})),
     }
 }
 
@@ -64,7 +64,7 @@ async fn unban_user(
     .await;
     match res {
         Ok(_) => respond(200, "User unbanned", vec![], json!({})),
-        Err(e) => respond(500, "Failed to unban user", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to unban user", vec![], json!({})),
     }
 }
 
@@ -90,7 +90,7 @@ async fn restrict_user(
             vec![],
             json!({}),
         ),
-        Err(e) => respond(500, "Failed to update restriction", vec![e.to_string()], json!({})),
+        Err(_e) => respond(500, "Failed to update restriction", vec![], json!({})),
     }
 }
 
@@ -111,10 +111,10 @@ async fn list_users(
             vec![],
             json!({ "users": users }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to fetch users",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }
@@ -135,10 +135,10 @@ async fn delete_user(
             vec![],
             json!({}),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to delete user",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }

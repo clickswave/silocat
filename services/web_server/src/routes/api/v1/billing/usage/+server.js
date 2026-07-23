@@ -9,7 +9,7 @@ export async function GET({ locals }) {
     }
 
     try {
-        let response = await ApiServerClient.get(`/billing/usage?user_id=${user.id}`)
+        let response = await ApiServerClient.get(`/billing/usage?user_id=${user.id}`, { headers: { 'X-Api-Key': user.api_key } })
             .then(res => res.data);
 
         return json(response);

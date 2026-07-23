@@ -1,11 +1,11 @@
-use axum::{extract::State, Json, response::IntoResponse};
+use crate::middlewares::resolve_identity::Caller;
+use crate::routes::respond;
+use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::routes::respond;
 
 #[derive(Deserialize, Debug)]
 pub struct Payload {
-    pub user_id: String,
     pub folder_id: String,
 }
 
@@ -18,8 +18,22 @@ pub struct FolderStats {
 
 pub async fn handle(
     State(state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
+    // Identity comes from the authenticated X-Api-Key, never the request body.
+    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
+        Some(uid) => uid,
+        None => {
+            return respond(
+                401,
+                "Unauthorized",
+                vec!["Authentication required".to_string()],
+                json!({}),
+            )
+        }
+    };
+
     // Recursive CTE to count files and folders
     let query_result = sqlx::query!(
         r#"
@@ -28,21 +42,21 @@ pub async fn handle(
             SELECT id
             FROM folders
             WHERE id = $1 AND user_id = $2
-            
+
             UNION ALL
-            
+
             -- Recursive step: subfolders
             SELECT f.id
             FROM folders f
             INNER JOIN folder_tree ft ON f.parent_id = ft.id
             WHERE f.user_id = $2
         )
-        SELECT 
+        SELECT
             (SELECT COUNT(*) FROM folder_tree) - 1 as "folder_count!", -- Subtract 1 to exclude the root folder itself from "items inside"
             (SELECT COUNT(*) FROM files WHERE folder_id IN (SELECT id FROM folder_tree) AND user_id = $2) as "file_count!"
         "#,
         payload.folder_id,
-        payload.user_id
+        user_id
     )
     .fetch_one(&state.pg_pool)
     .await;
@@ -68,7 +82,7 @@ pub async fn handle(
         }
         Err(e) => {
             println!("Error calculating folder stats: {:?}", e);
-            respond(500, "Failed to calculate stats", vec![e.to_string()], json!({}))
+            respond(500, "Failed to calculate stats", vec![], json!({}))
         }
     }
 }

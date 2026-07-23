@@ -36,13 +36,11 @@
 	// Fetch initial status
 	import { onMount } from 'svelte';
 	onMount(async () => {
-		console.log('ShareModal: Mounted with item', item);
 		if (!item || !item.id) {
 			console.error('ShareModal: Invalid item', item);
 			return;
 		}
 		try {
-			console.log('ShareModal: Fetching info for', item.id);
 			const res = await axios.get(
 				`/api/v1/sanctum/file/share/info/${item.id}?user_id=${window.currentUser?.id || ''}`
 			);
@@ -51,7 +49,6 @@
 			// My proxy `info/[id]/+server.js` forwarding logic might need checking if it passes user_id?
 
 			if (res.data.success) {
-				console.log('ShareModal: Info received', res.data.success.data);
 				const data = res.data.success.data;
 				shareType = data.share_type || 'off';
 				shareToken = data.share_token;

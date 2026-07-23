@@ -38,10 +38,6 @@
 	<Footer />
 </div>
 
-<div class="bg-effects">
-	<div class="glow-spot top"></div>
-</div>
-
 <style lang="scss">
 	.policy-layout {
 		position: relative;
@@ -236,24 +232,4 @@
 		text-underline-offset: 3px;
 	}
 
-	/* ---- background fx ---- */
-	.bg-effects {
-		position: fixed;
-		inset: 0;
-		z-index: 0;
-		pointer-events: none;
-		overflow: hidden;
-	}
-	.glow-spot {
-		position: absolute;
-		width: 600px;
-		height: 600px;
-		filter: blur(110px);
-		border-radius: 50%;
-	}
-	.glow-spot.top {
-		top: -22%;
-		left: 12%;
-		background: radial-gradient(circle, rgba(255, 70, 85, 0.12) 0%, transparent 70%);
-	}
 </style>

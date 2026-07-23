@@ -1,6 +1,8 @@
 <script>
 	import { browser } from '$app/environment';
+	import { env } from '$env/dynamic/public';
 	import { SITE, organizationSchema, websiteSchema } from '$lib/seo.js';
+	import { theme } from '$lib/theme.js';
 	import { Toaster } from 'svelte-sonner';
 	import { QueryClientProvider, QueryClient } from '@tanstack/svelte-query';
 	import '$lib/global.scss';
@@ -10,6 +12,7 @@
 
 	import { onMount } from 'svelte';
 	import Version from '$lib/components/Version.svelte';
+	import Menu from '$lib/ui/Menu.svelte';
 
 	NProgress.configure({
 		showSpinner: false,
@@ -26,6 +29,23 @@
 
 	onMount(() => {
 		NProgress.done();
+
+		// Optional analytics: only injected when a GA id is configured
+		// (PUBLIC_GA_ID) and only on the configured production host, so
+		// self-hosters and dev/staging traffic stay untracked by default.
+		const gaId = env.PUBLIC_GA_ID;
+		if (gaId && location.hostname === (env.PUBLIC_GA_HOSTNAME || 'silo.cat')) {
+			const gaScript = document.createElement('script');
+			gaScript.async = true;
+			gaScript.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
+			document.head.appendChild(gaScript);
+			window.dataLayer = window.dataLayer || [];
+			function gtag() {
+				window.dataLayer.push(arguments);
+			}
+			gtag('js', new Date());
+			gtag('config', gaId);
+		}
 	});
 
 	$effect(() => {
@@ -39,11 +59,12 @@
 
 <svelte:head>
 	<title>{SITE.defaultTitle}</title>
-	{@html `<script type="application/ld+json">${JSON.stringify(organizationSchema())}<\/script>`}
-	{@html `<script type="application/ld+json">${JSON.stringify(websiteSchema())}<\/script>`}
+	{@html `<script type="application/ld+json">${JSON.stringify(organizationSchema()).replace(/</g, '\\u003c')}<\/script>`}
+	{@html `<script type="application/ld+json">${JSON.stringify(websiteSchema()).replace(/</g, '\\u003c')}<\/script>`}
 </svelte:head>
 
-<Toaster position="top-center" richColors theme="dark" />
+<Toaster position="top-center" richColors theme={$theme} />
+<Menu />
 
 <QueryClientProvider client={queryClient}>
 	{@render children()}

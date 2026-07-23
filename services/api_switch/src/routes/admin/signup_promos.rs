@@ -47,7 +47,7 @@ async fn list(State(state): State<crate::AppState>) -> impl IntoResponse {
     .await;
     match rows {
         Ok(r) => respond(200, "Promos fetched", vec![], json!({ "promos": r })),
-        Err(e) => respond(500, "Failed to list promos", vec![e.to_string()], json!(null)),
+        Err(_e) => respond(500, "Failed to list promos", vec![], json!(null)),
     }
 }
 
@@ -84,7 +84,7 @@ async fn create(State(state): State<crate::AppState>, Json(p): Json<CreatePromo>
 async fn remove(State(state): State<crate::AppState>, Path(code): Path<String>) -> impl IntoResponse {
     match sqlx::query("DELETE FROM signup_promos WHERE code = $1").bind(&code).execute(&state.pg_pool).await {
         Ok(_) => respond(200, "Promo deleted", vec![], json!({ "code": code })),
-        Err(e) => respond(500, "Could not delete promo", vec![e.to_string()], json!(null)),
+        Err(_e) => respond(500, "Could not delete promo", vec![], json!(null)),
     }
 }
 
@@ -96,7 +96,7 @@ async fn toggle(State(state): State<crate::AppState>, Path(code): Path<String>) 
     match r {
         Ok(Some(active)) => respond(200, "Promo toggled", vec![], json!({ "code": code, "active": active })),
         Ok(None) => respond(404, "No such promo", vec![format!("no promo {}", code)], json!(null)),
-        Err(e) => respond(500, "Could not toggle promo", vec![e.to_string()], json!(null)),
+        Err(_e) => respond(500, "Could not toggle promo", vec![], json!(null)),
     }
 }
 

@@ -23,7 +23,7 @@ export async function POST({ request, locals }) {
             owner_api_key: sessionUser.api_key
         };
 
-        let response = await ApiServerClient.post('/file/mark-chunk-complete', payload).then(res => res.data);
+        let response = await ApiServerClient.post('/file/mark-chunk-complete', payload, { headers: { 'X-Api-Key': sessionUser.api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[MARK_CHUNK_COMPLETE]', err);

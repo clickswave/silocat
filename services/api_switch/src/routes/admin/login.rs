@@ -57,11 +57,11 @@ pub async fn handle(
                 json!({}),
             );
         },
-        Err(e) => {
+        Err(_e) => {
             return respond(
                 500,
                 "Internal Server Error",
-                vec![e.to_string()],
+                vec![],
                 json!({}),
             );
         }
@@ -78,7 +78,20 @@ pub async fn handle(
         );
     }
 
-    // 4. Respond
+    // 4. Mint an admin session token (fails closed if ADMIN_TOKEN_SECRET unset).
+    let token = match crate::middlewares::validate_admin_token::mint(&admin.id, 60 * 60 * 8) {
+        Some(t) => t,
+        None => {
+            return respond(
+                503,
+                "Admin surface disabled",
+                vec!["Admin authentication is not configured (ADMIN_TOKEN_SECRET unset).".to_string()],
+                json!({}),
+            );
+        }
+    };
+
+    // 5. Respond
     let response_data = AdminTokenData {
         id: admin.id,
         email: admin.email,
@@ -89,6 +102,6 @@ pub async fn handle(
         200,
         "Login successful",
         vec![],
-        json!({"admin": response_data}),
+        json!({ "admin": response_data, "token": token }),
     )
 }

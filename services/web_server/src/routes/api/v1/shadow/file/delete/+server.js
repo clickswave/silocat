@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
 
-export async function POST({ request }) {
+export async function POST({ request, locals }) {
     let body;
     try {
         body = await request.json();
@@ -11,7 +11,9 @@ export async function POST({ request }) {
 
     try {
         // body should contain { file_id, api_key }
-        let response = await ApiServerClient.post(ApiServerRoutes.deleteFile, body).then(res => res.data);
+        const sessionUser = await locals.session.user.get();
+        const apiKey = sessionUser?.api_key || request.headers.get('X-Api-Key') || undefined;
+        let response = await ApiServerClient.post(ApiServerRoutes.deleteFile, body, { headers: { 'X-Api-Key': apiKey } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[DELETE_FILE]', err);

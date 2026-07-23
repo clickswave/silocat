@@ -24,26 +24,17 @@ pub async fn handle(
         );
     }
 
-    // Since we don't have the OTP in UserTokenData (security), we need to fetch it or check it against DB.
-    // Wait, UserTokenData doesn't have OTP. We need to query the DB for the stored OTP.
-    
-    let db_user = match sqlx::query!(
-        "SELECT otp FROM users WHERE id = $1",
-        user.id
-    )
-    .fetch_optional(&axum_state.pg_pool)
-    .await {
-        Ok(Some(u)) => u,
-        _ => return respond(500, "User not found", vec![], json!({})),
-    };
-
-    if db_user.otp != payload.otp {
-         return respond(
-            400,
-            "Invalid OTP",
-            vec!["The OTP you entered is incorrect".to_string()],
-            json!({}),
-        );
+    // Verify + consume the code atomically (expiry + attempt limit enforced).
+    match crate::libs::otp::consume(&axum_state.pg_pool, &user.id, &payload.otp).await {
+        crate::libs::otp::Outcome::Valid => {}
+        crate::libs::otp::Outcome::Invalid => {
+            return respond(
+                400,
+                "Invalid OTP",
+                vec!["The OTP you entered is incorrect or has expired".to_string()],
+                json!({}),
+            );
+        }
     }
 
     // OTP matches, verify user
@@ -69,7 +60,7 @@ pub async fn handle(
         .await
     {
         Ok(u) => u,
-        Err(e) => return respond(500, "Failed to fetch updated profile", vec![e.to_string()], json!({})),
+        Err(_e) => return respond(500, "Failed to fetch updated profile", vec![], json!({})),
     };
 
     let token_data = crate::models::token_data(updated_user, user.subscription);

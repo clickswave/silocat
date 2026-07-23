@@ -19,7 +19,7 @@ export async function POST({ request, locals }) {
             user_id: sessionUser.id
         };
 
-        let response = await ApiServerClient.post(ApiServerRoutes.createFolder, payload).then(res => res.data);
+        let response = await ApiServerClient.post(ApiServerRoutes.createFolder, payload, { headers: { 'X-Api-Key': sessionUser.api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[CREATE_FOLDER]', err);

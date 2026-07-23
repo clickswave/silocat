@@ -170,7 +170,7 @@
 
 	// --- Folder Navigation State ---
 	let currentFolderId = $state(null);
-	let folderPath = $state([{ id: null, name: 'Home' }]);
+	let folderPath = $state([{ id: null, name: 'Files' }]);
 
 	function handleFolderClick(folder) {
 		currentFolderId = folder.id;
@@ -2341,7 +2341,7 @@
 		width: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-6);
+		gap: var(--space-5);
 		height: 100%;
 	}
 
@@ -2384,9 +2384,10 @@
 			display: flex;
 			align-items: center;
 			gap: var(--space-2);
-			font-size: var(--fs-lg);
-			font-weight: var(--fw-medium);
-			color: var(--text-muted);
+			font-size: var(--fs-h3);
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+			color: var(--ink-faint);
 			flex-wrap: wrap;
 
 			.divider {
@@ -2429,8 +2430,8 @@
 				align-items: center;
 				gap: var(--space-2);
 				padding: 0.6rem 1rem;
-				border-radius: var(--radius-pill);
-				font-weight: var(--fw-semibold);
+				border-radius: var(--radius-md);
+				font-weight: var(--fw-medium);
 				font-size: var(--fs-sm);
 				cursor: pointer;
 				border: 1px solid transparent;
@@ -2463,11 +2464,12 @@
 	.resource-area {
 		position: relative;
 		min-height: 200px;
-		padding-bottom: var(--space-8);
+		padding-bottom: var(--space-5);
 
 		&.grid {
 			display: grid;
 			grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+			grid-auto-rows: 1fr;
 			gap: var(--space-5);
 		}
 		&.list {
@@ -2629,9 +2631,9 @@
 			color: var(--text-primary);
 		}
 		&.active {
-			background: var(--primary);
-			color: #fff;
-			border-color: var(--primary);
+			background: var(--accent-soft);
+			color: var(--accent);
+			border-color: transparent;
 		}
 	}
 	.tool-icon {
@@ -2722,7 +2724,7 @@
 			&.danger {
 				color: var(--danger);
 				&:hover {
-					background: rgba(255, 70, 85, 0.1);
+					background: var(--danger-soft);
 				}
 			}
 		}

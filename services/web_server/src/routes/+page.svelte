@@ -2,11 +2,10 @@
 	import Icon from '@iconify/svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { softwareApplicationSchema } from '$lib/seo.js';
-	import SiloCatLogo from '$lib/assets/silo-cat.png';
-	import ClickswaveLogo from '$lib/assets/clickswave_transparent.webp';
 	import { fade } from 'svelte/transition';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
+	import { Button, Switch, PasswordInput, Progress, Modal, Copy } from '$lib/ui';
 
 	import { createMutation } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
@@ -24,7 +23,6 @@
 	let isUploading = $state(false);
 	let uploadSuccessUrl = $state(null);
 	let showSuccessModal = $state(false);
-	let uploadType = $state('file'); // 'file', 'files', 'folder'
 
 	const MAX_SIZE_ANON = 20 * 1024 * 1024 * 1024; // 20GB
 	const MAX_SIZE_AUTH = 50 * 1024 * 1024 * 1024; // 50GB
@@ -58,13 +56,6 @@
 		startTime: 0,
 		currentFileName: ''
 	});
-
-	function copySuccessLink() {
-		if (uploadSuccessUrl) {
-			navigator.clipboard.writeText(uploadSuccessUrl);
-			toast.success('Download link copied!');
-		}
-	}
 
 	function handleDragOver(e) {
 		e.preventDefault();
@@ -159,17 +150,9 @@
 		return pass;
 	}
 
-	function toggleEncryption() {
-		encryptionEnabled = !encryptionEnabled;
+	function onEncryptionToggle() {
 		if (encryptionEnabled && !password) {
 			password = generatePassword();
-		}
-	}
-
-	function copyPassword() {
-		if (password) {
-			navigator.clipboard.writeText(password);
-			toast.success('Password copied to clipboard');
 		}
 	}
 
@@ -239,8 +222,6 @@
 			// salt is part of encryptionParams but not needed directly for chunk upload unless we re-derive
 			let chunksMeta = encryptionParams?.chunksMeta;
 
-			// Verify file checksum if not done? (Done in Phase 1)
-
 			const totalChunks = serverChunks.length;
 			let fileUploadedBytes = 0;
 
@@ -295,7 +276,6 @@
 				);
 			}
 
-			// Return something if needed, or just success
 			return { success: true };
 		},
 		onError: (error) => {
@@ -327,7 +307,6 @@
 
 			try {
 				// Shadow folder creation requires X-Api-Key if we want to link it to the user/session
-				// Assuming /api/v1/shadow/folder works similarly to sanctum but needs headers
 				const res = await axios.post(
 					'/api/v1/shadow/folder',
 					{
@@ -350,11 +329,6 @@
 				}
 			} catch (e) {
 				console.warn(`Could not create folder ${part}, trying to find existing...`, e);
-				// Fallback implemented?
-				// Shadow API might not have a "list" endpoint that's easily searchable here?
-				// The legacy code didn't have robust retry. Let's try basic create and fail if not.
-				// Or maybe we can skip this part if it fails and upload to root?
-				// For now, let's propagate error as it's better than silent failure.
 				throw e;
 			}
 		}
@@ -412,8 +386,6 @@
 			}
 
 			// --- PHASE 1: Pre-Process & Create All Records ---
-			// We calculate checksums and encryption meta here to create the file record.
-			// This might delay "visible" start if many files, but ensures instant availability once "uploading" phase starts.
 			const pendingUploads = [];
 
 			for (const fileItem of files) {
@@ -511,7 +483,6 @@
 			}
 
 			// --- PHASE 2: Upload Content (Sequential or Parallel) ---
-			// Now that all files exist on server, listeners on /slug will see them.
 			for (const task of pendingUploads) {
 				uploadStats.currentFileName = task.file.name;
 				uploadStats.fileProgress = 0;
@@ -541,12 +512,12 @@
 				successCount++;
 			}
 
-			if (successCount > 0) toast.success(`Upload complete! (${successCount} files)`);
+			if (successCount > 0) toast.success(`Upload complete (${successCount} files)`);
 		} catch (e) {
 			console.error('Batch upload interrupted', e);
 			const d = e?.response?.data;
 			if (e?.response?.status === 403 && (d?.banned || /banned/i.test(d?.error || ''))) {
-				toast.error(d?.error || 'You are banned from using SiloCat.');
+				toast.error(d?.error || 'You are banned from using Silocat.');
 			} else {
 				toast.error('Upload failed or interrupted');
 			}
@@ -554,10 +525,23 @@
 			isUploading = false;
 		}
 	}
+
+	function resetUpload() {
+		uploadSuccessUrl = null;
+		showSuccessModal = false;
+		files = [];
+		password = '';
+		encryptionEnabled = false;
+	}
+
+	function fmtSize(bytes) {
+		if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+		return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+	}
 </script>
 
 <Seo
-	title="SiloCat: End-to-end encrypted file sharing & cloud storage"
+	title="Silocat: End-to-end encrypted file sharing & cloud storage"
 	description="Zero-knowledge, end-to-end encrypted file sharing and cloud storage. Upload up to 20 GB, share an anonymous link with parallel downloads, and keep full control of your data."
 	keywords="encrypted file sharing, secure cloud storage, zero knowledge storage, end-to-end encryption, anonymous file share, send large files, private file sharing"
 	schema={softwareApplicationSchema()}
@@ -568,18 +552,10 @@
 
 	<main class="hero">
 		<div class="hero-content">
-			<span class="eyebrow"><span class="paw">🐾</span> zero-knowledge file vault</span>
-			<h1 class="hero-title">Big files.<br /><span class="text-gradient">Zero knowledge.</span></h1>
+			<h1 class="hero-title">Big files. Zero knowledge.</h1>
 			<p class="subtitle">
-				Kitty-powered, end-to-end encrypted, anonymous file sharing. Drop up to 20&nbsp;GB, get a link,
-				and share it. We never see what's inside.
+				End-to-end encrypted file transfer. No account needed. Up to 20&nbsp;GB free.
 			</p>
-			<div class="trust-row">
-				<span class="chip"><Icon icon="ri:lock-2-line" /> End-to-end encrypted</span>
-				<span class="chip"><Icon icon="ri:ghost-2-line" /> Anonymous</span>
-				<span class="chip"><Icon icon="ri:flashlight-line" /> Parallel downloads</span>
-				<span class="chip"><Icon icon="ri:hard-drive-2-line" /> 20GB free</span>
-			</div>
 
 			<div
 				class="upload-zone {isDragging ? 'dragging' : ''}"
@@ -591,385 +567,145 @@
 			>
 				{#if files.length === 0}
 					<div class="upload-placeholder">
-						<div class="icon-circle">
-							<Icon icon="ri:upload-cloud-2-line" width="48" />
-						</div>
-						<h3>Drag & drop files here</h3>
-						<p>or</p>
-						<label for="file-upload" class="browse-btn">Browse Files</label>
+						<Icon icon="ri:upload-cloud-2-line" width="28" class="drop-ic" />
+						<label for="file-upload" class="drop-line">
+							Drop files or <span class="browse">browse</span>
+						</label>
 						<input type="file" id="file-upload" multiple onchange={handleFileSelect} hidden />
-						<div class="limit-badge">
-							<Icon icon="ri:hard-drive-2-line" /> Max file size: 20GB
-						</div>
-						<div class="folder-upload-hint">
-							<label for="folder-upload" class="link-btn">or upload a folder</label>
-							<input
-								type="file"
-								id="folder-upload"
-								webkitdirectory
-								directory
-								multiple
-								onchange={handleFileSelect}
-								hidden
-							/>
-						</div>
+						<p class="drop-hint">
+							encrypted before they leave
+							<span class="dot">·</span>
+							<label for="folder-upload" class="folder-link">upload a folder</label>
+						</p>
+						<input
+							type="file"
+							id="folder-upload"
+							webkitdirectory
+							directory
+							multiple
+							onchange={handleFileSelect}
+							hidden
+						/>
 					</div>
 				{:else}
 					<div class="file-list">
-						{#each files as fileItem, i}
+						{#each files as fileItem, i (i)}
 							{@const f = fileItem.file || fileItem}
 							{@const path = fileItem.path || ''}
-							<div class="file-item" transition:fade>
-								<div class="file-icon">
-									<Icon icon="ri:file-line" />
-								</div>
+							<div class="file-item" transition:fade={{ duration: 120 }}>
+								<Icon icon="ri:file-3-line" width="16" class="file-ic" />
 								<div class="file-info">
 									<span class="name">{f.name}</span>
-									{#if path}
-										<span class="path-hint">{path}/</span>
-									{/if}
-									<span class="size">{(f.size / (1024 * 1024)).toFixed(2)} MB</span>
+									{#if path}<span class="path-hint">{path}/</span>{/if}
 								</div>
-								<button class="remove-btn" onclick={() => removeFile(i)}>
-									<Icon icon="ri:close-line" />
+								<span class="size">{fmtSize(f.size)}</span>
+								<button class="remove-btn" onclick={() => removeFile(i)} aria-label="Remove">
+									<Icon icon="ri:close-line" width="15" />
 								</button>
 							</div>
 						{/each}
-						<div class="encryption-section">
-							<div class="toggle-row">
-								<label class="toggle-switch">
-									<input
-										type="checkbox"
-										checked={encryptionEnabled}
-										onchange={toggleEncryption}
-										disabled={isUploading}
-									/>
-									<span class="slider"></span>
-								</label>
-								<span class="toggle-label">Protect with Password</span>
-							</div>
 
+						<div class="encrypt-row">
+							<Switch
+								bind:checked={encryptionEnabled}
+								label="Password protect"
+								disabled={isUploading}
+								onchange={onEncryptionToggle}
+							/>
 							{#if !encryptionEnabled}
-								<div class="warning-box" transition:fade>
-									<Icon icon="ri:alert-line" />
-									<span>Warning: File will be uploaded without encryption.</span>
-								</div>
-							{/if}
-
-							{#if encryptionEnabled}
-								<div class="password-input-group" transition:fade>
-									<input
-										type="text"
-										bind:value={password}
-										placeholder="Enter password"
-										class="password-field"
-										disabled={isUploading}
-									/>
-									<button
-										class="regen-btn"
-										onclick={() => (password = generatePassword())}
-										title="Generate new password"
-										disabled={isUploading}
-									>
-										<Icon icon="ri:refresh-line" />
-									</button>
-									<button class="copy-btn" onclick={copyPassword} title="Copy password">
-										<Icon icon="ri:file-copy-line" />
-									</button>
-								</div>
+								<span class="plain-note">uploads unencrypted</span>
 							{/if}
 						</div>
 
+						{#if encryptionEnabled}
+							<div transition:fade={{ duration: 120 }}>
+								<PasswordInput
+									bind:value={password}
+									placeholder="Password"
+									copyable
+									generatable
+									disabled={isUploading}
+								/>
+							</div>
+						{/if}
+
 						{#if isUploading}
-							<div class="progress-section" transition:fade>
-								<div class="stats-row">
-									<div class="stat">
-										<span class="label">Speed</span>
-										<span class="value">{(uploadStats.speed / 1024 / 1024).toFixed(2)} MB/s</span>
-									</div>
-									<div class="stat">
-										<span class="label">ETA</span>
-										<span class="value">{Math.ceil(uploadStats.eta)}s</span>
-									</div>
+							<div class="progress-stack" transition:fade={{ duration: 120 }}>
+								<div class="progress-row">
+									<span class="p-label">Total</span>
+									<Progress value={uploadStats.totalProgress} size="md" />
+									<span class="p-pct">{Math.round(uploadStats.totalProgress)}%</span>
 								</div>
-
-								<!-- Total Progress -->
-								<div class="progress-item">
-									<div class="progress-header">
-										<span class="label">Total Progress</span>
-										<span class="percent">{Math.round(uploadStats.totalProgress)}%</span>
-									</div>
-									<div class="progress-track">
-										<div
-											class="progress-fill total"
-											style="width: {uploadStats.totalProgress}%"
-										></div>
-									</div>
+								<div class="progress-row">
+									<span class="p-label trunc">{uploadStats.currentFileName || 'Processing'}</span>
+									<Progress value={uploadStats.fileProgress} size="sm" tone="neutral" />
+									<span class="p-pct">{Math.round(uploadStats.fileProgress)}%</span>
 								</div>
-
-								<!-- File Progress -->
-								<div class="progress-item">
-									<div class="progress-header">
-										<span class="label trunc">{uploadStats.currentFileName}</span>
-										<span class="percent">{Math.round(uploadStats.fileProgress)}%</span>
-									</div>
-									<div class="progress-track">
-										<div
-											class="progress-fill file"
-											style="width: {uploadStats.fileProgress}%"
-										></div>
-									</div>
-								</div>
-
-								<!-- Chunk Progress (Only if meaningful/requested) -->
-								<div class="progress-item compact">
-									<div class="progress-track">
-										<div
-											class="progress-fill chunk"
-											style="width: {uploadStats.chunkProgress}%"
-										></div>
-									</div>
-									<span class="tiny-label">Chunk Upload</span>
+								<div class="p-stats">
+									<span>{uploadStats.speed ? (uploadStats.speed / 1024 / 1024).toFixed(1) + ' MB/s' : 'starting'}</span>
+									<span>{uploadStats.eta ? 'eta ' + Math.ceil(uploadStats.eta) + 's' : ''}</span>
 								</div>
 							</div>
 						{/if}
 
-						<button
-							class="upload-action-btn"
-							onclick={startUpload}
-							disabled={isUploading || uploadMutation.isPending}
-						>
-							{#if isUploading || uploadMutation.isPending}
-								<Icon icon="line-md:loading-loop" width="20" />
-								Uploading...
-							{:else}
-								<Icon icon="ri:upload-cloud-2-line" width="20" />
-								Start Upload
+						<div class="upload-actions">
+							<Button
+								block
+								loading={isUploading || uploadMutation.isPending}
+								onclick={startUpload}
+							>
+								{isUploading || uploadMutation.isPending ? 'Uploading' : 'Upload'}
+							</Button>
+							{#if !isUploading}
+								<Button variant="quiet" size="sm" onclick={() => (files = [])}>Clear all</Button>
 							{/if}
-						</button>
-						<button class="add-more-btn" onclick={() => (files = [])}>Clear All</button>
+						</div>
 					</div>
 				{/if}
 			</div>
 
-			<!-- Success Modal / Overlay -->
-			{#if showSuccessModal}
-				<div class="success-overlay" transition:fade>
-					<div class="success-card">
-						<div class="success-icon">
-							{#if isUploading}
-								<Icon icon="line-md:loading-loop" />
-							{:else}
-								<Icon icon="ri:checkbox-circle-fill" />
-							{/if}
-						</div>
-						<h2>
-							{#if isUploading}
-								Uploading in Background...
-							{:else}
-								{files.length > 1 ? 'Files' : 'File'} Uploaded Successfully!
-							{/if}
-						</h2>
-						{#if uploadSuccessUrl}
-							<p>
-								Your {files.length > 1 ? 'files are' : 'file is'}
-								{isUploading
-									? 'being uploaded. You can already share this link:'
-									: 'ready to share. Anyone with this link can download it.'}
-							</p>
-
-							<div class="link-box">
-								<input type="text" readonly value={uploadSuccessUrl} />
-								<button onclick={copySuccessLink} class="copy-link-btn">
-									<Icon icon="ri:file-copy-line" />
-									Copy Link
-								</button>
-							</div>
-
-							{#if isUploading}
-								<div class="modal-progress" style="margin-top: 24px; width: 100%;">
-									<!-- Current File Status -->
-									<div style="margin-bottom: 12px;">
-										<div
-											class="label-row"
-											style="display: flex; justify-content: space-between; font-size: 0.85rem; color: rgba(255,255,255,0.8); margin-bottom: 4px;"
-										>
-											<span
-												style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;"
-											>
-												{uploadStats.currentFileName || 'Processing...'}
-											</span>
-											<span>{Math.round(uploadStats.fileProgress)}%</span>
-										</div>
-										<div
-											class="progress-bar-bg"
-											style="background: rgba(255, 255, 255, 0.1); border-radius: 4px; height: 6px; overflow: hidden;"
-										>
-											<div
-												class="progress-bar-fill"
-												style="width: {uploadStats.fileProgress}%; background: var(--secondary-color, #4facfe); height: 100%; transition: width 0.1s linear;"
-											></div>
-										</div>
-									</div>
-
-									<!-- Chunk Status -->
-									<div style="margin-bottom: 12px;">
-										<div
-											class="label-row"
-											style="display: flex; justify-content: space-between; font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-bottom: 2px;"
-										>
-											<span>Current Chunk</span>
-											<span>{Math.round(uploadStats.chunkProgress)}%</span>
-										</div>
-										<div
-											class="progress-bar-bg"
-											style="background: rgba(255, 255, 255, 0.05); border-radius: 2px; height: 4px; overflow: hidden;"
-										>
-											<div
-												class="progress-bar-fill"
-												style="width: {uploadStats.chunkProgress}%; background: rgba(255, 255, 255, 0.5); height: 100%; transition: width 0.05s linear;"
-											></div>
-										</div>
-									</div>
-
-									<!-- Total Progress -->
-									<div>
-										<div
-											class="label-row"
-											style="display: flex; justify-content: space-between; font-size: 0.85rem; color: rgba(255,255,255,0.8); margin-bottom: 4px;"
-										>
-											<span>Total Upload</span>
-											<span>{Math.round(uploadStats.totalProgress)}%</span>
-										</div>
-										<div
-											class="progress-bar-bg"
-											style="background: rgba(255, 255, 255, 0.1); border-radius: 4px; height: 8px; overflow: hidden;"
-										>
-											<div
-												class="progress-bar-fill"
-												style="width: {uploadStats.totalProgress}%; background: #ff4655; height: 100%; transition: width 0.3s ease;"
-											></div>
-										</div>
-									</div>
-
-									<!-- Stats Row -->
-									<div
-										style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.8rem; color: rgba(255,255,255,0.5);"
-									>
-										<span
-											>{uploadStats.speed
-												? (uploadStats.speed / 1024 / 1024).toFixed(1) + ' MB/s'
-												: 'Starting...'}</span
-										>
-										<span>ETA: {uploadStats.eta ? Math.ceil(uploadStats.eta) + 's' : '--'}</span>
-									</div>
-								</div>
-							{/if}
-						{:else}
-							<p>Your files have been uploaded successfully.</p>
-						{/if}
-
-						{#if encryptionEnabled && password}
-							<div class="password-display-box" transition:fade>
-								<div class="password-label">
-									<Icon icon="ri:lock-password-line" />
-									<span>Decryption Password</span>
-								</div>
-								<div class="password-value-row">
-									<code class="password-code">{password}</code>
-									<button
-										class="copy-btn"
-										onclick={() => {
-											navigator.clipboard.writeText(password);
-											toast.success('Password copied to clipboard!');
-										}}
-										title="Copy Password"
-									>
-										<Icon icon="ri:file-copy-line" />
-									</button>
-								</div>
-								<p class="password-hint">
-									Save this password securely. It is required to download the file.
-								</p>
-							</div>
-						{/if}
-
-						<div class="action-buttons">
-							<button
-								class="primary-btn"
-								onclick={() => {
-									uploadSuccessUrl = null;
-									showSuccessModal = false;
-									files = [];
-									password = '';
-									encryptionEnabled = false;
-								}}
-								disabled={isUploading}>Upload Another File</button
-							>
-						</div>
-					</div>
-				</div>
-			{/if}
+			<p class="steps-line">
+				drop it <span class="dot">·</span> we encrypt it <span class="dot">·</span> share the link
+			</p>
 		</div>
 	</main>
 
-	<section class="section how">
-		<div class="container">
-			<span class="eyebrow">how it works</span>
-			<h2 class="section-title">Three steps. No account needed.</h2>
-			<div class="steps">
-				<div class="step">
-					<span class="step-n">01</span>
-					<div class="step-ic"><Icon icon="ri:upload-cloud-2-line" width="26" /></div>
-					<h3>Drop it</h3>
-					<p>Drag in a file or a whole folder. Up to 20GB anonymously, 50GB with a free account.</p>
-				</div>
-				<div class="step">
-					<span class="step-n">02</span>
-					<div class="step-ic"><Icon icon="ri:lock-2-line" width="26" /></div>
-					<h3>We encrypt it</h3>
-					<p>Optional password protection encrypts every chunk in your browser. The key never leaves your device.</p>
-				</div>
-				<div class="step">
-					<span class="step-n">03</span>
-					<div class="step-ic"><Icon icon="ri:links-line" width="26" /></div>
-					<h3>Share the link</h3>
-					<p>Get a clean link the moment upload starts. Anyone with it pulls the file at full speed.</p>
-				</div>
+	<section class="section facts">
+		<div class="container narrow">
+			<div class="fact">
+				<h3>Zero-knowledge</h3>
+				<p>Files are encrypted in your browser with libsodium before upload. We store ciphertext, nothing else. If you lose the password, even we can't recover the file. That is the point.</p>
+			</div>
+			<div class="fact">
+				<h3>Anonymous</h3>
+				<p>No email, no signup, no tracking. A local browser key lets you manage your uploads across sessions without an account.</p>
+			</div>
+			<div class="fact">
+				<h3>Fast</h3>
+				<p>Chunked storage downloads in parallel and saturates the connection instead of trickling one stream.</p>
+			</div>
+			<div class="fact">
+				<h3>Whole folders</h3>
+				<p>Drop entire directory trees with their structure intact. Up to 20Up to 20&nbsp;GB anonymously, 50&nbsp;GB with a free account.nbsp;GB anonymously, 10Up to 20&nbsp;GB anonymously, 50&nbsp;GB with a free account.nbsp;GB with a free account.</p>
 			</div>
 		</div>
 	</section>
 
-	<section class="section features">
-		<div class="container">
-			<span class="eyebrow">why silocat</span>
-			<h2 class="section-title">Built for the paranoid.</h2>
-			<div class="feature-grid">
-				<div class="feature"><div class="feature-ic"><Icon icon="ri:shield-keyhole-line" width="24" /></div><h3>Zero-knowledge</h3><p>Files are encrypted before they leave your browser. We store ciphertext, nothing else.</p></div>
-				<div class="feature"><div class="feature-ic"><Icon icon="ri:ghost-2-line" width="24" /></div><h3>Truly anonymous</h3><p>No email or signup required to send. No tracking, no profiling, no ads.</p></div>
-				<div class="feature"><div class="feature-ic"><Icon icon="ri:flashlight-line" width="24" /></div><h3>Parallel downloads</h3><p>Chunked storage saturates your connection instead of trickling one stream.</p></div>
-				<div class="feature"><div class="feature-ic"><Icon icon="ri:archive-2-line" width="24" /></div><h3>Big files, whole folders</h3><p>Send up to 50GB and drop entire directory trees with their structure intact.</p></div>
-				<div class="feature"><div class="feature-ic"><Icon icon="ri:key-2-line" width="24" /></div><h3>Password protection</h3><p>One toggle locks a file behind a generated key only your recipient holds.</p></div>
-				<div class="feature"><div class="feature-ic"><Icon icon="ri:eye-off-line" width="24" /></div><h3>No prying eyes</h3><p>Not us, not your ISP, not the host. The math keeps it shut, not a privacy policy.</p></div>
-			</div>
-		</div>
-	</section>
-
-	<section class="section security">
-		<div class="container narrow security-inner">
-			<div class="security-ic"><Icon icon="ri:shield-keyhole-line" width="34" /></div>
-			<h2 class="section-title">We literally can't read your files.</h2>
-			<p>Encryption happens client-side with libsodium. The decryption key is derived from your password and never touches our servers. If you lose it, even we can't recover the file. That is the point.</p>
+	<section class="section oss">
+		<div class="container narrow oss-inner">
+			<p>
+				Silocat is open source under AGPL-3.0.
+				<a href="https://github.com/clickswave/silocat" target="_blank" rel="noreferrer">Read the code</a>, or self-host it.
+			</p>
 		</div>
 	</section>
 
 	<section class="section cta">
 		<div class="container narrow cta-inner">
-			<h2 class="section-title">Ready to send something?</h2>
-			<p>Drop a file above, or make a free account for 50GB, starred files, and a private dashboard.</p>
+			<h2>Ready to send something?</h2>
 			<div class="cta-actions">
-				<a href="/auth/signup" class="btn btn-primary btn-lg">Create free account</a>
-				<a href="/pricing" class="btn btn-ghost btn-lg">See pricing</a>
+				<Button size="lg" href="/auth/signup">Create free account</Button>
+				<Button size="lg" variant="ghost" href="/pricing">See pricing</Button>
 			</div>
 		</div>
 	</section>
@@ -977,148 +713,411 @@
 	<Footer />
 </div>
 
-<div class="bg-effects">
-	<div class="glow-spot top"></div>
-	<div class="glow-spot bottom"></div>
-</div>
+<Modal
+	open={showSuccessModal}
+	title={isUploading ? 'Uploading' : 'Ready to share'}
+	onclose={() => {
+		if (!isUploading) resetUpload();
+	}}
+>
+	<div class="success-stack">
+		<p class="success-line">
+			{#if isUploading}
+				The link works already. Anyone opening it will see the files arrive.
+			{:else}
+				Anyone with this link can download {files.length > 1 ? 'these files' : 'this file'}.
+			{/if}
+		</p>
+
+		{#if uploadSuccessUrl}
+			<div class="link-box">
+				<input type="text" readonly value={uploadSuccessUrl} onclick={(e) => e.target.select()} />
+				<Copy text={uploadSuccessUrl} label="Copy link" />
+			</div>
+		{/if}
+
+		{#if isUploading}
+			<div class="progress-stack">
+				<div class="progress-row">
+					<span class="p-label">Total</span>
+					<Progress value={uploadStats.totalProgress} size="md" />
+					<span class="p-pct">{Math.round(uploadStats.totalProgress)}%</span>
+				</div>
+				<div class="progress-row">
+					<span class="p-label trunc">{uploadStats.currentFileName || 'Processing'}</span>
+					<Progress value={uploadStats.fileProgress} size="sm" tone="neutral" />
+					<span class="p-pct">{Math.round(uploadStats.fileProgress)}%</span>
+				</div>
+				<div class="p-stats">
+					<span>{uploadStats.speed ? (uploadStats.speed / 1024 / 1024).toFixed(1) + ' MB/s' : 'starting'}</span>
+					<span>{uploadStats.eta ? 'eta ' + Math.ceil(uploadStats.eta) + 's' : ''}</span>
+				</div>
+			</div>
+		{/if}
+
+		{#if encryptionEnabled && password}
+			<div class="password-box">
+				<span class="pw-label">Decryption password, save it now. It is required to download.</span>
+				<div class="pw-row">
+					<code>{password}</code>
+					<Copy text={password} label="Copy password" size="sm" />
+				</div>
+			</div>
+		{/if}
+	</div>
+
+	{#snippet footer()}
+		<Button block disabled={isUploading} onclick={resetUpload}>
+			{isUploading ? 'Uploading in background' : 'Upload another'}
+		</Button>
+	{/snippet}
+</Modal>
 
 <style lang="scss">
-	.landing-page { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+	.landing-page {
+		min-height: 100vh;
+		display: flex;
+		flex-direction: column;
+	}
 
 	/* ---------- hero ---------- */
-	.hero { display: flex; justify-content: center; padding: clamp(3rem, 9vw, 7rem) var(--gutter) clamp(2.5rem, 6vw, 4rem); }
-	.hero-content { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--space-5); }
-	.hero-title { font-size: var(--fs-display); font-weight: var(--fw-black); line-height: var(--lh-tight); letter-spacing: -0.03em; }
-	.paw { filter: saturate(1.2); }
-	.subtitle { font-size: var(--fs-lg); color: var(--text-secondary); max-width: 56ch; margin: 0 auto; }
-	.trust-row { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+	.hero {
+		display: flex;
+		justify-content: center;
+		padding: clamp(3.5rem, 10vw, 7rem) var(--gutter) clamp(2rem, 5vw, 3.5rem);
+	}
+	.hero-content {
+		width: 100%;
+		max-width: 640px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: var(--space-4);
+	}
+	.hero-title {
+		font-size: var(--fs-display);
+		font-weight: var(--fw-black);
+		letter-spacing: -0.03em;
+	}
+	.subtitle {
+		font-size: var(--fs-lg);
+		color: var(--ink-mute);
+		margin: 0;
+	}
 
 	/* ---------- upload zone ---------- */
-	.upload-zone { width: 100%; max-width: 620px; margin-top: var(--space-3); background: var(--bg-card); border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg); padding: clamp(1.5rem, 4vw, 3rem); box-shadow: var(--shadow-lg); transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease); cursor: pointer; text-align: left; }
-	.upload-zone:hover { border-color: var(--text-muted); }
-	.upload-zone.dragging { border-color: var(--primary); background: rgba(255, 70, 85, 0.06); transform: scale(1.01); }
+	.upload-zone {
+		width: 100%;
+		margin-top: var(--space-5);
+		background: var(--surface);
+		border: 1px dashed var(--edge-strong);
+		border-radius: var(--radius-lg);
+		padding: clamp(1.25rem, 3vw, 2rem);
+		transition:
+			border-color var(--dur) var(--ease),
+			background var(--dur) var(--ease);
+		text-align: left;
 
-	.upload-placeholder { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); text-align: center; }
-	.icon-circle { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.1); box-shadow: var(--shadow-glow); }
-	.upload-placeholder h3 { font-size: var(--fs-h3); }
-	.upload-placeholder p { color: var(--text-muted); }
-	.browse-btn { display: inline-flex; align-items: center; padding: 0.7rem 1.4rem; background: var(--text-primary); color: var(--bg-app); border-radius: var(--radius-pill); font-weight: var(--fw-semibold); cursor: pointer; transition: transform var(--dur) var(--ease); }
-	.browse-btn:hover { transform: translateY(-1px); }
-	.limit-badge { display: inline-flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); padding: 0.35rem 0.8rem; background: var(--tint-soft); border: 1px solid var(--border-default); border-radius: var(--radius-pill); font-size: var(--fs-sm); color: var(--text-secondary); }
-	.folder-upload-hint { font-size: var(--fs-sm); }
-	.folder-upload-hint .link-btn { color: var(--text-secondary); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-	.folder-upload-hint .link-btn:hover { color: var(--text-primary); }
+		&.dragging {
+			border-color: var(--accent);
+			background: var(--accent-soft);
+		}
+	}
 
-	.file-list { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
-	.file-item { display: flex; align-items: center; gap: var(--space-4); background: var(--tint-soft); border: 1px solid var(--hairline); padding: var(--space-3); border-radius: var(--radius-sm); }
-	.file-item .file-icon { color: var(--primary); font-size: 1.25rem; display: flex; }
-	.file-item .file-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-	.file-item .file-info .name { font-weight: var(--fw-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.file-item .file-info .path-hint { font-size: var(--fs-xs); color: var(--text-muted); }
-	.file-item .file-info .size { font-size: var(--fs-sm); color: var(--text-secondary); }
-	.file-item .remove-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: var(--radius-sm); display: flex; }
-	.file-item .remove-btn:hover { background: var(--tint-softer); color: var(--text-primary); }
+	.upload-placeholder {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-3);
+		text-align: center;
+		padding: var(--space-6) 0;
+		color: var(--ink-faint);
 
-	.encryption-section { background: var(--tint-soft); border: 1px solid var(--hairline); padding: var(--space-4); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: var(--space-4); }
-	.toggle-row { display: flex; align-items: center; gap: var(--space-3); }
-	.toggle-label { font-weight: var(--fw-medium); }
-	.password-input-group { display: flex; gap: var(--space-2); }
-	.password-field { flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border-default); color: var(--text-primary); padding: 0.7rem 0.9rem; border-radius: var(--radius-sm); font-family: var(--font-mono); outline: none; }
-	.password-field:focus { border-color: var(--primary); }
-	.regen-btn, .password-input-group .copy-btn { width: 44px; display: grid; place-items: center; background: var(--tint-softer); border: 1px solid var(--border-default); color: var(--text-primary); border-radius: var(--radius-sm); cursor: pointer; flex: none; }
-	.regen-btn:hover, .password-input-group .copy-btn:hover { background: var(--bg-card-hover); }
+		:global(.drop-ic) {
+			color: var(--ink-faint);
+		}
+	}
+	.drop-line {
+		font-size: var(--fs-lg);
+		font-weight: var(--fw-medium);
+		color: var(--ink);
+		cursor: pointer;
 
-	.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
-	.toggle-switch input { opacity: 0; width: 0; height: 0; }
-	.toggle-switch .slider { position: absolute; inset: 0; background: var(--border-strong); transition: 0.3s; border-radius: var(--radius-pill); cursor: pointer; }
-	.toggle-switch .slider:before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; transition: 0.3s; border-radius: 50%; }
-	.toggle-switch input:checked + .slider { background: var(--primary); }
-	.toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+		.browse {
+			color: var(--accent);
+			text-decoration: underline;
+			text-underline-offset: 3px;
+		}
+	}
+	.drop-hint {
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+		margin: 0;
 
-	.warning-box { display: flex; align-items: center; gap: var(--space-2); color: var(--warning); font-size: var(--fs-sm); background: rgba(242, 201, 76, 0.1); padding: var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(242, 201, 76, 0.25); }
+		.folder-link {
+			cursor: pointer;
+			text-decoration: underline;
+			text-underline-offset: 3px;
+			&:hover {
+				color: var(--ink);
+			}
+		}
+	}
+	.dot {
+		margin-inline: var(--space-1);
+		color: var(--ink-faint);
+	}
 
-	.upload-action-btn { display: flex; align-items: center; justify-content: center; gap: var(--space-2); background: var(--accent-gradient); color: #fff; border: none; padding: 0.9rem; border-radius: var(--radius-pill); font-weight: var(--fw-semibold); font-size: var(--fs-body); margin-top: var(--space-2); cursor: pointer; box-shadow: 0 6px 20px -6px var(--primary-glow); transition: filter var(--dur) var(--ease); }
-	.upload-action-btn:hover { filter: brightness(1.06); }
-	.upload-action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-	.add-more-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: var(--fs-sm); }
-	.add-more-btn:hover { color: var(--text-primary); }
+	/* ---------- file list ---------- */
+	.file-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		width: 100%;
+	}
+	.file-item {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-sm);
+
+		:global(.file-ic) {
+			color: var(--ink-faint);
+			flex-shrink: 0;
+		}
+	}
+	.file-info {
+		flex: 1;
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		min-width: 0;
+
+		.name {
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		.path-hint {
+			font-size: var(--fs-xs);
+			color: var(--ink-faint);
+			flex-shrink: 0;
+		}
+	}
+	.size {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+	.remove-btn {
+		display: flex;
+		background: none;
+		border: none;
+		color: var(--ink-faint);
+		cursor: pointer;
+		padding: 4px;
+		border-radius: var(--radius-sm);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.encrypt-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding-top: var(--space-2);
+	}
+	.plain-note {
+		font-size: var(--fs-xs);
+		color: var(--warn);
+	}
+
+	.upload-actions {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+	}
 
 	/* ---------- progress ---------- */
-	.progress-section { width: 100%; display: flex; flex-direction: column; gap: var(--space-5); margin-top: var(--space-5); background: var(--bg-elevated); padding: var(--space-5); border-radius: var(--radius-md); border: 1px solid var(--border-default); }
-	.stats-row { display: flex; justify-content: space-between; padding-bottom: var(--space-3); border-bottom: 1px solid var(--hairline); }
-	.stats-row .stat { display: flex; flex-direction: column; gap: var(--space-1); }
-	.stats-row .label { font-size: var(--fs-xs); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; font-weight: var(--fw-semibold); }
-	.stats-row .value { font-size: var(--fs-lg); font-weight: var(--fw-bold); font-family: var(--font-mono); }
-	.progress-item { display: flex; flex-direction: column; gap: var(--space-2); }
-	.progress-header { display: flex; justify-content: space-between; align-items: center; font-size: var(--fs-sm); }
-	.progress-header .label { color: var(--text-primary); font-weight: var(--fw-medium); }
-	.progress-header .label.trunc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-	.progress-header .percent { color: var(--text-secondary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-	.progress-track { width: 100%; height: 10px; background: rgba(0, 0, 0, 0.4); border-radius: var(--radius-pill); overflow: hidden; }
-	.progress-item.compact .progress-track { height: 6px; }
-	.tiny-label { font-size: var(--fs-xs); color: var(--text-muted); }
-	.progress-fill { height: 100%; transition: width 0.3s var(--ease); }
-	.progress-fill.total { background: var(--accent-gradient); }
-	.progress-fill.file { background: linear-gradient(90deg, #4f46e5, #818cf8); }
-	.progress-fill.chunk { background: linear-gradient(90deg, #10b981, #34d399); }
+	.progress-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		padding-top: var(--space-2);
+	}
+	.progress-row {
+		display: grid;
+		grid-template-columns: 90px 1fr 42px;
+		align-items: center;
+		gap: var(--space-3);
+	}
+	.p-label {
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+
+		&.trunc {
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+	}
+	.p-pct {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.p-stats {
+		display: flex;
+		justify-content: space-between;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	/* ---------- steps line ---------- */
+	.steps-line {
+		margin-top: var(--space-5);
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+	}
+
+	/* ---------- facts ---------- */
+	.facts .container {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-8) var(--space-8);
+	}
+	.fact {
+		border-top: 1px solid var(--edge);
+		padding-top: var(--space-4);
+
+		h3 {
+			font-size: var(--fs-body);
+			font-weight: var(--fw-semibold);
+			margin-bottom: var(--space-2);
+		}
+		p {
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+			line-height: var(--lh-normal);
+		}
+	}
+
+	/* ---------- oss ---------- */
+	.oss {
+		padding-block: 0;
+	}
+	.oss-inner {
+		text-align: center;
+
+		p {
+			font-size: var(--fs-sm);
+			color: var(--ink-faint);
+		}
+		a {
+			color: var(--ink-mute);
+			text-decoration: underline;
+			text-underline-offset: 3px;
+			&:hover {
+				color: var(--ink);
+			}
+		}
+	}
+
+	/* ---------- cta ---------- */
+	.cta-inner {
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-5);
+	}
+	.cta-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+		justify-content: center;
+	}
 
 	/* ---------- success modal ---------- */
-	.success-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 50; padding: var(--gutter); }
-	.success-card { background: var(--bg-elevated); border: 1px solid var(--border-default); padding: clamp(1.5rem, 4vw, 2.75rem); border-radius: var(--radius-lg); text-align: center; max-width: 500px; width: 100%; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; align-items: center; gap: var(--space-5); }
-	.success-icon { color: var(--success); font-size: 3.5rem; display: flex; }
-	.success-card h2 { font-size: var(--fs-h2); }
-	.success-card p { color: var(--text-secondary); }
-	.link-box { display: flex; gap: var(--space-2); background: var(--tint-soft); border: 1px solid var(--hairline); padding: var(--space-3); border-radius: var(--radius-sm); width: 100%; }
-	.link-box input { flex: 1; background: transparent; border: none; color: var(--text-secondary); padding: 0 var(--space-2); font-family: var(--font-mono); font-size: var(--fs-sm); outline: none; min-width: 0; }
-	.copy-link-btn { display: flex; align-items: center; gap: var(--space-2); background: var(--tint-softer); border: 1px solid var(--border-default); color: var(--text-primary); padding: 0.55rem 1rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
-	.copy-link-btn:hover { background: var(--bg-card-hover); }
-	.password-display-box { background: var(--tint-soft); border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: var(--space-4); text-align: left; width: 100%; }
-	.password-label { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--fs-sm); margin-bottom: var(--space-2); font-weight: var(--fw-medium); }
-	.password-value-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); background: var(--bg-input); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--hairline); }
-	.password-code { font-family: var(--font-mono); font-size: var(--fs-lg); color: var(--primary); word-break: break-all; }
-	.password-value-row .copy-btn { background: transparent; border: none; color: var(--text-secondary); cursor: pointer; display: flex; }
-	.password-value-row .copy-btn:hover { color: var(--text-primary); }
-	.password-hint { margin-top: var(--space-2); font-size: var(--fs-xs); color: var(--text-muted); }
-	.action-buttons { width: 100%; }
-	.action-buttons .primary-btn { width: 100%; background: var(--accent-gradient); color: #fff; border: none; padding: 0.9rem; border-radius: var(--radius-pill); font-weight: var(--fw-semibold); font-size: var(--fs-body); cursor: pointer; transition: filter var(--dur) var(--ease); }
-	.action-buttons .primary-btn:hover { filter: brightness(1.06); }
+	.success-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+	.success-line {
+		color: var(--ink-mute);
+		font-size: var(--fs-sm);
+		margin: 0;
+	}
+	.link-box {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		background: var(--bg);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
 
-	/* ---------- sections ---------- */
-	.section-title { font-size: var(--fs-h2); margin-top: var(--space-2); }
-	.how .container, .features .container { display: flex; flex-direction: column; gap: var(--space-6); }
+		input {
+			flex: 1;
+			min-width: 0;
+			background: transparent;
+			border: none;
+			outline: none;
+			color: var(--ink);
+			font-family: var(--font-mono);
+			font-size: var(--fs-sm);
+			padding: var(--space-2) 0;
+		}
+	}
+	.password-box {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 
-	.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); }
-	.step { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); }
-	.step-n { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--primary); font-weight: var(--fw-semibold); }
-	.step-ic { width: 52px; height: 52px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.1); }
-	.step p { color: var(--text-secondary); }
+		.pw-label {
+			font-size: var(--fs-xs);
+			color: var(--warn);
+		}
+		.pw-row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: var(--space-2);
+			background: var(--bg);
+			border: 1px solid var(--edge);
+			border-radius: var(--radius-sm);
+			padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
 
-	.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-5); }
-	.feature { background: var(--bg-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease); }
-	.feature:hover { border-color: var(--border-strong); transform: translateY(-2px); }
-	.feature-ic { width: 46px; height: 46px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.1); }
-	.feature p { color: var(--text-secondary); font-size: var(--fs-sm); }
-
-	.security-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-4); padding: clamp(2rem, 5vw, 3.5rem); background: linear-gradient(180deg, rgba(255, 70, 85, 0.07), var(--tint-soft)); border: 1px solid var(--border-default); border-radius: var(--radius-lg); }
-	.security-ic { width: 70px; height: 70px; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--primary); background: rgba(255, 70, 85, 0.12); box-shadow: var(--shadow-glow); }
-	.security-inner p { color: var(--text-secondary); max-width: 60ch; }
-
-	.cta-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--space-5); }
-	.cta-inner p { color: var(--text-secondary); max-width: 52ch; }
-	.cta-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: center; }
-
-	/* ---------- background fx ---------- */
-	.bg-effects { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-	.glow-spot { position: absolute; width: 600px; height: 600px; filter: blur(110px); border-radius: 50%; }
-	.glow-spot.top { top: -22%; left: 12%; background: radial-gradient(circle, rgba(255, 70, 85, 0.16) 0%, transparent 70%); }
-	.glow-spot.bottom { bottom: -25%; right: 10%; background: radial-gradient(circle, rgba(74, 163, 226, 0.1) 0%, transparent 70%); }
+			code {
+				font-size: var(--fs-body);
+				color: var(--ink);
+				word-break: break-all;
+			}
+		}
+	}
 
 	/* ---------- responsive ---------- */
-	@media (max-width: 860px) {
-		.steps { grid-template-columns: 1fr; }
-	}
-	@media (max-width: 768px) {
-		.progress-header .label.trunc { max-width: 140px; }
-		.link-box { flex-direction: column; }
+	@media (max-width: 720px) {
+		.facts .container {
+			grid-template-columns: 1fr;
+			gap: var(--space-6);
+		}
 	}
 </style>

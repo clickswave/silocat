@@ -29,7 +29,7 @@ export async function POST({ request, locals }) {
         // Let's assume I check/add it.
 
         // Correct endpoint is /folder/delete (registered in folder/mod.rs)
-        let response = await ApiServerClient.post('/folder/delete', payload);
+        let response = await ApiServerClient.post('/folder/delete', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
         return json(response.data);
     } catch (err) {
         console.error('[DELETE_FOLDER]', err);

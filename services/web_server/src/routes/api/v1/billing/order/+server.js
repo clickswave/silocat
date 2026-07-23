@@ -15,9 +15,8 @@ export async function POST({ request, locals }) {
             ...payload,
             user_id: user.id
         };
-        console.log("enhancedPayload", enhancedPayload);
 
-        let response = await ApiServerClient.post('/billing/order', enhancedPayload)
+        let response = await ApiServerClient.post('/billing/order', enhancedPayload, { headers: { 'X-Api-Key': user.api_key } })
             .then(res => res.data);
         console.log("response", response);
         return json({ success: response.data });

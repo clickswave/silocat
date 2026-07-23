@@ -11,13 +11,12 @@ export async function POST({ request, locals }) {
         const payload = await request.json();
 
         console.log('[STAR_PROXY] User ID:', user.id);
-        console.log('[STAR_PROXY] Payload:', JSON.stringify(payload));
 
         // Forward the request to the backend
         const res = await ApiServerClient.post('/file/star/file', {
             ...payload,
             user_id: user.id
-        });
+        }, { headers: { 'X-Api-Key': user.api_key } });
 
         console.log('[STAR_PROXY] Backend Status:', res.data?.status);
         console.log('[STAR_PROXY] Backend Message:', res.data?.message);

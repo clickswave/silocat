@@ -27,7 +27,7 @@ export async function POST({ request, locals }) {
 
     try {
         // Use the same CREATE_FILE endpoint in api_switch, but now we've injected user_id and storage_type
-        let response = await ApiServerClient.post(ApiServerRoutes.createFile, body).then(res => res.data);
+        let response = await ApiServerClient.post(ApiServerRoutes.createFile, body, { headers: { 'X-Api-Key': sessionUser.api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
         console.error('[CREATE_SANCTUM_FILE]', err);

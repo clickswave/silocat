@@ -25,10 +25,10 @@ async fn list_orders(
             vec![],
             json!({ "orders": orders }),
         ),
-        Err(e) => respond(
+        Err(_e) => respond(
             500,
             "Failed to fetch orders",
-            vec![e.to_string()],
+            vec![],
             json!({}),
         ),
     }
