@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT user_id, additional_space, subscription_name, status FROM orders WHERE reference_id = $1",
+  "query": "SELECT user_id, additional_space, subscription_name, subscription_cycle, status FROM orders WHERE reference_id = $1",
   "describe": {
     "columns": [
       {
@@ -20,6 +20,11 @@
       },
       {
         "ordinal": 3,
+        "name": "subscription_cycle",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
         "name": "status",
         "type_info": "Text"
       }
@@ -33,8 +38,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "66c7d3a656c0996d149197baa9ed4be75218ce47a2f6d0e8cbe9d84e1bdce877"
+  "hash": "f277fd290125519d02a8171779a6fadcf3cb0e9f293c17f1932d4d1ebfd56d5d"
 }
