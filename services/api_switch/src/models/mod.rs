@@ -228,13 +228,9 @@ pub struct Order {
 
     pub details: JsonValue,
     pub transactions: Vec<JsonValue>,
+
+    /// Stable, human-readable invoice number (INV-2026-0142). Assigned once by
+    /// a DB trigger so historical invoices never renumber.
+    pub invoice_number: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
-pub struct AdminUser {
-    pub id: String,
-    pub email: String,
-    pub password_hash: String,
-    pub role: String,
-    pub created_at: DateTime<Utc>,
-}

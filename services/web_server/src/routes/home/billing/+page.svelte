@@ -1,556 +1,1320 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { onMount } from 'svelte';
-	import { toast } from 'svelte-sonner';
+	import { browser } from '$app/environment';
+	import { toast } from '$lib/toast.js';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { loadRazorpay } from '$lib/loadRazorpay.js';
+	import { PRICES, SYMBOL, formatPrice, formatMinor, currencyForCountry } from '$lib/pricing.js';
 
 	let { data } = $props();
 
-	let plan = $state({
-		name: 'Free Plan',
-		price: '$0.00',
-		period: 'month',
-		status: 'Active',
-		nextBilling: 'N/A'
+	// --- current plan --------------------------------------------------------
+	let planName = $derived(data.user?.subscription?.name || 'Free');
+	let isPro = $derived(planName === 'Pro');
+	let isPlus = $derived(planName === 'Plus');
+	let isPaid = $derived(isPro || isPlus);
+	let expiresOn = $derived(
+		data.user?.subscription?.expires_on
+			? new Date(data.user.subscription.expires_on).toLocaleDateString(undefined, {
+					day: 'numeric',
+					month: 'short',
+					year: 'numeric'
+				})
+			: null
+	);
+
+	let planNote = $derived(
+		isPaid && expiresOn
+			? `Active until ${expiresOn}. Renew whenever you like, we never charge you automatically.`
+			: 'Everything is unlocked. Upgrade only when you want more space.'
+	);
+
+	// --- controls ------------------------------------------------------------
+	let currency = $state('USD');
+	let cycle = $state('monthly');
+	let annual = $derived(cycle === 'annual');
+	const gateway = 'razorpay';
+
+	onMount(() => {
+		currency = currencyForCountry(data.user?.country);
 	});
 
-	let usage = $state({
-		storage: 0,
-		limit: 10,
-		bandwidth: 'Unlimited',
-		bandwidthLimit: 'Unlimited'
+	const price = (id, c) => formatPrice(currency, PRICES[currency][id][c]);
+	const rawPrice = (id, c) => PRICES[currency][id][c];
+
+	// --- usage ---------------------------------------------------------------
+	const storageQuery = createQuery(() => ({
+		queryKey: ['fetchStorageStats'],
+		queryFn: async () => {
+			const { data: d } = await FrontendClient.get('/api/v1/sanctum/user/storage');
+			return d?.success || { used: 0, total: 0 };
+		},
+		enabled: browser
+	}));
+
+	let usage = $derived({
+		used: storageQuery.data?.used || 0,
+		total: storageQuery.data?.total || data.user?.totalAvailableSpace || 0
 	});
+	let usedPct = $derived(usage.total ? Math.min((usage.used / usage.total) * 100, 100) : 0);
 
-	let invoices = $state([]);
-	let loading = $state(true);
-
-	// Initialize usage from user data or defaults
-	$effect(() => {
-		if (data.user) {
-			// Plan
-			if (data.user.subscription?.name === 'Pro') {
-				plan.name = 'Pro Plan';
-				plan.price = '$10.00';
-				plan.status = data.user.subscription.status || 'Active';
-
-				if (data.user.subscription.expires_on) {
-					plan.nextBilling = new Date(data.user.subscription.expires_on).toLocaleDateString();
-				}
-			} else {
-				plan.name = 'Free Plan';
-				plan.price = '$0.00';
-			}
-
-			// Usage
-			// Convert bytes to GB
-			let limitBytes = data.user.default_storage_bytes || 10737418240; // 10GB default
-			if (data.user.subscription?.additional_space) {
-				limitBytes += data.user.subscription.additional_space;
-			}
-
-			// We might need an endpoint for current usage, but for now we can default to 0 or
-			// if passed in data load. Assuming 0 or small mock for now if not available.
-			// Ideally we fetch from `/api/v1/shadow/file` stats or similar.
-			// Using 0 as placeholder or if backend sends it.
-			usage.limit = (limitBytes / (1024 * 1024 * 1024)).toFixed(0);
-			usage.storage = data.user.storage_used_gb || 0; // Assuming this might be added to user object?
-			// If not, we just show 0 or handle it.
-		}
-	});
-
-	onMount(async () => {
-		try {
-			const res = await FrontendClient.get('/api/v1/billing/history');
-			if (res.data.status === 200) {
-				invoices = res.data.data.orders.map((order) => ({
-					id: order.reference_id || order.id.substring(0, 8),
-					date: new Date(order.created_on).toLocaleDateString(),
-					amount: `${{ USD: '$', EUR: '€', INR: '₹' }[order.currency] || ''}${order.amount / 100}`,
-					status: order.status,
-					currency: order.currency,
-					raw_amount: order.amount,
-					gateway: order.payment_gateway
-				}));
-			}
-		} catch (e) {
-			console.error('Failed to fetch history', e);
-		} finally {
-			loading = false;
-		}
-	});
-
-	function getStoragePercentage() {
-		return (usage.storage / usage.limit) * 100;
+	function fmtSize(bytes) {
+		if (!bytes) return '0 B';
+		const k = 1024;
+		const s = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), s.length - 1);
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
 	}
 
-	function downloadInvoice(invoice) {
-		// Simple mock download/print
-		const content = `
-			INVOICE #${invoice.id}
-			----------------------
-			Date: ${invoice.date}
-			Status: ${invoice.status}
-			
-			Item: Silocat Subscription
-			Amount: ${invoice.amount}
-			
-			Thank you for your business.
-			Clickswave Labs Private Limited
-		`;
+	// --- promo ---------------------------------------------------------------
+	let promoCode = $state('');
+	let discount = $state(0);
+	let promoApplied = $state(false);
+	let verifiedCode = $state('');
+	let validatingPromo = $state(false);
 
-		const blob = new Blob([content], { type: 'text/plain' });
-		const url = window.URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `invoice_${invoice.id}.txt`;
-		a.click();
-		window.URL.revokeObjectURL(url);
-		toast.success('Invoice downloaded');
+	async function applyPromo() {
+		if (!promoCode || validatingPromo) return;
+		validatingPromo = true;
+		try {
+			const res = await FrontendClient.post('/api/v1/billing/check-promo', { code: promoCode });
+			if (res.data.status === 200 && res.data.data.valid) {
+				discount = res.data.data.discount_percentage;
+				promoApplied = true;
+				verifiedCode = promoCode.toUpperCase();
+				toast.success('Promo applied', `${discount}% off your next payment.`);
+			} else {
+				toast.error('That code is not valid', 'Check the spelling, or it may have expired.');
+			}
+		} catch (e) {
+			toast.error('Could not check that code', e.response?.data?.message || 'Try again in a moment.');
+		} finally {
+			validatingPromo = false;
+		}
+	}
+
+	function removePromo() {
+		promoApplied = false;
+		discount = 0;
+		verifiedCode = '';
+		promoCode = '';
+	}
+
+	// --- plans ---------------------------------------------------------------
+	let plans = $derived([
+		{
+			id: 'free',
+			name: 'Free',
+			price: `${SYMBOL[currency]}0`,
+			per: '/mo',
+			billNote: 'free forever',
+			tagline: 'Everything, 10 GB of space.',
+			features: ['10 GB encrypted storage', 'End-to-end encryption', 'Password + expiring links']
+		},
+		{
+			id: 'plus',
+			name: 'Plus',
+			price: annual ? price('plus', 'annual') : price('plus', 'monthly'),
+			per: annual ? '/yr' : '/mo',
+			billNote: annual ? 'billed annually · 2 months free' : `or ${price('plus', 'annual')}/yr`,
+			tagline: '20× the space.',
+			features: ['200 GB encrypted storage', 'Everything in Free', 'Email support']
+		},
+		{
+			id: 'pro',
+			name: 'Pro',
+			price: annual ? price('pro', 'annual') : price('pro', 'monthly'),
+			per: annual ? '/yr' : '/mo',
+			billNote: annual ? 'billed annually · 2 months free' : `or ${price('pro', 'annual')}/yr`,
+			tagline: 'Room for everything.',
+			features: ['2 TB encrypted storage', 'Everything in Free', 'Priority support']
+		}
+	]);
+
+	/** Card state: current plan is disabled and badged; lower tiers read "Included". */
+	function ctaFor(id) {
+		if (id === 'free') {
+			return isPaid
+				? { label: 'Included', disabled: true, style: 'ghost', badge: null }
+				: { label: 'Current plan', disabled: true, style: 'ghost', badge: { text: 'Current', tone: 'ok' } };
+		}
+		if (id === 'plus') {
+			if (isPlus)
+				return { label: 'Current plan', disabled: true, style: 'ghost', badge: { text: 'Current', tone: 'ok' } };
+			if (isPro) return { label: 'Included', disabled: true, style: 'ghost', badge: null };
+			return { label: 'Choose Plus', disabled: false, style: 'ghost', badge: null };
+		}
+		if (isPro)
+			return { label: 'Current plan', disabled: true, style: 'ghost', badge: { text: 'Current', tone: 'ok' } };
+		return {
+			label: isPlus ? 'Upgrade to Pro' : 'Go Pro',
+			disabled: false,
+			style: 'solid',
+			badge: { text: 'Recommended', tone: 'accent' }
+		};
+	}
+
+	// --- checkout ------------------------------------------------------------
+	let checkoutPlan = $state(null); // 'plus' | 'pro'
+	let stage = $state('summary'); // summary | processing | success
+
+	let ckBase = $derived(checkoutPlan ? rawPrice(checkoutPlan, cycle) : 0);
+	let ckDiscount = $derived(promoApplied ? Math.round(ckBase * (discount / 100)) : 0);
+	let ckTotal = $derived(Math.max(0, ckBase - ckDiscount));
+
+	function openCheckout(id) {
+		checkoutPlan = id;
+		stage = 'summary';
+	}
+
+	function closeCheckout() {
+		if (stage === 'processing') return;
+		checkoutPlan = null;
+		stage = 'summary';
+	}
+
+	async function pay() {
+		if (!checkoutPlan) return;
+		stage = 'processing';
+		try {
+			const orderRes = await FrontendClient.post('/api/v1/billing/order', {
+				order_type: 'plan',
+				identifier: checkoutPlan,
+				currency,
+				gateway,
+				cycle,
+				promo_code: promoApplied ? verifiedCode : null
+			});
+
+			// A 100% promo settles server-side with no gateway round trip.
+			if (orderRes.data.success && orderRes.data.success.amount === 0) {
+				stage = 'success';
+				return;
+			}
+
+			const { order_id, amount, currency: cur, key_id } = orderRes.data.success;
+			const Razorpay = await loadRazorpay();
+			const rzp = new Razorpay({
+				key: key_id,
+				amount,
+				currency: cur,
+				name: 'Silocat',
+				description: `${checkoutPlan} (${cycle})`,
+				order_id,
+				handler: async (response) => {
+					try {
+						await FrontendClient.post('/api/v1/billing/verify', {
+							order_id: response.razorpay_order_id,
+							payment_id: response.razorpay_payment_id,
+							signature: response.razorpay_signature
+						});
+						stage = 'success';
+						loadHistory();
+					} catch {
+						stage = 'summary';
+						toast.error('We could not verify that payment', 'Contact support and we will sort it out.');
+					}
+				},
+				prefill: { email: data.user?.email },
+				theme: { color: '#ff4655' },
+				modal: { ondismiss: () => (stage = 'summary') }
+			});
+			rzp.open();
+		} catch (e) {
+			stage = 'summary';
+			toast.error('Could not start checkout', e.response?.data?.message || 'Try again in a moment.');
+		}
+	}
+
+	let ckPlanLabel = $derived(
+		checkoutPlan ? `${checkoutPlan === 'pro' ? 'Pro' : 'Plus'} · ${annual ? 'annual' : 'monthly'}` : ''
+	);
+
+	// --- order history -------------------------------------------------------
+	let orders = $state([]);
+	let historyLoading = $state(true);
+
+	onMount(loadHistory);
+
+	async function loadHistory() {
+		historyLoading = true;
+		try {
+			const res = await FrontendClient.get('/api/v1/billing/history');
+			orders = res.data?.success?.orders || res.data?.data?.orders || [];
+		} catch (e) {
+			console.error('billing history', e);
+			orders = [];
+		} finally {
+			historyLoading = false;
+		}
+	}
+
+	function statusTone(status) {
+		const s = (status || '').toLowerCase();
+		if (s === 'paid' || s === 'success' || s === 'completed') return 'ok';
+		if (s === 'failed' || s === 'refunded') return 'danger';
+		return 'warn';
+	}
+
+	function fmtDate(v) {
+		if (!v) return '-';
+		return new Date(v).toLocaleDateString(undefined, {
+			day: 'numeric',
+			month: 'short',
+			year: 'numeric'
+		});
 	}
 </script>
 
-<div class="billing-page">
-	<header class="page-header">
-		<h1>Billing & Subscription</h1>
-		<p class="subtitle">Manage your plan and view order history</p>
+<div class="billing">
+	<header class="head">
+		<h1>Billing</h1>
+		<span class="sub">Your plan, storage, and payment history. Nothing auto-renews, ever.</span>
 	</header>
 
-	<div class="billing-grid">
-		<!-- Current Plan -->
-		<div class="card plan-card">
-			<div class="card-header">
-				<div class="header-icon">
-					<Icon icon="ri:vip-crown-2-line" width="24" />
-				</div>
-				<h2>Current Plan</h2>
-				<span class="status-badge {plan.status === 'Active' ? 'active' : ''}">{plan.status}</span>
+	<!-- Current plan -->
+	<section class="strip">
+		<div class="strip-left">
+			<span class="eyebrow">Current plan</span>
+			<div class="plan-row">
+				<span class="plan-name">{planName}</span>
+				{#if isPaid}<span class="badge ok">Active</span>{/if}
 			</div>
-
-			<div class="plan-details">
-				<div class="plan-name">{plan.name}</div>
-				<div class="plan-price">
-					<span class="currency">{plan.price}</span>
-					<span class="period">/{plan.period}</span>
-				</div>
-				<p class="next-billing">Next billing date: <span>{plan.nextBilling}</span></p>
+			<span class="plan-note">{planNote}</span>
+		</div>
+		<div class="strip-usage">
+			<div class="usage-top">
+				<span class="mono">{fmtSize(usage.used)}</span>
+				<span class="mono faint">of {fmtSize(usage.total)}</span>
 			</div>
-
-			<div class="card-actions">
-				<button
-					class="btn btn-outline"
-					onclick={() => (window.location.href = '/home/subscription')}>Change Plan</button
-				>
-				<!-- Cancel button hidden for now until implemented -->
+			<div class="meter">
+				<div class="fill" class:warn={usedPct > 90} style="width:{usedPct}%"></div>
 			</div>
 		</div>
+	</section>
 
-		<!-- Usage Stats -->
-		<div class="card usage-card">
-			<div class="card-header">
-				<div class="header-icon">
-					<Icon icon="ri:hard-drive-2-line" width="24" />
+	<!-- Change plan -->
+	<section class="block">
+		<div class="block-head">
+			<span class="section-label">Change plan</span>
+			<div class="segs">
+				<div class="seg">
+					<button type="button" class:on={!annual} onclick={() => (cycle = 'monthly')}>Monthly</button>
+					<button type="button" class:on={annual} onclick={() => (cycle = 'annual')}>
+						Annual · save 17%
+					</button>
 				</div>
-				<h2>Storage Usage</h2>
-			</div>
-
-			<div class="usage-stats">
-				<div class="stat-item">
-					<div class="stat-header">
-						<span>Storage</span>
-						<span class="value">{usage.storage} GB / {usage.limit} GB</span>
-					</div>
-					<div class="progress-bar">
-						<div class="fill" style="width: {getStoragePercentage()}%"></div>
-					</div>
-				</div>
-
-				<div class="feature-list">
-					<div class="feature">
-						<Icon icon="ri:checkbox-circle-fill" class="check-icon" />
-						<span>Unlimited Bandwidth</span>
-					</div>
-					<div class="feature">
-						<Icon icon="ri:checkbox-circle-fill" class="check-icon" />
-						<span>Priority Support</span>
-					</div>
-					<div class="feature">
-						<Icon icon="ri:checkbox-circle-fill" class="check-icon" />
-						<span>Password Protection</span>
-					</div>
+				<div class="seg mono">
+					{#each ['USD', 'EUR', 'INR'] as c (c)}
+						<button type="button" class:on={currency === c} onclick={() => (currency = c)}>{c}</button>
+					{/each}
 				</div>
 			</div>
 		</div>
 
-		<!-- Order History -->
-		<div class="card invoices-card">
-			<div class="card-header">
-				<div class="header-icon">
-					<Icon icon="ri:file-list-3-line" width="24" />
+		<div class="plans">
+			{#each plans as p (p.id)}
+				{@const cta = ctaFor(p.id)}
+				<div class="plan" class:strong={cta.badge?.tone === 'accent'}>
+					<div class="plan-top">
+						<span class="plan-title">{p.name}</span>
+						{#if cta.badge}
+							<span class="badge {cta.badge.tone}">{cta.badge.text}</span>
+						{/if}
+					</div>
+					<div class="price-block">
+						<div class="price-row">
+							<span class="amount">{p.price}</span>
+							<span class="per">{p.per}</span>
+						</div>
+						<span class="bill-note">{p.billNote}</span>
+					</div>
+					<span class="tagline">{p.tagline}</span>
+					<div class="features">
+						{#each p.features as f (f)}
+							<div class="feature">
+								<Icon name="check" size={13} stroke={2.2} />
+								<span>{f}</span>
+							</div>
+						{/each}
+					</div>
+					<button
+						type="button"
+						class="plan-cta {cta.style}"
+						disabled={cta.disabled}
+						onclick={() => openCheckout(p.id)}
+					>
+						{cta.label}
+					</button>
 				</div>
-				<h2>Order History</h2>
-			</div>
+			{/each}
+		</div>
 
-			<div class="table-container">
-				{#if loading}
-					<div class="loading-state">Loading history...</div>
-				{:else if invoices.length === 0}
-					<div class="empty-state">No orders found.</div>
-				{:else}
-					<table class="invoices-table">
-						<thead>
-							<tr>
-								<th>Order ID</th>
-								<th>Date</th>
-								<th>Amount</th>
-								<th>Status</th>
-								<th></th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each invoices as invoice}
-								<tr>
-									<td class="id">{invoice.id}</td>
-									<td>{invoice.date}</td>
-									<td>{invoice.amount}</td>
-									<td
-										><span class="status-pill {invoice.status.toLowerCase()}">{invoice.status}</span
-										></td
-									>
-									<td class="action">
-										<button
-											class="icon-btn"
-											title="Download Invoice"
-											onclick={() => downloadInvoice(invoice)}
-										>
-											<Icon icon="ri:download-line" />
-										</button>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				{/if}
+		<div class="promo-row">
+			{#if promoApplied}
+				<div class="promo-chip">
+					<span class="promo-code">{verifiedCode}</span>
+					<span class="promo-off">· {discount}% off</span>
+					<button type="button" onclick={removePromo}>Remove</button>
+				</div>
+			{:else}
+				<div class="promo-input">
+					<input type="text" placeholder="Promo code" bind:value={promoCode} spellcheck="false" />
+					<button type="button" disabled={!promoCode || validatingPromo} onclick={applyPromo}>
+						{validatingPromo ? 'Checking…' : 'Apply'}
+					</button>
+				</div>
+			{/if}
+			<div class="trust">
+				<Icon name="shield" size={14} />
+				Payments secured by Razorpay · prepaid, no stored card, no auto-renewal
 			</div>
 		</div>
-	</div>
+	</section>
+
+	<!-- Order history -->
+	<section class="block">
+		<span class="section-label pad">Order history</span>
+
+		{#if historyLoading}
+			<div class="table">
+				{#each Array(3) as _, i (i)}
+					<div class="orow"><span class="sk" style="width:{180 + i * 40}px"></span></div>
+				{/each}
+			</div>
+		{:else if orders.length === 0}
+			<div class="no-orders">
+				<span class="no-orders-title">No orders yet</span>
+				<span class="no-orders-line">When you buy a plan, the receipt lands here.</span>
+			</div>
+		{:else}
+			<div class="table">
+				<div class="ohead">
+					<span>Order</span><span>Date</span><span>Amount</span><span>Status</span><span></span>
+				</div>
+				<!-- Orders are keyed by `reference_id`: the `orders` table has no `id`
+				     column, and the invoice number is only assigned once paid. -->
+				{#each orders as o (o.reference_id)}
+					<div class="orow">
+						<span class="oid mono">{o.invoice_number || o.reference_id}</span>
+						<span class="mono faint">{fmtDate(o.created_on)}</span>
+						<span class="mono">{formatMinor(o.currency, o.amount)}</span>
+						<span>
+							<span class="badge {statusTone(o.status)}">{o.status}</span>
+						</span>
+						<a
+							class="odl"
+							href={`/home/billing/invoice/${o.reference_id}`}
+							aria-label="View invoice"
+							title="View invoice"
+						>
+							<Icon name="download" size={15} />
+						</a>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<span class="footnote">
+			Plans are prepaid for the term you pick. No card is stored and nothing auto-renews, you're
+			never charged without clicking. We'll remind you before your plan ends.
+		</span>
+	</section>
 </div>
 
+<!-- Checkout -->
+{#if checkoutPlan}
+	<div class="ck-scrim" role="presentation" onclick={closeCheckout}></div>
+	<div class="ck-holder" role="dialog" aria-modal="true" aria-label="Checkout">
+		<div class="ck">
+			{#if stage === 'summary'}
+				<div class="ck-head">
+					<span class="ck-title">Confirm your plan</span>
+					<button type="button" class="ck-x" aria-label="Close" onclick={closeCheckout}>
+						<Icon name="close" size={15} />
+					</button>
+				</div>
+				<div class="ck-body">
+					<div class="ck-lines">
+						<div class="ck-line">
+							<span>{ckPlanLabel}</span>
+							<span class="mono">{formatPrice(currency, ckBase)}</span>
+						</div>
+						{#if promoApplied}
+							<div class="ck-line">
+								<span class="ok-text">{verifiedCode} · {discount}% off</span>
+								<span class="mono ok-text">−{formatPrice(currency, ckDiscount)}</span>
+							</div>
+						{/if}
+						<div class="ck-line total">
+							<span>Due today</span>
+							<span class="mono">{formatPrice(currency, ckTotal)}</span>
+						</div>
+					</div>
+
+					<div class="ck-pay">
+						<span class="ck-label">Pay with</span>
+						<div class="ck-method on">
+							<span class="radio"><span class="radio-dot"></span></span>
+							<div class="method-text">
+								<span class="method-name">Razorpay</span>
+								<span class="method-sub">UPI · cards · netbanking · wallets</span>
+							</div>
+						</div>
+						<div class="ck-method disabled">
+							<span class="radio ghost"></span>
+							<span class="method-sub">More payment providers coming soon</span>
+						</div>
+					</div>
+
+					<div class="ck-trust">
+						{#each ['Prepaid for the term you pick', 'No card is stored, nothing auto-renews', '14-day refund, no questions asked'] as t (t)}
+							<div class="ck-trust-row">
+								<Icon name="check" size={13} stroke={2.2} />
+								<span>{t}</span>
+							</div>
+						{/each}
+					</div>
+				</div>
+				<div class="ck-foot">
+					<button type="button" class="ck-cancel" onclick={closeCheckout}>Cancel</button>
+					<button type="button" class="ck-pay-btn" onclick={pay}>
+						Pay {formatPrice(currency, ckTotal)} with Razorpay
+					</button>
+				</div>
+			{:else if stage === 'processing'}
+				<div class="ck-state">
+					<Icon name="spinner" size={28} />
+					<span class="ck-state-title">Opening Razorpay…</span>
+					<span class="ck-state-line">Finish the payment in the window that just opened.</span>
+				</div>
+			{:else}
+				<div class="ck-state">
+					<span class="ok-circle"><Icon name="check" size={22} stroke={2.2} /></span>
+					<span class="ck-state-title">
+						{checkoutPlan === 'pro' ? 'Pro' : 'Plus'} is active
+					</span>
+					<span class="ck-state-line">
+						{expiresOn ? `Active until ${expiresOn}.` : 'Your new space is available right now.'}
+					</span>
+					<a class="ck-cta" href="/home/files">Start uploading</a>
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
+
 <style lang="scss">
-	.billing-page {
-		width: 100%;
-	}
-
-	.page-header {
-		margin-bottom: var(--space-6);
-
-		h1 {
-			font-size: var(--fs-h3);
-			font-weight: var(--fw-semibold);
-			margin-bottom: var(--space-1);
-			color: var(--text-primary);
-		}
-
-		.subtitle {
-			color: var(--text-muted);
-			font-size: var(--fs-sm);
-		}
-	}
-
-	.billing-grid {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: var(--space-5);
-
-		@media (max-width: 900px) {
-			grid-template-columns: 1fr;
-		}
-	}
-
-	.card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-card);
-		padding: var(--space-5);
+	.billing {
 		display: flex;
 		flex-direction: column;
+		gap: 1.25rem;
+		padding-bottom: var(--space-6);
+	}
 
-		.card-header {
-			display: flex;
-			align-items: center;
-			gap: var(--space-4);
-			margin-bottom: var(--space-5);
+	.head {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: var(--space-2) 0.125rem 0;
 
-			.header-icon {
-				width: 40px;
-				height: 40px;
-				border-radius: var(--radius-sm);
-				background: var(--tint-soft);
-				color: var(--primary);
-				display: flex;
-				align-items: center;
-				justify-content: center;
-			}
-
-			h2 {
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-semibold);
-				margin: 0;
-				flex: 1;
-				color: var(--text-primary);
-			}
+		h1 {
+			margin: 0;
+			font-size: var(--fs-h2);
+			font-weight: var(--fw-black);
+			letter-spacing: var(--tracking-tight);
+			line-height: var(--lh-tight);
 		}
 	}
 
-	/* Plan Card */
-	.plan-card {
-		.status-badge {
-			background: rgba(61, 220, 151, 0.15);
-			color: var(--success);
-			padding: var(--space-1) var(--space-3);
-			border-radius: var(--radius-pill);
-			font-size: var(--fs-xs);
-			font-weight: var(--fw-semibold);
-			text-transform: uppercase;
-		}
-
-		.plan-details {
-			margin-bottom: var(--space-6);
-
-			.plan-name {
-				font-size: var(--fs-lg);
-				color: var(--text-secondary);
-				margin-bottom: var(--space-2);
-			}
-
-			.plan-price {
-				display: flex;
-				align-items: baseline;
-				gap: var(--space-1);
-				margin-bottom: var(--space-4);
-
-				.currency {
-					font-size: var(--fs-h1);
-					font-weight: var(--fw-bold);
-					font-family: var(--font-mono);
-					color: var(--text-primary);
-				}
-
-				.period {
-					color: var(--text-muted);
-					font-size: var(--fs-body);
-				}
-			}
-
-			.next-billing {
-				color: var(--text-muted);
-				font-size: var(--fs-sm);
-
-				span {
-					color: var(--text-primary);
-					font-weight: var(--fw-medium);
-				}
-			}
-		}
-
-		.card-actions {
-			margin-top: auto;
-			display: flex;
-			gap: var(--space-4);
-		}
-	}
-
-	/* Usage Card */
-	.usage-card {
-		.usage-stats {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-5);
-			flex: 1;
-		}
-
-		.stat-item {
-			.stat-header {
-				display: flex;
-				justify-content: space-between;
-				font-size: var(--fs-sm);
-				color: var(--text-secondary);
-				margin-bottom: var(--space-2);
-
-				.value {
-					color: var(--text-primary);
-					font-weight: var(--fw-medium);
-					font-family: var(--font-mono);
-				}
-			}
-
-			.progress-bar {
-				height: 8px;
-				background: var(--bg-input);
-				border-radius: var(--radius-pill);
-				overflow: hidden;
-
-				.fill {
-					height: 100%;
-					background: var(--accent-gradient);
-					border-radius: var(--radius-pill);
-					transition: width var(--dur) var(--ease);
-				}
-			}
-		}
-
-		.feature-list {
-			margin-top: auto;
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-3);
-
-			.feature {
-				display: flex;
-				align-items: center;
-				gap: var(--space-3);
-				color: var(--text-secondary);
-				font-size: var(--fs-sm);
-
-				.check-icon {
-					color: var(--primary);
-				}
-			}
-		}
-	}
-
-	/* Invoices Card */
-	.invoices-card {
-		grid-column: span 2;
-
-		@media (max-width: 900px) {
-			grid-column: span 1;
-		}
-
-		.table-container {
-			overflow-x: auto;
-		}
-
-		.loading-state,
-		.empty-state {
-			color: var(--text-muted);
-			text-align: center;
-			padding: var(--space-6);
-		}
-
-		.invoices-table {
-			width: 100%;
-			border-collapse: collapse;
-			font-size: var(--fs-sm);
-
-			th {
-				text-align: left;
-				padding: var(--space-4);
-				color: var(--text-secondary);
-				font-weight: var(--fw-medium);
-				font-size: var(--fs-xs);
-				text-transform: uppercase;
-				letter-spacing: 0.06em;
-				border-bottom: 1px solid var(--border-default);
-			}
-
-			td {
-				padding: var(--space-4);
-				color: var(--text-secondary);
-				border-bottom: 1px solid var(--hairline);
-
-				&.id {
-					font-family: var(--font-mono);
-					color: var(--text-primary);
-				}
-
-				&.action {
-					text-align: right;
-				}
-			}
-
-			tr:last-child td {
-				border-bottom: none;
-			}
-
-			.status-pill {
-				padding: var(--space-1) var(--space-3);
-				border-radius: var(--radius-pill);
-				font-size: var(--fs-xs);
-				font-weight: var(--fw-medium);
-				text-transform: capitalize;
-				background: var(--tint-soft);
-				color: var(--text-secondary);
-
-				&.completed {
-					background: rgba(61, 220, 151, 0.12);
-					color: var(--success);
-				}
-
-				&.paid {
-					background: rgba(61, 220, 151, 0.12);
-					color: var(--success);
-				}
-
-				&.pending {
-					background: rgba(242, 201, 76, 0.12);
-					color: var(--warning);
-				}
-
-				&.failed {
-					background: var(--danger-soft);
-					color: var(--danger);
-				}
-			}
-
-			.icon-btn {
-				background: none;
-				border: none;
-				color: var(--text-muted);
-				cursor: pointer;
-				padding: var(--space-1);
-				transition: color var(--dur) var(--ease);
-
-				&:hover {
-					color: var(--text-primary);
-				}
-			}
-		}
-	}
-
-	/* Buttons */
-	.btn {
-		padding: 0.7rem 1.25rem;
-		border-radius: var(--radius-pill);
-		font-weight: var(--fw-semibold);
-		cursor: pointer;
-		transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+	.sub {
 		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+	}
 
-		&.small {
-			padding: var(--space-2) var(--space-4);
-			font-size: var(--fs-sm);
+	/* ---- current plan strip ---- */
+	.strip {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-6);
+		padding: 1rem 1.25rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+	}
+
+	.strip-left {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		min-width: 0;
+	}
+
+	.eyebrow,
+	.section-label {
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+
+	.plan-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.plan-name {
+		font-size: 1.25rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.plan-note {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.strip-usage {
+		flex: 0 1 320px;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.usage-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+	}
+
+	.meter {
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--tint-softer);
+		overflow: hidden;
+	}
+
+	.fill {
+		height: 100%;
+		border-radius: var(--radius-full);
+		background: var(--accent);
+
+		&.warn {
+			background: var(--warn);
 		}
 	}
 
-	.btn-outline {
+	.mono {
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+	}
+
+	.faint {
+		color: var(--ink-faint);
+	}
+
+	/* ---- blocks ---- */
+	.block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+	}
+
+	.block-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding-inline: 0.125rem;
+	}
+
+	.pad {
+		padding-inline: 0.125rem;
+	}
+
+	.segs {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
+
+	.seg {
+		display: flex;
+		padding: 2px;
+		border-radius: 8px;
 		background: var(--tint-soft);
-		border: 1px solid var(--border-default);
-		color: var(--text-primary);
+		border: 1px solid var(--edge);
 
-		&:hover {
-			border-color: var(--border-strong);
-			background: var(--tint-softer);
+		button {
+			height: 26px;
+			padding-inline: 0.75rem;
+			border: 1px solid transparent;
+			background: transparent;
+			border-radius: var(--radius-sm);
+			font: inherit;
+			font-size: var(--fs-xs);
+			font-weight: var(--fw-medium);
+			color: var(--ink-faint);
+			cursor: pointer;
+			white-space: nowrap;
+			transition:
+				background var(--dur-fast) var(--ease),
+				color var(--dur-fast) var(--ease);
+
+			&.on {
+				background: var(--raised);
+				border-color: var(--edge);
+				color: var(--ink);
+			}
+		}
+
+		&.mono button {
+			font-family: var(--font-mono);
+			padding-inline: 0.625rem;
+			font-weight: var(--fw-regular);
 		}
 	}
 
-	.btn-text {
-		background: transparent;
-		border: none;
-		color: var(--danger);
+	/* ---- plan cards ---- */
+	.plans {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.75rem;
+	}
+
+	.plan {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		padding: 1.25rem;
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		border: 1px solid var(--edge);
+
+		&.strong {
+			border-color: var(--edge-strong);
+		}
+	}
+
+	.plan-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.plan-title {
+		font-size: 0.9375rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		height: 20px;
+		padding-inline: 0.4375rem;
+		border-radius: var(--radius-sm);
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+
+		&.ok {
+			background: var(--ok-soft);
+			color: var(--ok);
+		}
+		&.accent {
+			background: var(--accent-soft);
+			color: var(--accent);
+		}
+		&.warn {
+			background: var(--warn-soft);
+			color: var(--warn);
+		}
+		&.danger {
+			background: var(--danger-soft);
+			color: var(--danger);
+		}
+	}
+
+	.price-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.price-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.375rem;
+	}
+
+	.amount {
+		font-family: var(--font-mono);
+		font-size: 1.75rem;
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.per,
+	.bill-note {
+		font-family: var(--font-mono);
+		color: var(--ink-faint);
+	}
+	.per {
+		font-size: var(--fs-sm);
+	}
+	.bill-note {
+		font-size: var(--fs-xs);
+	}
+
+	.tagline {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.features {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4375rem;
+		padding-top: 0.125rem;
+	}
+
+	.feature {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--ink-faint);
+
+		span {
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+		}
+	}
+
+	.plan-cta {
+		margin-top: auto;
+		height: 36px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--edge);
+		background: none;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		color: var(--ink);
+		cursor: pointer;
+		transition: filter var(--dur-fast) var(--ease);
+
+		&.solid {
+			background: var(--accent);
+			border-color: transparent;
+			color: #fff;
+		}
+		&:hover:not(:disabled) {
+			filter: brightness(1.08);
+		}
+		&:disabled {
+			opacity: 0.55;
+			cursor: default;
+		}
+	}
+
+	/* ---- promo ---- */
+	.promo-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding-inline: 0.125rem;
+		flex-wrap: wrap;
+	}
+
+	.promo-input {
+		display: flex;
+		gap: 0.375rem;
+
+		input {
+			width: 150px;
+			height: 32px;
+			padding-inline: 0.625rem;
+			border-radius: var(--radius-sm);
+			background: var(--surface);
+			border: 1px solid var(--edge);
+			color: var(--ink);
+			font-family: var(--font-mono);
+			font-size: var(--fs-sm);
+			outline: none;
+
+			&:focus {
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
+			}
+		}
+
+		button {
+			height: 32px;
+			padding-inline: 0.75rem;
+			border-radius: var(--radius-sm);
+			border: 1px solid var(--edge);
+			background: none;
+			font: inherit;
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--ink);
+			cursor: pointer;
+
+			&:hover:not(:disabled) {
+				background: var(--tint-soft);
+			}
+			&:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+			}
+		}
+	}
+
+	.promo-chip {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		height: 32px;
+		padding: 0 0.375rem 0 0.625rem;
+		border-radius: 8px;
+		background: var(--ok-soft);
+		border: 1px solid var(--edge);
+
+		button {
+			border: 0;
+			background: none;
+			font: inherit;
+			font-size: var(--fs-xs);
+			color: var(--ink-faint);
+			padding: 0.125rem 0.375rem;
+			border-radius: 5px;
+			cursor: pointer;
+
+			&:hover {
+				background: var(--tint-softer);
+				color: var(--ink);
+			}
+		}
+	}
+
+	.promo-code {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-semibold);
+		color: var(--ok);
+	}
+
+	.promo-off {
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+	}
+
+	.trust {
+		display: flex;
+		align-items: center;
+		gap: 0.4375rem;
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	/* ---- order history ---- */
+	.table {
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		overflow: hidden;
+	}
+
+	.ohead,
+	.orow {
+		display: grid;
+		grid-template-columns: 1.4fr 1fr 1fr 0.8fr 48px;
+		gap: var(--space-4);
+		align-items: center;
+		padding: 0.625rem 1rem;
+		border-bottom: 1px solid var(--edge);
+	}
+
+	.ohead {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.orow {
+		transition: background var(--dur-fast) var(--ease);
+
+		&:last-child {
+			border-bottom: 0;
+		}
+		&:hover {
+			background: var(--surface-hover);
+		}
+	}
+
+	.oid {
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.odl {
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		justify-self: end;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
 
 		&:hover {
-			text-decoration: underline;
+			background: var(--tint-softer);
+			color: var(--ink);
+		}
+	}
+
+	.no-orders {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		padding: 2.5rem 1rem;
+		text-align: center;
+	}
+
+	.no-orders-title {
+		font-size: 0.9375rem;
+		font-weight: var(--fw-medium);
+	}
+
+	.no-orders-line {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.footnote {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		padding-inline: 0.125rem;
+	}
+
+	.sk {
+		display: block;
+		height: 0.9rem;
+		border-radius: var(--radius-sm);
+		background: var(--tint-softer);
+	}
+
+	/* ---- checkout ---- */
+	.ck-scrim {
+		position: fixed;
+		inset: 0;
+		background: var(--scrim);
+		z-index: 1000;
+	}
+
+	.ck-holder {
+		position: fixed;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-5);
+		z-index: 1001;
+		pointer-events: none;
+	}
+
+	.ck {
+		width: 100%;
+		max-width: 440px;
+		display: flex;
+		flex-direction: column;
+		background: var(--raised);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		overflow: hidden;
+		pointer-events: auto;
+	}
+
+	.ck-head {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 1rem 1rem 0.875rem;
+	}
+
+	.ck-title {
+		flex: 1;
+		font-size: 0.9375rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.ck-x {
+		width: 28px;
+		height: 28px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.ck-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		padding: 0 1rem 1rem;
+	}
+
+	.ck-lines {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+
+	.ck-line {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.625rem 0.875rem;
+		border-bottom: 1px solid var(--edge);
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+
+		&:last-child {
+			border-bottom: 0;
+		}
+		&.total {
+			background: var(--tint-soft);
+			color: var(--ink);
+			font-weight: var(--fw-medium);
+		}
+	}
+
+	.ok-text {
+		color: var(--ok);
+	}
+
+	.ck-pay {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.ck-label {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.ck-method {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 0.625rem 0.75rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+
+		&.on {
+			border-color: var(--accent);
+			background: var(--accent-soft);
+		}
+		&.disabled {
+			border-style: dashed;
+			opacity: 0.6;
+		}
+	}
+
+	.radio {
+		flex: 0 0 auto;
+		width: 16px;
+		height: 16px;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--accent);
+		display: grid;
+		place-items: center;
+
+		&.ghost {
+			border-color: var(--edge-strong);
+		}
+	}
+
+	.radio-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: var(--radius-full);
+		background: var(--accent);
+	}
+
+	.method-text {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.method-name {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+	}
+
+	.method-sub {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.ck-trust {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.ck-trust-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--ok);
+
+		span {
+			font-size: var(--fs-xs);
+			color: var(--ink-mute);
+		}
+	}
+
+	.ck-foot {
+		display: flex;
+		flex-direction: column-reverse;
+		gap: var(--space-2);
+		padding: 0.875rem 1rem;
+		border-top: 1px solid var(--edge);
+	}
+
+	.ck-cancel {
+		height: 34px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-md);
+		font: inherit;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		cursor: pointer;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.ck-pay-btn {
+		height: 40px;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--accent-hover);
+		}
+	}
+
+	.ck-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 2.5rem 1.5rem;
+		text-align: center;
+		color: var(--ink-faint);
+	}
+
+	.ok-circle {
+		display: grid;
+		place-items: center;
+		width: 48px;
+		height: 48px;
+		border-radius: var(--radius-full);
+		background: var(--ok-soft);
+		color: var(--ok);
+	}
+
+	.ck-state-title {
+		font-size: var(--fs-lg);
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+		color: var(--ink);
+	}
+
+	.ck-state-line {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.ck-cta {
+		margin-top: var(--space-2);
+		display: inline-flex;
+		align-items: center;
+		height: 36px;
+		padding-inline: 1rem;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+
+		&:hover {
+			background: var(--accent-hover);
+			color: #fff;
+		}
+	}
+
+	@media (max-width: 980px) {
+		.plans {
+			grid-template-columns: 1fr;
+		}
+		.strip {
+			flex-direction: column;
+			align-items: stretch;
+			gap: var(--space-4);
+		}
+		.block-head {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: var(--space-2);
+		}
+		.ohead,
+		.orow {
+			grid-template-columns: 1.4fr 1fr 0.8fr 48px;
+		}
+		.ohead span:nth-child(2),
+		.orow > .mono.faint {
+			display: none;
 		}
 	}
 </style>
