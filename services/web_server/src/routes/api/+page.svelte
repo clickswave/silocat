@@ -7,7 +7,7 @@
 	import { slide } from 'svelte/transition';
 	import { toast } from '$lib/toast.js';
 
-	const QUICK_START = `import { Silocat } from '@silocat/client';
+	const QUICK_START = `import { Silocat } from '@clickswave/silocat-client';
 
 const silo = new Silocat({ apiKey: process.env.SILOCAT_API_KEY });
 
@@ -232,7 +232,7 @@ const plaintext = await silo.download(file.id, {
 			</div>
 
 			<div class="install">
-				<code>npm install @silocat/client</code>
+				<code>npm install @clickswave/silocat-client</code>
 			</div>
 
 			<div class="code">

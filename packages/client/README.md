@@ -1,10 +1,10 @@
-# @silocat/client
+# @clickswave/silocat-client
 
 Client for the [Silocat](https://silo.cat) API. It does the end-to-end
 encryption for you, so ciphertext is all that ever leaves your process.
 
 ```bash
-npm install @silocat/client
+npm install @clickswave/silocat-client
 ```
 
 ## Why this exists
@@ -24,7 +24,7 @@ implementation so you do not have to take that risk.
 Get an API key from **Settings → API** in the web app.
 
 ```js
-import { Silocat } from '@silocat/client';
+import { Silocat } from '@clickswave/silocat-client';
 
 const silo = new Silocat({ apiKey: process.env.SILOCAT_API_KEY });
 

@@ -113,11 +113,11 @@ Because encryption happens client-side, the HTTP API takes ciphertext rather
 than files. The official client does that part for you:
 
 ```bash
-npm install @silocat/client
+npm install @clickswave/silocat-client
 ```
 
 ```js
-import { Silocat } from '@silocat/client';
+import { Silocat } from '@clickswave/silocat-client';
 
 const silo = new Silocat({ apiKey: process.env.SILOCAT_API_KEY });
 

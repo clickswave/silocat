@@ -7,7 +7,7 @@
  * getting it right, because those are easy to get subtly wrong in a way that
  * produces files nobody can ever open.
  *
- *   import { Silocat } from '@silocat/client';
+ *   import { Silocat } from '@clickswave/silocat-client';
  *
  *   const silo = new Silocat({ apiKey: process.env.SILOCAT_API_KEY });
  *

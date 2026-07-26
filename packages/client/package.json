@@ -1,5 +1,5 @@
 {
-  "name": "@silocat/client",
+  "name": "@clickswave/silocat-client",
   "version": "0.1.0",
   "description": "Client for the Silocat API. Does the end-to-end encryption for you, so ciphertext is all that ever leaves the process.",
   "author": "Clickswave Labs",
