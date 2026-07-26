@@ -7,6 +7,7 @@ export { default as Checkbox } from './Checkbox.svelte';
 export { default as Confirm } from './Confirm.svelte';
 export { default as Copy } from './Copy.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
+export { default as Icon } from './Icon.svelte';
 export { default as IconButton } from './IconButton.svelte';
 export { default as Input } from './Input.svelte';
 export { default as Menu } from './Menu.svelte';

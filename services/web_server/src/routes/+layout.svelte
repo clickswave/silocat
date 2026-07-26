@@ -63,7 +63,9 @@
 	{@html `<script type="application/ld+json">${JSON.stringify(websiteSchema()).replace(/</g, '\\u003c')}<\/script>`}
 </svelte:head>
 
-<Toaster position="top-center" richColors theme={$theme} />
+<!-- Bottom-right, token-skinned (see global.scss). `richColors` is off on
+     purpose: it paints its own backgrounds and fights the one-accent rule. -->
+<Toaster position="bottom-right" theme={$theme} closeButton />
 <Menu />
 
 <QueryClientProvider client={queryClient}>

@@ -435,6 +435,57 @@ img, svg, video { display: block; max-width: 100%; }
   }
 }
 
+/* ---- toasts ----
+   Sonner is the transport; the look is ours. The old build hardcoded dark
+   toast colours, so they were unreadable in light theme. Everything below is
+   token-driven, so both themes come for free. Bottom-right, per the design,
+   which also keeps them clear of the top-centre NProgress bar. */
+[data-sonner-toaster] {
+  --width: 320px;
+  font-family: var(--font-sans) !important;
+}
+
+[data-sonner-toast] {
+  background: var(--raised) !important;
+  border: 1px solid var(--edge) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-overlay) !important;
+  color: var(--ink) !important;
+  padding: 0.75rem !important;
+  gap: 0.625rem !important;
+}
+
+[data-sonner-toast] [data-title] {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+[data-sonner-toast] [data-description] {
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* One status glyph, drawn from the same palette as the rest of the UI. */
+[data-sonner-toast] [data-icon] {
+  margin-top: 1px;
+  width: 16px;
+  height: 16px;
+}
+[data-sonner-toast][data-type='success'] [data-icon] { color: var(--ok); }
+[data-sonner-toast][data-type='error'] [data-icon] { color: var(--danger); }
+[data-sonner-toast][data-type='warning'] [data-icon] { color: var(--warn); }
+[data-sonner-toast][data-type='loading'] [data-icon] { color: var(--accent); }
+
+[data-sonner-toast] [data-close-button] {
+  background: var(--raised) !important;
+  border-color: var(--edge) !important;
+  color: var(--ink-faint) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
