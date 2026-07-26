@@ -62,6 +62,11 @@
         "ordinal": 11,
         "name": "transactions",
         "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 12,
+        "name": "invoice_number",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -81,7 +86,8 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "dfd18ecb3e56965303bafde412ec6bf059a16bfe808b5665486ae3da519509aa"

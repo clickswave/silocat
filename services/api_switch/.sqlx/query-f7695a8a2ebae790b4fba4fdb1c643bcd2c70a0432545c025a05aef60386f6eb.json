@@ -1,14 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE files SET deleted = true WHERE id = $1",
+  "query": "UPDATE users SET api_key = $1 WHERE id = $2",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
     "nullable": []
   },
-  "hash": "11891e92ca71156b22485d434607e0297f78f1d84d3df91e337e04b3df6ec85b"
+  "hash": "f7695a8a2ebae790b4fba4fdb1c643bcd2c70a0432545c025a05aef60386f6eb"
 }
