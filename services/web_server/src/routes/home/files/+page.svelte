@@ -445,6 +445,10 @@
 
 	function cancelUpload() {
 		uploadAbort?.abort();
+		// Abort alone only takes effect at the next await boundary. Hashing and
+		// key derivation are single long worker calls, so the worker itself has
+		// to be stopped for the cross to feel immediate.
+		terminateWorker(UPLOAD_HALTED);
 	}
 	let showUploadModal = $state(false);
 	let encryptionEnabled = $state(false);
@@ -792,6 +796,25 @@
 			workerCallbacks.set(id, { resolve, reject });
 			cryptoWorker.postMessage({ id, type, payload }, transferables);
 		});
+	}
+
+	/**
+	 * Stop the worker mid-call.
+	 *
+	 * Hashing a large file is one long message round trip, so a flag checked on
+	 * return does nothing until it finishes: on a 750MB file that is the entire
+	 * wait. Terminating is the only way to interrupt it. Every pending call is
+	 * rejected first, because a terminated worker will never answer them and the
+	 * awaiting code would hang forever. A fresh worker is created lazily on the
+	 * next call.
+	 */
+	function terminateWorker(reason) {
+		for (const { reject } of workerCallbacks.values()) {
+			reject(new Error(reason));
+		}
+		workerCallbacks.clear();
+		cryptoWorker?.terminate();
+		cryptoWorker = null;
 	}
 
 	async function getFileChecksum(file) {
