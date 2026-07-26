@@ -1,0 +1,167 @@
+services:
+  # -----------------------------------------
+  # - API SWITCH (AXUM)
+  # DB is core's `silocat` database; env is the central env/silocat.env.prod
+  # passed by manager via --env-file (interpolated into ${VARS} below).
+  # -----------------------------------------
+  sc_api_switch:
+    container_name: sc_api_switch
+    # restart: always
+    tty: true
+
+    build:
+      context: ../services/api_switch
+      dockerfile: Dockerfile.prod
+
+    environment:
+      OAUTH_ID_GOOGLE: ${OAUTH_ID_GOOGLE}
+      OAUTH_SECRET_GOOGLE: ${OAUTH_SECRET_GOOGLE}
+      DATABASE_URL: ${POSTGRES_DATABASE_URL}
+      SMTP_ADDRESS: ${SMTP_ADDRESS}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      RAZORPAY_ID: ${RAZORPAY_ID}
+      RAZORPAY_SECRET: ${RAZORPAY_SECRET}
+      INFRA_COMMUNICATION_SECRET: ${INFRA_COMMUNICATION_SECRET}
+      INFRA_COMMUNICATION_SECRET_HEADER: ${INFRA_COMMUNICATION_SECRET_HEADER}
+      ADMIN_COMMUNICATION_SECRET: ${ADMIN_COMMUNICATION_SECRET}
+      ADMIN_COMMUNICATION_SECRET_HEADER: ${ADMIN_COMMUNICATION_SECRET_HEADER}
+      API_KEY_ENC_KEY: ${API_KEY_ENC_KEY}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL}
+      CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID}
+      CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID}
+      CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET}
+      CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET}
+      CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET}
+      CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET}
+      CF_R2_REGION: ${CF_R2_REGION}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL}
+      CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET}
+      CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID}
+      CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET}
+      GEOLITE2_DB_PATH: /root/codebase/GeoLite2-City.mmdb
+      APP_ENV: ${APP_ENV}
+
+    volumes:
+      - ../services/api_switch:/root/codebase:rw
+
+    # Bound to localhost only: the box must not expose api_switch directly on
+    # its public interface. nginx reaches it over the internal docker network
+    # (sc_api_switch:31337); external traffic goes Cloudflare -> nginx -> here.
+    ports:
+      - "127.0.0.1:31337:31337"
+
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - NGINX PROXY
+  # -----------------------------------------
+
+  # ---- WATCHCAT SCHEDULER (GC + scheduled jobs) ----
+  sc_watchcat:
+    container_name: sc_watchcat
+    # restart: always
+    tty: true
+
+    build:
+      context: ../services/api_switch
+      dockerfile: Dockerfile.prod
+
+    environment:
+      WATCHCAT_MODE: "true"
+      API_KEY_ENC_KEY: ${API_KEY_ENC_KEY}
+      WATCHCAT_SHADOW_TTL_DAYS: "7"
+      WATCHCAT_ORDER_TTL_DAYS: "7"
+      OAUTH_ID_GOOGLE: ${OAUTH_ID_GOOGLE}
+      OAUTH_SECRET_GOOGLE: ${OAUTH_SECRET_GOOGLE}
+      DATABASE_URL: ${POSTGRES_DATABASE_URL}
+      SMTP_ADDRESS: ${SMTP_ADDRESS}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      RAZORPAY_ID: ${RAZORPAY_ID}
+      RAZORPAY_SECRET: ${RAZORPAY_SECRET}
+      INFRA_COMMUNICATION_SECRET: ${INFRA_COMMUNICATION_SECRET}
+      INFRA_COMMUNICATION_SECRET_HEADER: ${INFRA_COMMUNICATION_SECRET_HEADER}
+      ADMIN_COMMUNICATION_SECRET: ${ADMIN_COMMUNICATION_SECRET}
+      ADMIN_COMMUNICATION_SECRET_HEADER: ${ADMIN_COMMUNICATION_SECRET_HEADER}
+      API_KEY_ENC_KEY: ${API_KEY_ENC_KEY}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL}
+      CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID}
+      CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID}
+      CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET}
+      CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET}
+      CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET}
+      CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET}
+      CF_R2_REGION: ${CF_R2_REGION}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL}
+      CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET}
+      CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID}
+      CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET}
+
+    volumes:
+      - ../services/api_switch:/root/codebase:rw
+
+
+    depends_on:
+      - sc_api_switch
+
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - HEALTH MONITOR (per-VPS agent)
+  # Prebuilt binary downloaded from R2 into services/health_monitor at deploy.
+  # Host metrics from host-global /proc; disk from the host root bind-mount.
+  # Probes the local stack + R2 storage, pushes snapshots to clickswave_status.
+  # -----------------------------------------
+  sc_health_monitor:
+    container_name: sc_health_monitor
+    image: debian:bookworm-slim
+    restart: unless-stopped
+    command: >
+      bash -c "apt-get update && apt-get install -y ca-certificates && ./target/release/health_monitor"
+    environment:
+      HM_PRODUCT: silocat
+      HM_ENV: staging
+      HM_PORT: "9099"
+      HM_TOKEN: ${HEALTH_TOKEN}
+      HM_HTTP_CHECKS: "api=http://sc_api_switch:31337/,storage=${CF_R2_SHADOW_API_URL}"
+      HM_TCP_CHECKS: "database=${CORE_DB_HOST}:5433"
+      HM_PUSH_URL: ${HEALTH_PUSH_URL}
+      HM_PUSH_TOKEN: ${HEALTH_PUSH_TOKEN}
+      HM_DISK_PATH: /host
+      RUST_LOG: info
+    volumes:
+      - ../services/health_monitor:/root/codebase
+      - /:/host:ro
+    working_dir: /root/codebase
+    networks:
+      - clickswave_network
+
+  # -----------------------------------------
+  # - NGINX PROXY
+  # -----------------------------------------
+  sc_nginx:
+    container_name: sc_nginx
+    restart: always
+    tty: true
+
+    build:
+      context: ../services/nginx
+      dockerfile: Dockerfile
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      - sc_api_switch
+
+    networks:
+      - clickswave_network
+
+networks:
+  clickswave_network:
+    external: true
