@@ -6,7 +6,7 @@
   <meta name="x-apple-disable-message-reformatting">
   <meta name="color-scheme" content="dark light">
   <meta name="supported-color-schemes" content="dark light">
-  <title>Reset your Silocat password</title>
+  <title>Your Silocat account has been suspended</title>
   <style type="text/css">
     @media only screen and (max-width:600px){
       .sc-outer { padding:28px 10px !important; }
@@ -16,7 +16,7 @@
   </style>
 </head>
 <body style="margin:0;padding:0;background-color:#0b0b0d;color-scheme:dark light;">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;color:transparent;height:0;width:0;">Reset your Silocat password. This code expires in 15 minutes.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;color:transparent;height:0;width:0;">Your Silocat account has been suspended. Your files are untouched.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0b0b0d;">
     <tr>
@@ -36,33 +36,43 @@
 
           <tr>
             <td align="center" class="sc-px" style="padding:34px 48px 0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
-              <div style="font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#ff4655;">Account security</div>
-              <div style="padding-top:12px;font-size:22px;font-weight:600;letter-spacing:-0.02em;color:#f2f2f4;">Reset your password</div>
-              <div style="padding-top:14px;font-size:14px;line-height:22px;color:#a0a0a8;">Hi {{NAME}}, enter this code to set a new password for your Silocat account.</div>
+              <div style="font-size:11px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:#ff4655;">Account status</div>
+              <div style="padding-top:12px;font-size:22px;font-weight:600;letter-spacing:-0.02em;color:#f2f2f4;">Your account is suspended</div>
+              <div style="padding-top:14px;font-size:14px;line-height:22px;color:#a0a0a8;">Hi {{NAME}}, access to your Silocat account ({{EMAIL}}) has been suspended.</div>
             </td>
           </tr>
 
           <tr>
-            <td align="center" class="sc-px" style="padding:28px 48px 0;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #26262b;background-color:#0b0b0d;">
-                <tr>
-                  <td align="center" class="sc-code" style="padding:18px 30px;font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-size:34px;font-weight:600;letter-spacing:11px;text-indent:11px;color:#f2f2f4;">{{CODE}}</td>
-                </tr>
+            <td class="sc-px" style="padding:26px 48px 0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #26262b;background-color:#0b0b0d;">
+                <tr><td style="padding:16px 18px;font-size:13px;line-height:20px;color:#a0a0a8;">
+                  <div style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#61616b;">Reason</div>
+                  <div style="padding-top:8px;color:#f2f2f4;">{{REASON}}</div>
+                </td></tr>
               </table>
-              <div style="padding-top:12px;font-size:12px;line-height:18px;color:#61616b;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">Expires in 15 minutes.</div>
             </td>
           </tr>
 
           <tr>
             <td class="sc-px" style="padding:28px 48px 0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-left:2px solid #ff4655;background-color:#0e0e11;">
-                <tr><td style="padding:14px 16px;font-size:13px;line-height:20px;color:#a0a0a8;">This resets your <strong style='color:#f2f2f4;font-weight:600;'>account</strong> password only. It does not unlock your encrypted files: those are protected by the passwords you chose when uploading, which we never receive and cannot recover.</td></tr>
+                <tr><td style="padding:14px 16px;font-size:13px;line-height:20px;color:#a0a0a8;">Your files have not been deleted and remain encrypted exactly as you left them. Suspension removes access, not data.</td></tr>
               </table>
             </td>
           </tr>
 
           <tr>
-            <td class="sc-px" style="padding:24px 48px 34px;font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:13px;line-height:20px;color:#61616b;">Didn't request this? Ignore this email and your password stays as it is.</td>
+            <td align="center" class="sc-px" style="padding:28px 48px 0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr><td align="center" style="background-color:#ff4655;">
+                  <a href="https://silo.cat/home/support" style="display:inline-block;padding:12px 26px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Appeal this decision</a>
+                </td></tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="sc-px" style="padding:24px 48px 34px;font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:13px;line-height:20px;color:#61616b;">If you think this is a mistake, open an appeal and a human will read it.</td>
           </tr>
 
           <tr><td style="height:1px;line-height:1px;font-size:1px;background-color:#26262b;">&nbsp;</td></tr>
