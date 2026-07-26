@@ -37,6 +37,9 @@ pub async fn run(pool: Pool<Postgres>, r2: R2) {
         if let Err(e) = gc_expired_trash(&pool, &r2).await {
             eprintln!("[watchcat] trash retention gc failed: {:?}", e);
         }
+        if let Err(e) = gc_abandoned_orders(&pool).await {
+            eprintln!("[watchcat] abandoned order gc failed: {:?}", e);
+        }
         sleep(Duration::from_secs(interval)).await;
     }
 }
@@ -235,6 +238,42 @@ async fn downgrade_expired_subscriptions(pool: &Pool<Postgres>) -> anyhow::Resul
     .await?;
     if res.rows_affected() > 0 {
         println!("[watchcat] downgraded {} expired subscription(s)", res.rows_affected());
+    }
+    Ok(())
+}
+
+/// Job 5: abandoned checkouts.
+///
+/// An order row is created when someone opens the payment sheet, so most of
+/// them are people who changed their mind. They are not receipts and nothing
+/// references them once they lapse: the user simply starts a new checkout,
+/// which mints a fresh order. Left alone they accumulate forever and make the
+/// orders table mostly noise.
+///
+/// Only unsettled orders are touched. Anything that reached paid, completed or
+/// success is a financial record and is kept regardless of age, as is anything
+/// holding an invoice number.
+async fn gc_abandoned_orders(pool: &Pool<Postgres>) -> anyhow::Result<()> {
+    // Floor at 1 day so a misconfigured TTL cannot delete a checkout that is
+    // still in flight, waiting on a slow gateway webhook.
+    let ttl_days = env_u64("WATCHCAT_ORDER_TTL_DAYS", 7).max(1) as i64;
+
+    let res = sqlx::query(&format!(
+        "DELETE FROM orders \
+          WHERE LOWER(COALESCE(status, '')) NOT IN ('paid', 'completed', 'success') \
+            AND invoice_number IS NULL \
+            AND created_on < NOW() - INTERVAL '{} days'",
+        ttl_days
+    ))
+    .execute(pool)
+    .await?;
+
+    if res.rows_affected() > 0 {
+        println!(
+            "[watchcat] removed {} abandoned order(s) older than {}d",
+            res.rows_affected(),
+            ttl_days
+        );
     }
     Ok(())
 }

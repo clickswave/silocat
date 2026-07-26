@@ -73,7 +73,8 @@ A few things worth knowing:
   not let us redistribute. Download it and set `GEOLITE2_DB_PATH`, or leave it
   blank to disable GeoIP.
 - **Retention** is configurable: `WATCHCAT_SHADOW_TTL_DAYS` (anonymous drops,
-  default 7) and `WATCHCAT_TRASH_TTL_DAYS` (trash, default 30). If you change
+  default 7), `WATCHCAT_TRASH_TTL_DAYS` (trash, default 30) and
+  `WATCHCAT_ORDER_TTL_DAYS` (abandoned checkouts, default 7). If you change
   them, change the copy that promises them.
 - **Web deployment**: the hosted silo.cat serves the frontend from Cloudflare
   Pages. The self-host compose runs the dev server for simplicity; for a

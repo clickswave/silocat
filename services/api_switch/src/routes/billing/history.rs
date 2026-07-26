@@ -9,7 +9,12 @@ pub async fn handle(
 ) -> impl IntoResponse {
     let orders_result = sqlx::query_as!(
         Order,
-        "SELECT * FROM orders WHERE user_id = $1 ORDER BY created_on DESC",
+        // Order history is a list of receipts, so it carries settled orders only.
+        // An abandoned checkout is not a purchase: showing it invites the reader
+        // to wonder whether they were charged, and watchcat deletes it shortly.
+        "SELECT * FROM orders WHERE user_id = $1 \
+           AND LOWER(COALESCE(status, '')) IN ('paid', 'completed', 'success') \
+         ORDER BY created_on DESC",
         token.id
     )
     .fetch_all(&axum_state.pg_pool)
