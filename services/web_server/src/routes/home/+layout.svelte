@@ -1,10 +1,9 @@
 <script>
 	import Aside from '$lib/components/Aside.svelte';
 	import DownloadToasts from '$lib/components/DownloadToasts.svelte';
-	import SiloCatLogo from '$lib/assets/silo-cat.png';
 	import { navigating } from '$app/stores';
 	import { afterNavigate } from '$app/navigation';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 
 	let { children } = $props();
 
@@ -14,10 +13,12 @@
 </script>
 
 <svelte:head>
-	<title>SiloCat: Home</title>
+	<title>Silocat</title>
 	<meta name="robots" content="noindex, nofollow" />
 </svelte:head>
 
+<!-- The rail is flush to the window edge and owns its own hairline, so the
+     shell carries no outer padding or gap: content sits directly beside it. -->
 <div class="layout">
 	<Aside open={navOpen} onclose={() => (navOpen = false)} />
 
@@ -30,130 +31,124 @@
 	<div class="content-root">
 		<header class="topbar">
 			<button class="hamburger" onclick={() => (navOpen = true)} aria-label="Open menu">
-				<Icon icon="ri:menu-line" width="22" />
+				<Icon name="menu" size={20} />
 			</button>
 			<a href="/home" class="topbar-logo">
-				<img src={SiloCatLogo} alt="SiloCat" />
-				<span>SILO.CAT</span>
+				<img src="/silocat-logo.png" alt="" width="24" height="24" />
+				<span>silocat</span>
 			</a>
 		</header>
 
 		<main class="content">
-			<div class="content-inner">
-				{@render children()}
-			</div>
+			{@render children()}
 		</main>
 
 		{#if $navigating}
 			<div class="nav-loading">
-				<Icon icon="svg-spinners:ring-resize" font-size="2rem" />
+				<Icon name="spinner" size={26} />
 			</div>
 		{/if}
 	</div>
 </div>
 
-<style>
+<style lang="scss">
 	.layout {
 		display: flex;
-		gap: 1rem;
+		gap: 0;
+		padding: 0;
 		height: 100vh;
 		width: 100%;
-		padding: 1rem;
-		box-sizing: border-box;
-		background: var(--bg-app);
-		color: var(--text-primary);
+		overflow: hidden;
+		background: var(--bg);
+		color: var(--ink);
 		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+		line-height: 1.35;
 	}
 
-	/* Right side wrapper */
 	.content-root {
 		position: relative;
 		flex: 1;
+		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		min-width: 0;
 	}
 
-	/* Navigation spinner, scoped to the content pane only (never the sidebar).
-	   Instant show/hide (no fade) so it never reads as a screen dimming to black. */
+	/* Navigation spinner, scoped to the content pane only (never the rail).
+	   Instant show/hide so it never reads as the screen dimming to black. */
 	.nav-loading {
 		position: absolute;
 		inset: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: color-mix(in srgb, var(--bg-app) 55%, transparent);
-		color: var(--text-primary);
+		background: color-mix(in srgb, var(--bg) 55%, transparent);
+		color: var(--ink-mute);
 		z-index: 20;
 	}
 
-	/* Main content area where +page.svelte renders. Padding lives on the inner
-	   wrapper, not this scroll container: scroll containers clip their bottom
-	   padding (notably in Firefox), which made the top gap look larger than the
-	   bottom. The inner wrapper renders symmetric padding reliably. */
 	.content {
 		flex: 1;
+		min-width: 0;
 		overflow-y: auto;
-		background: var(--bg-app);
+		padding: 1rem 1.5rem 1rem 1.25rem;
 	}
 
-	/* Content fills the pane. The app's 1rem shell padding + the flex gap are the
-	   only outer spacing, so every page lines up identically and stays wide. */
-	.content-inner {
-		width: 100%;
-	}
-
-	/* Mobile top bar + hamburger (hidden on desktop, where the sidebar is fixed). */
+	/* Mobile top bar + hamburger (hidden on desktop, where the rail is fixed). */
 	.topbar {
 		display: none;
 		align-items: center;
 		gap: 0.6rem;
-		margin-bottom: 0.85rem;
+		padding: 0.75rem 1rem 0;
 	}
+
 	.hamburger {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 40px;
-		height: 40px;
+		width: 38px;
+		height: 38px;
 		flex-shrink: 0;
-		background: var(--bg-card);
-		border: 1px solid var(--border-sidebar);
+		background: var(--surface);
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
-		color: var(--text-primary);
+		color: var(--ink);
 		cursor: pointer;
 	}
+
 	.topbar-logo {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		text-decoration: none;
-		color: var(--text-primary);
-	}
-	.topbar-logo img {
-		width: 26px;
-		height: 26px;
-	}
-	.topbar-logo span {
-		font-weight: var(--fw-black);
-		letter-spacing: 0.03em;
+		color: var(--ink);
+
+		img {
+			width: 24px;
+			height: 24px;
+			border-radius: var(--radius-sm);
+		}
+		span {
+			font-size: 0.9375rem;
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+		}
 	}
 
 	.nav-scrim {
 		position: fixed;
 		inset: 0;
 		z-index: 90;
-		background: rgba(0, 0, 0, 0.5);
+		background: var(--scrim);
 	}
 
 	@media (max-width: 768px) {
-		.layout {
-			padding: 0.75rem;
-			gap: 0;
-		}
 		.topbar {
 			display: flex;
+		}
+		.content {
+			padding: 1rem;
 		}
 	}
 </style>

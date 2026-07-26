@@ -1,20 +1,28 @@
 <script>
-	import { fade, fly } from 'svelte/transition';
-	import Icon from '@iconify/svelte';
-	import IconButton from './IconButton.svelte';
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+	import Icon from './Icon.svelte';
 
 	let {
 		open = false,
 		title = undefined,
 		icon = undefined,
+		/** Tint of the header icon chip: neutral | ok | warn | danger | accent */
+		iconTone = 'neutral',
 		size = 'md', // sm | md | lg
+		/** Set false while an operation must not be interrupted (mid-upload). */
+		dismissible = true,
 		onclose = undefined,
 		children,
 		footer = undefined
 	} = $props();
 
+	function requestClose() {
+		if (dismissible) onclose?.();
+	}
+
 	function onkeydown(e) {
-		if (e.key === 'Escape' && open) onclose?.();
+		if (e.key === 'Escape' && open) requestClose();
 	}
 
 	$effect(() => {
@@ -29,16 +37,26 @@
 <svelte:window {onkeydown} />
 
 {#if open}
-	<div class="scrim" transition:fade={{ duration: 120 }} onclick={() => onclose?.()} aria-hidden="true"></div>
+	<div
+		class="scrim"
+		transition:fade={{ duration: 150 }}
+		onclick={requestClose}
+		aria-hidden="true"
+	></div>
 	<div class="holder" role="dialog" aria-modal="true" aria-label={title}>
-		<div class="dialog {size}" transition:fly={{ y: 8, duration: 150 }}>
+		<div
+			class="dialog {size}"
+			transition:scale={{ duration: 190, start: 0.96, easing: cubicOut }}
+		>
 			{#if title}
 				<header class="head">
-					<div class="title-row">
-						{#if icon}<Icon {icon} width={17} />{/if}
-						<h2 class="title">{title}</h2>
-					</div>
-					<IconButton icon="ri:close-line" label="Close" onclick={() => onclose?.()} />
+					{#if icon}
+						<span class="chip {iconTone}"><Icon name={icon} size={16} /></span>
+					{/if}
+					<span class="title">{title}</span>
+					<button type="button" class="close" aria-label="Close" onclick={requestClose}>
+						<Icon name="close" size={15} />
+					</button>
 				</header>
 			{/if}
 			<div class="body">
@@ -67,7 +85,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: var(--space-4);
+		padding: var(--space-5);
 		z-index: 1001;
 		pointer-events: none;
 	}
@@ -81,10 +99,11 @@
 		pointer-events: auto;
 		display: flex;
 		flex-direction: column;
-		max-height: min(84vh, 720px);
+		overflow: hidden;
+		max-height: min(84vh, 760px);
 
 		&.sm {
-			max-width: 380px;
+			max-width: 400px;
 		}
 		&.md {
 			max-width: 460px;
@@ -97,39 +116,84 @@
 	.head {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		padding: var(--space-4) var(--space-5);
-		border-bottom: 1px solid var(--edge);
+		gap: 0.625rem;
+		padding: 1rem 1rem 0.875rem;
 	}
 
-	.title-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		color: var(--ink);
-		min-width: 0;
+	.chip {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 8px;
+		flex: 0 0 auto;
+
+		&.neutral {
+			background: var(--tint-soft);
+			color: var(--ink-mute);
+		}
+		&.ok {
+			background: var(--ok-soft);
+			color: var(--ok);
+		}
+		&.warn {
+			background: var(--warn-soft);
+			color: var(--warn);
+		}
+		&.danger {
+			background: var(--danger-soft);
+			color: var(--danger);
+		}
+		&.accent {
+			background: var(--accent-soft);
+			color: var(--accent);
+		}
 	}
 
 	.title {
-		font-size: var(--fs-body);
+		flex: 1;
+		min-width: 0;
+		font-size: 0.9375rem;
 		font-weight: var(--fw-semibold);
-		margin: 0;
+		letter-spacing: var(--tracking-tight);
+		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
+	.close {
+		flex: 0 0 auto;
+		width: 28px;
+		height: 28px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
 	.body {
-		padding: var(--space-5);
+		padding: 0 1rem 1rem;
 		overflow-y: auto;
 	}
 
 	.foot {
 		display: flex;
+		align-items: center;
 		justify-content: flex-end;
 		gap: var(--space-2);
-		padding: var(--space-4) var(--space-5);
+		padding: 0.875rem 1rem;
 		border-top: 1px solid var(--edge);
 	}
 
