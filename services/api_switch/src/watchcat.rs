@@ -2,7 +2,7 @@
 //! api_switch binary started with WATCHCAT_MODE=1), so scheduled housekeeping is
 //! isolated from the request path. More jobs will live here over time.
 //!
-//! Job 1 — orphan-upload GC: an upload creates a `files` row + `chunks` rows up
+//! Job 1: orphan-upload GC: an upload creates a `files` row + `chunks` rows up
 //! front, then PUTs each chunk to R2. If the user abandons it, completed chunks
 //! sit in R2 forever and the half-finished file lingers in the DB. This reaps
 //! any incomplete upload older than the TTL: delete every expected chunk object
@@ -21,7 +21,7 @@ fn env_u64(key: &str, default: u64) -> u64 {
 /// Scheduler entrypoint. Never returns.
 pub async fn run(pool: Pool<Postgres>, r2: R2) {
     let interval = env_u64("WATCHCAT_GC_INTERVAL_SECS", 900); // every 15 min
-    println!("[watchcat] online — orphan GC every {}s (TTL {}h)", interval, env_u64("WATCHCAT_GC_TTL_HOURS", 2));
+    println!("[watchcat] online: orphan GC every {}s (TTL {}h)", interval, env_u64("WATCHCAT_GC_TTL_HOURS", 2));
     // Warm-up so we don't race api_switch's migrations on a cold start.
     sleep(Duration::from_secs(8)).await;
     loop {
@@ -34,6 +34,9 @@ pub async fn run(pool: Pool<Postgres>, r2: R2) {
         if let Err(e) = downgrade_expired_subscriptions(&pool).await {
             eprintln!("[watchcat] subscription downgrade failed: {:?}", e);
         }
+        if let Err(e) = gc_expired_trash(&pool, &r2).await {
+            eprintln!("[watchcat] trash retention gc failed: {:?}", e);
+        }
         sleep(Duration::from_secs(interval)).await;
     }
 }
@@ -44,7 +47,7 @@ async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()>
     let ttl_hours = env_u64("WATCHCAT_GC_TTL_HOURS", 2).max(1) as i64;
     let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
 
-    // ttl_hours/batch are our own integers — safe to inline into the interval.
+    // ttl_hours/batch are our own integers: safe to inline into the interval.
     let q = format!(
         "SELECT id, user_id FROM files \
          WHERE deleted = false AND uploaded_chunks < total_chunks \
@@ -89,15 +92,18 @@ async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Job 2 — shadow TTL GC: anonymous ("shadow") uploads are not permanent
+/// Job 2: shadow TTL GC: anonymous ("shadow") uploads are not permanent
 /// storage. This reaps completed shadow files (`user_id IS NULL`) older than the
 /// TTL, deleting their chunk objects from the shadow bucket and the file rows
 /// (chunks cascade). Bounds unbounded free-storage growth / cost.
 async fn gc_expired_shadow_files(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> {
-    let ttl_days = env_u64("WATCHCAT_SHADOW_TTL_DAYS", 30).max(1) as i64;
+    // 7 days, matching what the landing page, pricing footnote and upload
+    // success modal all promise senders. Changing this default without changing
+    // that copy makes the product lie about how long it keeps your files.
+    let ttl_days = env_u64("WATCHCAT_SHADOW_TTL_DAYS", 7).max(1) as i64;
     let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
 
-    // ttl_days/batch are our own integers — safe to inline into the interval.
+    // ttl_days/batch are our own integers: safe to inline into the interval.
     let q = format!(
         "SELECT id FROM files \
          WHERE user_id IS NULL AND deleted = false \
@@ -134,7 +140,89 @@ async fn gc_expired_shadow_files(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Resu
     Ok(())
 }
 
-/// Job 3 — subscription downgrade: detach expired subscriptions from users so an
+/// Job 4: trash retention: items sit in the trash for a fixed window and then
+/// delete themselves, which is what the Trash screen promises ("Items stay here
+/// for 30 days, then delete themselves") and what the per-row countdown counts
+/// down to. Without this the promise is a lie and trash grows forever.
+///
+/// Files carry their ciphertext in R2, so the chunk objects go first and the row
+/// second; a failed object delete leaves the row in place to be retried next
+/// sweep rather than orphaning the blobs.
+async fn gc_expired_trash(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> {
+    // Floor at 1 day: a misconfigured 0 must never make the trash a no-op bin
+    // that discards things the moment they are deleted.
+    let ttl_days = env_u64("WATCHCAT_TRASH_TTL_DAYS", 30).max(1) as i64;
+    let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
+
+    // ttl_days/batch are our own integers: safe to inline into the interval.
+    let file_q = format!(
+        "SELECT id, user_id FROM files \
+         WHERE deleted = true AND deleted_on IS NOT NULL \
+           AND deleted_on < NOW() - INTERVAL '{} days' \
+         ORDER BY deleted_on ASC LIMIT {}",
+        ttl_days, batch
+    );
+    let files: Vec<(String, Option<String>)> = sqlx::query_as(&file_q).fetch_all(pool).await?;
+
+    let mut reaped_files = 0usize;
+    let mut objects = 0usize;
+    for (file_id, user_id) in &files {
+        // Account files live in `sanctum`, anonymous drops in `shadow`.
+        let storage = if user_id.is_some() { "sanctum" } else { "shadow" };
+
+        let chunk_ids: Vec<String> = sqlx::query_scalar("SELECT id FROM chunks WHERE file_id = $1")
+            .bind(file_id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+
+        let mut all_gone = true;
+        for cid in &chunk_ids {
+            match r2.delete_object(storage, cid).await {
+                Ok(_) => objects += 1,
+                Err(e) => {
+                    all_gone = false;
+                    eprintln!("[watchcat] r2 delete {}/{} failed: {:?}", storage, cid, e);
+                }
+            }
+        }
+        // Keep the row if any object survived, so the next sweep retries instead
+        // of leaving unreferenced ciphertext paid for and unreachable.
+        if !all_gone {
+            continue;
+        }
+
+        match sqlx::query("DELETE FROM files WHERE id = $1").bind(file_id).execute(pool).await {
+            Ok(_) => reaped_files += 1,
+            Err(e) => eprintln!("[watchcat] delete trashed file {} failed: {:?}", file_id, e),
+        }
+    }
+
+    // Folders only after their files, so an emptied folder disappears in the same
+    // sweep and a folder still holding un-reaped files waits for the next one.
+    let folder_q = format!(
+        "DELETE FROM folders f \
+         WHERE f.deleted = true AND f.deleted_on IS NOT NULL \
+           AND f.deleted_on < NOW() - INTERVAL '{} days' \
+           AND NOT EXISTS (SELECT 1 FROM files x WHERE x.folder_id = f.id) \
+           AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = f.id)",
+        ttl_days
+    );
+    let folder_res = sqlx::query(&folder_q).execute(pool).await?;
+
+    if reaped_files > 0 || folder_res.rows_affected() > 0 {
+        println!(
+            "[watchcat] trash retention: reaped {} file(s), {} folder(s), removed {} object(s) (ttl {}d)",
+            reaped_files,
+            folder_res.rows_affected(),
+            objects,
+            ttl_days
+        );
+    }
+    Ok(())
+}
+
+/// Job 3: subscription downgrade: detach expired subscriptions from users so an
 /// account cleanly reverts to Free. The request-path token load already ignores
 /// expired subscriptions; this keeps the stored pointer consistent.
 async fn downgrade_expired_subscriptions(pool: &Pool<Postgres>) -> anyhow::Result<()> {

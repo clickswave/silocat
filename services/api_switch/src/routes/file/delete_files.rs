@@ -44,9 +44,12 @@ pub async fn handle(
                 return respond(404, "File not found", vec![], json!({}));
             }
 
-            // 3. Mark as deleted
+            // 3. Mark as deleted. `deleted_on` is what the 30-day trash retention
+            // sweep and the per-row countdown in the UI both read, so it has to be
+            // stamped here (folders already did; files did not, which left every
+            // trashed file with no deletion time at all).
             let delete_result = sqlx::query!(
-                "UPDATE files SET deleted = true WHERE id = $1",
+                "UPDATE files SET deleted = true, deleted_on = NOW() WHERE id = $1",
                 payload.file_id
             )
             .execute(&axum_state.pg_pool)
