@@ -260,7 +260,7 @@ async fn gc_abandoned_orders(pool: &Pool<Postgres>) -> anyhow::Result<()> {
 
     let res = sqlx::query(&format!(
         "DELETE FROM orders \
-          WHERE LOWER(COALESCE(status, '')) NOT IN ('paid', 'completed', 'success') \
+          WHERE NOT order_is_settled(status) \
             AND invoice_number IS NULL \
             AND created_on < NOW() - INTERVAL '{} days'",
         ttl_days

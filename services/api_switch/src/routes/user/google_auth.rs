@@ -138,9 +138,21 @@ pub async fn handle(
                 user.email_verified = true;
             }
             
-            // Return token data
-            let token_data = crate::models::token_data(user, None); // TODO: fetch subscription? 
-            // login.rs usually fetches sub.
+            // Resolve the active subscription exactly as password login does.
+            // Passing None here handed a paying user a free-tier session, so the
+            // sidebar showed the wrong storage total until something else
+            // refreshed it, and paid-only affordances read as locked.
+            let subscription = sqlx::query_as!(
+                crate::models::Subscription,
+                "SELECT * FROM subscriptions WHERE id = $1 AND expires_on > NOW() \
+                 ORDER BY created_on DESC",
+                user.subscription_id
+            )
+            .fetch_optional(&axum_state.pg_pool)
+            .await
+            .unwrap_or(None);
+
+            let token_data = crate::models::token_data(user, subscription);
             return respond(200, "Login successful", vec![], json!(token_data));
         },
         Ok(None) => {

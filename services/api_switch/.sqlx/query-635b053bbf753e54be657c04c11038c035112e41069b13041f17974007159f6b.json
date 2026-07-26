@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM orders WHERE user_id = $1 AND LOWER(COALESCE(status, '')) IN ('paid', 'completed', 'success') ORDER BY created_on DESC",
+  "query": "SELECT * FROM orders WHERE user_id = $1 AND order_is_settled(status) ORDER BY created_on DESC",
   "describe": {
     "columns": [
       {
@@ -90,5 +90,5 @@
       true
     ]
   },
-  "hash": "d219210bc192593f58725ec6132b779df377f0085c732c21ee95cc9d1cba03f1"
+  "hash": "635b053bbf753e54be657c04c11038c035112e41069b13041f17974007159f6b"
 }

@@ -12,8 +12,9 @@ pub async fn handle(
         // Order history is a list of receipts, so it carries settled orders only.
         // An abandoned checkout is not a purchase: showing it invites the reader
         // to wonder whether they were charged, and watchcat deletes it shortly.
-        "SELECT * FROM orders WHERE user_id = $1 \
-           AND LOWER(COALESCE(status, '')) IN ('paid', 'completed', 'success') \
+        // order_is_settled() is the shared definition, also used by the
+        // invoice-number trigger and watchcat's cleanup.
+        "SELECT * FROM orders WHERE user_id = $1 AND order_is_settled(status) \
          ORDER BY created_on DESC",
         token.id
     )
