@@ -1,14 +1,15 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { softwareApplicationSchema } from '$lib/seo.js';
 	import { fade } from 'svelte/transition';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
-	import { Button, Switch, PasswordInput, Progress, Modal, Copy } from '$lib/ui';
+	import { Button, Modal } from '$lib/ui';
+	import { generatePassword } from '$lib/password.js';
 
 	import { createMutation } from '@tanstack/svelte-query';
-	import { toast } from 'svelte-sonner';
+	import { toast } from '$lib/toast.js';
 	import axios from 'axios';
 
 	import { shadowKey } from '$lib/stores/shadow.js';
@@ -138,22 +139,15 @@
 		files = files.filter((_, i) => i !== index);
 	}
 
-	let encryptionEnabled = $state(false);
+	// Password protection defaults ON: the safe choice should be the default
+	// one, not an extra step. A password is generated up front so the field is
+	// never empty when the switch is already on.
+	let encryptionEnabled = $state(true);
 	let password = $state('');
-
-	function generatePassword() {
-		const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-		let pass = '';
-		for (let i = 0; i < 16; i++) {
-			pass += chars.charAt(Math.floor(Math.random() * chars.length));
-		}
-		return pass;
-	}
+	let showPassword = $state(false);
 
 	function onEncryptionToggle() {
-		if (encryptionEnabled && !password) {
-			password = generatePassword();
-		}
+		if (encryptionEnabled && !password) password = generatePassword();
 	}
 
 	// --- Upload Logic ---
@@ -538,45 +532,88 @@
 		if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
 		return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
 	}
+	// --- zone state machine: idle -> dragging -> staged -> uploading ---------
+	let zone = $derived(
+		isUploading ? 'uploading' : files.length > 0 ? 'staged' : isDragging ? 'dragging' : 'idle'
+	);
+
+	// Drag events fire per-child, so a naive leave handler flickers. Count
+	// enters/leaves and only drop out of the drag state when the counter zeroes.
+	let dragDepth = 0;
+
+	function onDragEnter(e) {
+		e.preventDefault();
+		dragDepth += 1;
+		isDragging = true;
+	}
+
+	function onDragLeaveZone(e) {
+		e.preventDefault();
+		dragDepth = Math.max(0, dragDepth - 1);
+		if (dragDepth === 0) isDragging = false;
+	}
+
+	function onDropZone(e) {
+		dragDepth = 0;
+		return handleDrop(e);
+	}
+
+	let stagedCount = $derived(files.length);
+	let stagedBytes = $derived(files.reduce((a, f) => a + (f.file ? f.file.size : f.size), 0));
+
+	function copyPassword() {
+		navigator.clipboard.writeText(password);
+		toast.success('Password copied', 'Without it the files cannot be decrypted.');
+	}
+
+	function copyLink() {
+		if (!uploadSuccessUrl) return;
+		navigator.clipboard.writeText(uploadSuccessUrl);
+		toast.success('Link copied', 'Anyone with it can download the files.');
+	}
 </script>
 
 <Seo
 	title="Silocat: End-to-end encrypted file sharing & cloud storage"
-	description="Zero-knowledge, end-to-end encrypted file sharing and cloud storage. Upload up to 20 GB, share an anonymous link with parallel downloads, and keep full control of your data."
+	description="Zero-knowledge, end-to-end encrypted file sharing and cloud storage. Drop up to 20 GB, share a link that expires in seven days, and keep full control of your data."
 	keywords="encrypted file sharing, secure cloud storage, zero knowledge storage, end-to-end encryption, anonymous file share, send large files, private file sharing"
 	schema={softwareApplicationSchema()}
 />
 
-<div class="landing-page">
+<div class="page">
 	<Navbar />
 
-	<main class="hero">
-		<div class="hero-content">
-			<h1 class="hero-title">Big files. Zero knowledge.</h1>
-			<p class="subtitle">
-				End-to-end encrypted file transfer. No account needed. Up to 20&nbsp;GB free.
+	<main class="main">
+		<section class="hero">
+			<h1>Big files. Zero knowledge.</h1>
+			<p class="sub">
+				End-to-end encrypted file transfer. No account needed. Drop up to 20&nbsp;GB and share a
+				link that expires in seven days.
 			</p>
+		</section>
 
+		<section class="zone-section">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="upload-zone {isDragging ? 'dragging' : ''}"
+				class="zone"
+				class:dragging={zone === 'dragging'}
+				ondragenter={onDragEnter}
 				ondragover={handleDragOver}
-				ondragleave={handleDragLeave}
-				ondrop={handleDrop}
-				role="button"
-				tabindex="0"
+				ondragleave={onDragLeaveZone}
+				ondrop={onDropZone}
 			>
-				{#if files.length === 0}
-					<div class="upload-placeholder">
-						<Icon icon="ri:upload-cloud-2-line" width="28" class="drop-ic" />
-						<label for="file-upload" class="drop-line">
-							Drop files or <span class="browse">browse</span>
-						</label>
+				{#if zone === 'idle'}
+					<div class="zone-idle">
+						<Icon name="upload-lg" size={40} />
+						<span class="zone-title">
+							Drop files or
+							<label for="file-upload" class="browse">browse</label>
+						</span>
 						<input type="file" id="file-upload" multiple onchange={handleFileSelect} hidden />
-						<p class="drop-hint">
-							encrypted before they leave
-							<span class="dot">·</span>
+						<span class="zone-hint">
+							encrypted before they leave ·
 							<label for="folder-upload" class="folder-link">upload a folder</label>
-						</p>
+						</span>
 						<input
 							type="file"
 							id="folder-upload"
@@ -587,128 +624,200 @@
 							hidden
 						/>
 					</div>
-				{:else}
-					<div class="file-list">
-						{#each files as fileItem, i (i)}
-							{@const f = fileItem.file || fileItem}
-							{@const path = fileItem.path || ''}
-							<div class="file-item" transition:fade={{ duration: 120 }}>
-								<Icon icon="ri:file-3-line" width="16" class="file-ic" />
-								<div class="file-info">
-									<span class="name">{f.name}</span>
-									{#if path}<span class="path-hint">{path}/</span>{/if}
+				{:else if zone === 'dragging'}
+					<div class="zone-idle dragging-body">
+						<Icon name="upload-lg" size={40} />
+						<span class="zone-title">Let go to encrypt</span>
+						<span class="zone-mono">drop to stage your files</span>
+					</div>
+				{:else if zone === 'staged'}
+					<div class="staged">
+						<div class="staged-list">
+							{#each files as fileItem, i (i)}
+								{@const f = fileItem.file || fileItem}
+								<div class="staged-row" transition:fade={{ duration: 120 }}>
+									<Icon name="file" size={16} class="row-glyph" />
+									<div class="row-text">
+										<span class="row-name">{f.name}</span>
+										{#if fileItem.path}
+											<span class="row-path">{fileItem.path}/</span>
+										{/if}
+									</div>
+									<span class="row-size">{fmtSize(f.size)}</span>
+									<button
+										type="button"
+										class="row-x"
+										onclick={() => removeFile(i)}
+										aria-label="Remove file"
+									>
+										<Icon name="close" size={13} />
+									</button>
 								</div>
-								<span class="size">{fmtSize(f.size)}</span>
-								<button class="remove-btn" onclick={() => removeFile(i)} aria-label="Remove">
-									<Icon icon="ri:close-line" width="15" />
-								</button>
-							</div>
-						{/each}
-
-						<div class="encrypt-row">
-							<Switch
-								bind:checked={encryptionEnabled}
-								label="Password protect"
-								disabled={isUploading}
-								onchange={onEncryptionToggle}
-							/>
-							{#if !encryptionEnabled}
-								<span class="plain-note">uploads unencrypted</span>
-							{/if}
+							{/each}
 						</div>
 
-						{#if encryptionEnabled}
-							<div transition:fade={{ duration: 120 }}>
-								<PasswordInput
-									bind:value={password}
-									placeholder="Password"
-									copyable
-									generatable
-									disabled={isUploading}
-								/>
-							</div>
-						{/if}
-
-						{#if isUploading}
-							<div class="progress-stack" transition:fade={{ duration: 120 }}>
-								<div class="progress-row">
-									<span class="p-label">Total</span>
-									<Progress value={uploadStats.totalProgress} size="md" />
-									<span class="p-pct">{Math.round(uploadStats.totalProgress)}%</span>
-								</div>
-								<div class="progress-row">
-									<span class="p-label trunc">{uploadStats.currentFileName || 'Processing'}</span>
-									<Progress value={uploadStats.fileProgress} size="sm" tone="neutral" />
-									<span class="p-pct">{Math.round(uploadStats.fileProgress)}%</span>
-								</div>
-								<div class="p-stats">
-									<span>{uploadStats.speed ? (uploadStats.speed / 1024 / 1024).toFixed(1) + ' MB/s' : 'starting'}</span>
-									<span>{uploadStats.eta ? 'eta ' + Math.ceil(uploadStats.eta) + 's' : ''}</span>
+						<div class="staged-foot">
+							<div class="pw-row">
+								<button
+									type="button"
+									role="switch"
+									aria-checked={encryptionEnabled}
+									aria-label="Password protect"
+									class="switch"
+									class:on={encryptionEnabled}
+									onclick={() => {
+										encryptionEnabled = !encryptionEnabled;
+										onEncryptionToggle();
+									}}
+								>
+									<span class="knob"></span>
+								</button>
+								<div class="pw-text">
+									<span class="pw-title">Password protect</span>
+									<span class="pw-note">
+										{encryptionEnabled
+											? 'Only someone with the password can decrypt this.'
+											: 'Uploads unencrypted.'}
+									</span>
 								</div>
 							</div>
-						{/if}
 
-						<div class="upload-actions">
-							<Button
-								block
-								loading={isUploading || uploadMutation.isPending}
-								onclick={startUpload}
-							>
-								{isUploading || uploadMutation.isPending ? 'Uploading' : 'Upload'}
-							</Button>
-							{#if !isUploading}
-								<Button variant="quiet" size="sm" onclick={() => (files = [])}>Clear all</Button>
+							{#if encryptionEnabled}
+								<div class="pw-field" transition:fade={{ duration: 120 }}>
+									<div class="pw-input">
+										<input
+											type={showPassword ? 'text' : 'password'}
+											bind:value={password}
+											placeholder="Password"
+											autocomplete="new-password"
+											spellcheck="false"
+										/>
+										<button
+											type="button"
+											aria-label={showPassword ? 'Hide password' : 'Show password'}
+											onclick={() => (showPassword = !showPassword)}
+										>
+											<Icon name="eye" size={16} />
+										</button>
+										<button type="button" aria-label="Copy password" onclick={copyPassword}>
+											<Icon name="copy" size={16} />
+										</button>
+									</div>
+									<button
+										type="button"
+										class="generate"
+										onclick={() => (password = generatePassword())}
+									>
+										Generate
+									</button>
+								</div>
+							{/if}
+
+							<div class="staged-actions">
+								<button
+									type="button"
+									class="primary"
+									disabled={encryptionEnabled && !password}
+									onclick={startUpload}
+								>
+									Upload
+								</button>
+								<button type="button" class="quiet" onclick={() => (files = [])}>Clear all</button>
+							</div>
+						</div>
+					</div>
+				{:else}
+					<div class="uploading">
+						<div class="bar-block">
+							<div class="bar-head">
+								<span class="bar-label">Total</span>
+								<span class="bar-pct">{Math.round(uploadStats.totalProgress)}%</span>
+							</div>
+							<div class="track lg">
+								<div class="fill accent" style="width:{uploadStats.totalProgress}%"></div>
+							</div>
+						</div>
+						<div class="bar-block">
+							<div class="bar-head">
+								<span class="bar-sub">{uploadStats.currentFileName || 'Processing'}</span>
+								<span class="bar-pct sm">{Math.round(uploadStats.fileProgress)}%</span>
+							</div>
+							<div class="track">
+								<div class="fill neutral" style="width:{uploadStats.fileProgress}%"></div>
+							</div>
+						</div>
+						<div class="rate">
+							<span>
+								{uploadStats.speed
+									? (uploadStats.speed / 1024 / 1024).toFixed(1) + ' MB/s'
+									: 'starting'}
+							</span>
+							{#if uploadStats.eta}
+								<span class="dot">·</span>
+								<span>eta {Math.ceil(uploadStats.eta)}s</span>
 							{/if}
 						</div>
 					</div>
 				{/if}
 			</div>
 
-			<p class="steps-line">
-				drop it <span class="dot">·</span> we encrypt it <span class="dot">·</span> share the link
-			</p>
-		</div>
-	</main>
+			<div class="steps">
+				<span>drop it</span><span class="dot">·</span>
+				<span>we encrypt it</span><span class="dot">·</span>
+				<span>share the link</span>
+			</div>
+		</section>
 
-	<section class="section facts">
-		<div class="container narrow">
+		<section class="facts">
 			<div class="fact">
-				<h3>Zero-knowledge</h3>
-				<p>Files are encrypted in your browser with libsodium before upload. We store ciphertext, nothing else. If you lose the password, even we can't recover the file. That is the point.</p>
+				<h2>Zero-knowledge</h2>
+				<p>
+					Your files are encrypted in the browser, before a single byte moves. The server stores
+					ciphertext and nothing else. We cannot read your files, hand them over, or recover them
+					for you.
+				</p>
 			</div>
 			<div class="fact">
-				<h3>Anonymous</h3>
-				<p>No email, no signup, no tracking. A local browser key lets you manage your uploads across sessions without an account.</p>
+				<h2>Anonymous</h2>
+				<p>
+					No account, no email, no card. A key kept in your browser lets you manage what you
+					dropped. Lose the key and the upload is simply gone.
+				</p>
 			</div>
 			<div class="fact">
-				<h3>Fast</h3>
-				<p>Chunked storage downloads in parallel and saturates the connection instead of trickling one stream.</p>
+				<h2>Fast</h2>
+				<p>
+					Encryption streams in chunks, so uploads start immediately and the share link works
+					before the transfer finishes. Send it now, let the bytes catch up.
+				</p>
 			</div>
 			<div class="fact">
-				<h3>Whole folders</h3>
-				<p>Drop entire directory trees with their structure intact. Up to 20Up to 20&nbsp;GB anonymously, 50&nbsp;GB with a free account.nbsp;GB anonymously, 10Up to 20&nbsp;GB anonymously, 50&nbsp;GB with a free account.nbsp;GB with a free account.</p>
+				<h2>Whole folders</h2>
+				<p>
+					Drop a directory and the structure survives the trip. Up to 20&nbsp;GB per anonymous
+					drop, kept for seven days. A free account gives you 10&nbsp;GB that stays until you
+					delete it.
+				</p>
 			</div>
-		</div>
-	</section>
+		</section>
 
-	<section class="section oss">
-		<div class="container narrow oss-inner">
+		<section class="oss">
 			<p>
 				Silocat is open source under AGPL-3.0.
-				<a href="https://github.com/clickswave/silocat" target="_blank" rel="noreferrer">Read the code</a>, or self-host it.
+				<a href="https://github.com/clickswave/silocat" target="_blank" rel="noreferrer">
+					Read the code
+				</a>, or self-host it.
 			</p>
-		</div>
-	</section>
+		</section>
 
-	<section class="section cta">
-		<div class="container narrow cta-inner">
+		<section class="cta">
 			<h2>Ready to send something?</h2>
 			<div class="cta-actions">
-				<Button size="lg" href="/auth/signup">Create free account</Button>
-				<Button size="lg" variant="ghost" href="/pricing">See pricing</Button>
+				<a href="/auth/signup" class="cta-primary">Create free account</a>
+				<a href="/pricing" class="cta-ghost">See pricing</a>
 			</div>
-		</div>
-	</section>
+		</section>
+	</main>
 
 	<Footer />
 </div>
@@ -716,108 +825,125 @@
 <Modal
 	open={showSuccessModal}
 	title={isUploading ? 'Uploading' : 'Ready to share'}
+	icon={isUploading ? 'upload' : 'check'}
+	iconTone={isUploading ? 'neutral' : 'ok'}
 	onclose={() => {
 		if (!isUploading) resetUpload();
 	}}
 >
-	<div class="success-stack">
-		<p class="success-line">
+	<div class="ok-stack">
+		<p class="ok-line">
 			{#if isUploading}
-				The link works already. Anyone opening it will see the files arrive.
+				The link is live already. Send it now, the upload keeps running in the background.
 			{:else}
 				Anyone with this link can download {files.length > 1 ? 'these files' : 'this file'}.
 			{/if}
 		</p>
 
 		{#if uploadSuccessUrl}
-			<div class="link-box">
-				<input type="text" readonly value={uploadSuccessUrl} onclick={(e) => e.target.select()} />
-				<Copy text={uploadSuccessUrl} label="Copy link" />
+			<div class="link-row">
+				<div class="link-box">
+					<input type="text" readonly value={uploadSuccessUrl} onclick={(e) => e.target.select()} />
+				</div>
+				<button type="button" class="link-copy" onclick={copyLink}>Copy</button>
 			</div>
 		{/if}
 
 		{#if isUploading}
-			<div class="progress-stack">
-				<div class="progress-row">
-					<span class="p-label">Total</span>
-					<Progress value={uploadStats.totalProgress} size="md" />
-					<span class="p-pct">{Math.round(uploadStats.totalProgress)}%</span>
+			<div class="bar-block">
+				<div class="bar-head">
+					<span class="bar-sub">Uploading</span>
+					<span class="bar-pct sm">{Math.round(uploadStats.totalProgress)}%</span>
 				</div>
-				<div class="progress-row">
-					<span class="p-label trunc">{uploadStats.currentFileName || 'Processing'}</span>
-					<Progress value={uploadStats.fileProgress} size="sm" tone="neutral" />
-					<span class="p-pct">{Math.round(uploadStats.fileProgress)}%</span>
-				</div>
-				<div class="p-stats">
-					<span>{uploadStats.speed ? (uploadStats.speed / 1024 / 1024).toFixed(1) + ' MB/s' : 'starting'}</span>
-					<span>{uploadStats.eta ? 'eta ' + Math.ceil(uploadStats.eta) + 's' : ''}</span>
+				<div class="track lg">
+					<div class="fill accent" style="width:{uploadStats.totalProgress}%"></div>
 				</div>
 			</div>
 		{/if}
 
 		{#if encryptionEnabled && password}
-			<div class="password-box">
-				<span class="pw-label">Decryption password, save it now. It is required to download.</span>
-				<div class="pw-row">
-					<code>{password}</code>
-					<Copy text={password} label="Copy password" size="sm" />
+			<div class="pw-save">
+				<span class="pw-save-label">
+					Decryption password, save it now. It is required to download.
+				</span>
+				<div class="pw-save-row">
+					<span class="pw-save-value">{password}</span>
+					<button type="button" aria-label="Copy password" onclick={copyPassword}>
+						<Icon name="copy" size={15} />
+					</button>
 				</div>
 			</div>
 		{/if}
 	</div>
 
 	{#snippet footer()}
-		<Button block disabled={isUploading} onclick={resetUpload}>
-			{isUploading ? 'Uploading in background' : 'Upload another'}
-		</Button>
+		<div class="ok-footer">
+			{#if !data?.user}
+				<div class="convert">
+					<span>This link expires in 7 days. A free account keeps 10 GB forever.</span>
+					<a href="/auth/signup">Create free account →</a>
+				</div>
+			{/if}
+			<Button block disabled={isUploading} onclick={resetUpload}>
+				{isUploading ? 'Uploading in background' : 'Upload another'}
+			</Button>
+		</div>
 	{/snippet}
 </Modal>
 
 <style lang="scss">
-	.landing-page {
+	.page {
 		min-height: 100vh;
-		display: flex;
-		flex-direction: column;
+		background: var(--bg);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+		line-height: var(--lh-normal);
 	}
 
-	/* ---------- hero ---------- */
-	.hero {
-		display: flex;
-		justify-content: center;
-		padding: clamp(3.5rem, 10vw, 7rem) var(--gutter) clamp(2rem, 5vw, 3.5rem);
+	.main {
+		max-width: var(--container);
+		margin: 0 auto;
+		padding-inline: var(--gutter);
 	}
-	.hero-content {
-		width: 100%;
-		max-width: 640px;
+
+	/* ---- hero ---- */
+	.hero {
+		padding: clamp(3rem, 8vw, 6rem) 0 2.5rem;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		text-align: center;
 		gap: var(--space-4);
-	}
-	.hero-title {
-		font-size: var(--fs-display);
-		font-weight: var(--fw-black);
-		letter-spacing: -0.03em;
-	}
-	.subtitle {
-		font-size: var(--fs-lg);
-		color: var(--ink-mute);
-		margin: 0;
+
+		h1 {
+			margin: 0;
+			font-size: var(--fs-display);
+			font-weight: var(--fw-black);
+			letter-spacing: var(--tracking-tight);
+			line-height: var(--lh-tight);
+		}
 	}
 
-	/* ---------- upload zone ---------- */
-	.upload-zone {
-		width: 100%;
-		margin-top: var(--space-5);
-		background: var(--surface);
+	.sub {
+		margin: 0;
+		max-width: 52ch;
+		font-size: var(--fs-lg);
+		color: var(--ink-mute);
+	}
+
+	/* ---- drop zone ---- */
+	.zone-section {
+		padding-bottom: var(--space-4);
+	}
+
+	.zone {
 		border: 1px dashed var(--edge-strong);
 		border-radius: var(--radius-lg);
-		padding: clamp(1.25rem, 3vw, 2rem);
+		background: var(--surface);
 		transition:
 			border-color var(--dur) var(--ease),
 			background var(--dur) var(--ease);
-		text-align: left;
 
 		&.dragging {
 			border-color: var(--accent);
@@ -825,104 +951,125 @@
 		}
 	}
 
-	.upload-placeholder {
+	.zone-idle {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--space-3);
+		justify-content: center;
+		gap: 0.875rem;
+		padding: clamp(2.5rem, 7vw, 4.5rem) 1.5rem;
 		text-align: center;
-		padding: var(--space-6) 0;
 		color: var(--ink-faint);
 
-		:global(.drop-ic) {
-			color: var(--ink-faint);
+		&.dragging-body {
+			color: var(--accent);
 		}
 	}
-	.drop-line {
-		font-size: var(--fs-lg);
+
+	.zone-title {
+		font-size: 1.25rem;
 		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-tight);
 		color: var(--ink);
+	}
+
+	.browse {
+		color: var(--accent);
 		cursor: pointer;
 
-		.browse {
-			color: var(--accent);
-			text-decoration: underline;
-			text-underline-offset: 3px;
+		&:hover {
+			color: var(--accent-hover);
 		}
 	}
-	.drop-hint {
+
+	.zone-hint {
 		font-size: var(--fs-sm);
 		color: var(--ink-faint);
-		margin: 0;
+	}
 
-		.folder-link {
-			cursor: pointer;
-			text-decoration: underline;
-			text-underline-offset: 3px;
-			&:hover {
-				color: var(--ink);
-			}
+	.folder-link {
+		color: var(--ink-mute);
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-color: var(--edge-strong);
+		text-underline-offset: 3px;
+
+		&:hover {
+			color: var(--ink);
 		}
 	}
-	.dot {
-		margin-inline: var(--space-1);
+
+	.zone-mono {
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
 		color: var(--ink-faint);
 	}
 
-	/* ---------- file list ---------- */
-	.file-list {
+	/* ---- staged ---- */
+	.staged {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
-		width: 100%;
 	}
-	.file-item {
+
+	.staged-list {
+		max-height: 212px;
+		overflow-y: auto;
+	}
+
+	.staged-row {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--edge);
-		border-radius: var(--radius-sm);
-
-		:global(.file-ic) {
-			color: var(--ink-faint);
-			flex-shrink: 0;
-		}
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--edge);
+		color: var(--ink-faint);
 	}
-	.file-info {
+
+	.row-text {
 		flex: 1;
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
 		min-width: 0;
-
-		.name {
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
-		}
-		.path-hint {
-			font-size: var(--fs-xs);
-			color: var(--ink-faint);
-			flex-shrink: 0;
-		}
+		display: flex;
+		flex-direction: column;
 	}
-	.size {
+
+	.row-name {
+		font-size: 0.875rem;
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.row-path {
 		font-family: var(--font-mono);
 		font-size: var(--fs-xs);
 		color: var(--ink-faint);
-		flex-shrink: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.remove-btn {
-		display: flex;
+
+	.row-size {
+		flex: 0 0 auto;
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+	}
+
+	.row-x {
+		flex: 0 0 auto;
+		width: 24px;
+		height: 24px;
+		border: 0;
 		background: none;
-		border: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
 		color: var(--ink-faint);
 		cursor: pointer;
-		padding: 4px;
-		border-radius: var(--radius-sm);
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
 
 		&:hover {
 			background: var(--tint-soft);
@@ -930,194 +1077,504 @@
 		}
 	}
 
-	.encrypt-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		padding-top: var(--space-2);
-	}
-	.plain-note {
-		font-size: var(--fs-xs);
-		color: var(--warn);
-	}
-
-	.upload-actions {
+	.staged-foot {
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		gap: var(--space-2);
-		margin-top: var(--space-2);
+		gap: 0.875rem;
+		padding: 1rem;
 	}
 
-	/* ---------- progress ---------- */
-	.progress-stack {
+	.pw-row {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		padding-top: var(--space-2);
-	}
-	.progress-row {
-		display: grid;
-		grid-template-columns: 90px 1fr 42px;
 		align-items: center;
 		gap: var(--space-3);
 	}
-	.p-label {
-		font-size: var(--fs-xs);
-		color: var(--ink-mute);
 
-		&.trunc {
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
+	.switch {
+		flex: 0 0 auto;
+		width: 34px;
+		height: 20px;
+		border: 0;
+		border-radius: var(--radius-full);
+		position: relative;
+		background: var(--tint-softer);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&.on {
+			background: var(--accent);
+		}
+
+		.knob {
+			position: absolute;
+			top: 2px;
+			left: 2px;
+			width: 16px;
+			height: 16px;
+			border-radius: var(--radius-full);
+			background: #fff;
+			transition: left var(--dur-fast) var(--ease);
+		}
+		&.on .knob {
+			left: 16px;
 		}
 	}
-	.p-pct {
-		font-family: var(--font-mono);
-		font-size: var(--fs-xs);
-		color: var(--ink-mute);
-		text-align: right;
-		font-variant-numeric: tabular-nums;
-	}
-	.p-stats {
+
+	.pw-text {
 		display: flex;
-		justify-content: space-between;
-		font-family: var(--font-mono);
-		font-size: var(--fs-xs);
-		color: var(--ink-faint);
+		flex-direction: column;
 	}
 
-	/* ---------- steps line ---------- */
-	.steps-line {
-		margin-top: var(--space-5);
-		font-family: var(--font-mono);
+	.pw-title {
+		font-size: 0.875rem;
+		font-weight: var(--fw-medium);
+	}
+
+	.pw-note {
 		font-size: var(--fs-sm);
 		color: var(--ink-faint);
 	}
 
-	/* ---------- facts ---------- */
-	.facts .container {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-8) var(--space-8);
+	.pw-field {
+		display: flex;
+		gap: 0.375rem;
 	}
-	.fact {
-		border-top: 1px solid var(--edge);
-		padding-top: var(--space-4);
 
-		h3 {
-			font-size: var(--fs-body);
-			font-weight: var(--fw-semibold);
-			margin-bottom: var(--space-2);
+	.pw-input {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		height: 38px;
+		padding-inline: 0.75rem;
+		border-radius: var(--radius-sm);
+		background: var(--bg);
+		border: 1px solid var(--edge);
+
+		input {
+			flex: 1;
+			min-width: 0;
+			border: 0;
+			background: none;
+			outline: none;
+			font-family: var(--font-mono);
+			font-size: 0.875rem;
+			color: var(--ink);
 		}
-		p {
-			font-size: var(--fs-sm);
-			color: var(--ink-mute);
-			line-height: var(--lh-normal);
-		}
-	}
 
-	/* ---------- oss ---------- */
-	.oss {
-		padding-block: 0;
-	}
-	.oss-inner {
-		text-align: center;
-
-		p {
-			font-size: var(--fs-sm);
+		button {
+			border: 0;
+			background: none;
 			color: var(--ink-faint);
-		}
-		a {
-			color: var(--ink-mute);
-			text-decoration: underline;
-			text-underline-offset: 3px;
+			cursor: pointer;
+			display: grid;
+			place-items: center;
+
 			&:hover {
 				color: var(--ink);
 			}
 		}
 	}
 
-	/* ---------- cta ---------- */
-	.cta-inner {
-		text-align: center;
+	.generate {
+		height: 38px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--edge);
+		background: none;
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			border-color: var(--edge-strong);
+		}
+	}
+
+	.staged-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
+
+	.primary {
+		flex: 1;
+		height: 42px;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font: inherit;
+		font-size: var(--fs-body);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			background: var(--accent-hover);
+		}
+		&:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+	}
+
+	.quiet {
+		height: 42px;
+		padding-inline: 1rem;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-md);
+		font: inherit;
+		font-size: 0.875rem;
+		color: var(--ink-mute);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	/* ---- uploading ---- */
+	.uploading {
+		display: flex;
+		flex-direction: column;
+		gap: 1.125rem;
+		padding: 1.75rem;
+	}
+
+	.bar-block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.bar-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+
+	.bar-label {
+		font-size: 0.875rem;
+		font-weight: var(--fw-medium);
+	}
+
+	.bar-sub {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.bar-pct {
+		font-family: var(--font-mono);
+		font-size: 0.875rem;
+		color: var(--ink-mute);
+
+		&.sm {
+			font-size: var(--fs-sm);
+			color: var(--ink-faint);
+		}
+	}
+
+	.track {
+		height: 4px;
+		border-radius: var(--radius-full);
+		background: var(--tint-softer);
+		overflow: hidden;
+
+		&.lg {
+			height: 6px;
+		}
+	}
+
+	.fill {
+		height: 100%;
+		border-radius: var(--radius-full);
+		transition: width var(--dur) var(--ease);
+
+		&.accent {
+			background: var(--accent);
+		}
+		&.neutral {
+			background: var(--ink-faint);
+		}
+	}
+
+	.rate {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+	}
+
+	.dot {
+		opacity: 0.5;
+	}
+
+	.steps {
+		display: flex;
+		justify-content: center;
+		gap: var(--space-2);
+		padding-top: var(--space-4);
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	/* ---- facts ---- */
+	.facts {
+		max-width: var(--container-narrow);
+		margin: 0 auto;
+		padding: clamp(3.5rem, 9vw, 6rem) 0;
+		display: grid;
+		gap: 2.5rem;
+	}
+
+	.fact {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+
+		h2 {
+			margin: 0;
+			font-size: 1.25rem;
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+		}
+		p {
+			margin: 0;
+			color: var(--ink-mute);
+		}
+	}
+
+	/* ---- open source ---- */
+	.oss {
+		max-width: var(--container-narrow);
+		margin: 0 auto;
+		padding-bottom: clamp(3.5rem, 9vw, 6rem);
+
+		p {
+			margin: 0;
+			padding-block: 1.25rem;
+			border-top: 1px solid var(--edge);
+			border-bottom: 1px solid var(--edge);
+			color: var(--ink-mute);
+		}
+	}
+
+	/* ---- cta ---- */
+	.cta {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: var(--space-5);
+		padding-bottom: clamp(4rem, 10vw, 7rem);
+		text-align: center;
+
+		h2 {
+			margin: 0;
+			font-size: var(--fs-h2);
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+		}
 	}
+
 	.cta-actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-3);
 		justify-content: center;
+		gap: 0.625rem;
 	}
 
-	/* ---------- success modal ---------- */
-	.success-stack {
+	.cta-primary,
+	.cta-ghost {
+		display: flex;
+		align-items: center;
+		height: 46px;
+		padding-inline: 1.375rem;
+		border-radius: var(--radius-md);
+		font-size: 1rem;
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+		transition:
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease);
+	}
+
+	.cta-primary {
+		background: var(--accent);
+		color: #fff;
+
+		&:hover {
+			background: var(--accent-hover);
+			color: #fff;
+		}
+	}
+
+	.cta-ghost {
+		border: 1px solid var(--edge);
+		color: var(--ink);
+
+		&:hover {
+			background: var(--tint-soft);
+			border-color: var(--edge-strong);
+			color: var(--ink);
+		}
+	}
+
+	/* ---- success modal ---- */
+	.ok-stack {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
+		gap: 0.875rem;
 	}
-	.success-line {
-		color: var(--ink-mute);
-		font-size: var(--fs-sm);
+
+	.ok-line {
 		margin: 0;
+		font-size: 0.875rem;
+		color: var(--ink-mute);
 	}
+
+	.link-row {
+		display: flex;
+		gap: 0.375rem;
+	}
+
 	.link-box {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		height: 38px;
+		padding-inline: 0.75rem;
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		border: 1px solid var(--edge);
+
+		input {
+			width: 100%;
+			border: 0;
+			background: none;
+			outline: none;
+			font-family: var(--font-mono);
+			font-size: 0.875rem;
+			color: var(--ink-mute);
+		}
+	}
+
+	.link-copy {
+		height: 38px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--edge);
+		background: none;
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+		}
+	}
+
+	.pw-save {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: 0.75rem;
+		border-radius: 8px;
+		background: var(--warn-soft);
+		border: 1px solid var(--edge);
+	}
+
+	.pw-save-label {
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+	}
+
+	.pw-save-row {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		background: var(--bg);
-		border: 1px solid var(--edge);
-		border-radius: var(--radius-sm);
-		padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
 
-		input {
-			flex: 1;
-			min-width: 0;
-			background: transparent;
-			border: none;
-			outline: none;
-			color: var(--ink);
-			font-family: var(--font-mono);
-			font-size: var(--fs-sm);
-			padding: var(--space-2) 0;
-		}
-	}
-	.password-box {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-
-		.pw-label {
-			font-size: var(--fs-xs);
-			color: var(--warn);
-		}
-		.pw-row {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: var(--space-2);
-			background: var(--bg);
-			border: 1px solid var(--edge);
+		button {
+			width: 26px;
+			height: 26px;
+			border: 0;
+			background: none;
 			border-radius: var(--radius-sm);
-			padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+			display: grid;
+			place-items: center;
+			color: var(--ink-mute);
+			cursor: pointer;
 
-			code {
-				font-size: var(--fs-body);
+			&:hover {
+				background: var(--tint-softer);
 				color: var(--ink);
-				word-break: break-all;
 			}
 		}
 	}
 
-	/* ---------- responsive ---------- */
-	@media (max-width: 720px) {
-		.facts .container {
-			grid-template-columns: 1fr;
-			gap: var(--space-6);
+	.pw-save-value {
+		flex: 1;
+		font-family: var(--font-mono);
+		font-size: 0.9375rem;
+		font-weight: var(--fw-medium);
+		word-break: break-all;
+	}
+
+	.ok-footer {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		width: 100%;
+	}
+
+	/* The one place the product asks for the account: right after the value
+	   landed, while the 7-day expiry is the thing on the sender's mind. */
+	.convert {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding: 0.75rem;
+		margin: -0.25rem -0.25rem 0;
+		border-radius: 8px;
+		background: var(--tint-soft);
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+
+		a {
+			flex: 0 0 auto;
+			font-weight: var(--fw-medium);
+			text-decoration: none;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.convert {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: var(--space-2);
 		}
 	}
 </style>

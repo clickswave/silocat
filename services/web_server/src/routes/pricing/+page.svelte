@@ -1,35 +1,28 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { softwareApplicationSchema, breadcrumbSchema } from '$lib/seo.js';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
-	import { Button, Segmented, Badge } from '$lib/ui';
+	import { PRICES, SYMBOL, formatPrice } from '$lib/pricing.js';
 
 	let currency = $state('USD');
 	let cycle = $state('monthly');
 
-	const SYMBOL = { USD: '$', EUR: '€', INR: '₹' };
+	let annual = $derived(cycle === 'annual');
 	let symbol = $derived(SYMBOL[currency]);
 
-	const PRICES = {
-		USD: { plus: { monthly: 4, annual: 39 }, pro: { monthly: 10, annual: 96 } },
-		EUR: { plus: { monthly: 4, annual: 39 }, pro: { monthly: 9, annual: 90 } },
-		INR: { plus: { monthly: 349, annual: 3490 }, pro: { monthly: 899, annual: 8990 } }
-	};
-
-	function price(id) {
-		return PRICES[currency][id][cycle];
-	}
-	let per = $derived(cycle === 'annual' ? '/yr' : '/mo');
+	const price = (id, c) => formatPrice(currency, PRICES[currency][id][c]);
 
 	let plans = $derived([
 		{
 			id: 'free',
 			name: 'Free',
-			amount: `${symbol}0`,
+			price: `${symbol}0`,
 			per: '/mo',
-			description: 'Everything, 10 GB of space.',
+			billNote: 'free forever',
+			tagline: 'Everything, 10 GB of space.',
+			badge: '',
 			features: [
 				'10 GB encrypted storage',
 				'End-to-end encryption',
@@ -38,30 +31,34 @@
 			],
 			cta: 'Get started',
 			href: '/auth/signup',
-			variant: 'ghost'
+			style: 'ghost'
 		},
 		{
 			id: 'plus',
 			name: 'Plus',
-			amount: `${symbol}${price('plus')}`,
-			per,
-			description: '20× the space.',
+			price: annual ? price('plus', 'annual') : price('plus', 'monthly'),
+			per: annual ? '/yr' : '/mo',
+			billNote: annual ? 'billed annually · 2 months free' : `or ${price('plus', 'annual')}/yr`,
+			tagline: '20× the space.',
+			badge: 'Recommended',
 			features: ['200 GB encrypted storage', 'Everything in Free', 'Email support'],
 			cta: 'Choose Plus',
-			href: '/auth/signup',
-			variant: 'ghost'
+			href: '/auth/signup?plan=plus',
+			style: 'ghost',
+			strong: true
 		},
 		{
 			id: 'pro',
 			name: 'Pro',
-			amount: `${symbol}${price('pro')}`,
-			per,
-			description: 'Room for everything.',
-			highlight: true,
+			price: annual ? price('pro', 'annual') : price('pro', 'monthly'),
+			per: annual ? '/yr' : '/mo',
+			billNote: annual ? 'billed annually · 2 months free' : `or ${price('pro', 'annual')}/yr`,
+			tagline: 'Room for everything.',
+			badge: '',
 			features: ['2 TB encrypted storage', 'Everything in Free', 'Priority support'],
 			cta: 'Go Pro',
-			href: '/auth/signup',
-			variant: 'solid'
+			href: '/auth/signup?plan=pro',
+			style: 'solid'
 		}
 	]);
 </script>
@@ -78,76 +75,102 @@
 	]}
 />
 
-<div class="page-container">
+<div class="page">
 	<Navbar />
 
-	<main class="content">
-		<section class="section">
-			<div class="container">
-				<div class="header">
-					<h1>Pricing</h1>
-					<p>Every feature is free. You only pay for space.</p>
-					<div class="controls">
-						<Segmented
-							bind:value={cycle}
-							options={[
-								{ value: 'monthly', label: 'Monthly' },
-								{ value: 'annual', label: 'Annual · save 17%' }
-							]}
-						/>
-						<Segmented
-							bind:value={currency}
-							size="sm"
-							options={[
-								{ value: 'USD', label: 'USD' },
-								{ value: 'EUR', label: 'EUR' },
-								{ value: 'INR', label: 'INR' }
-							]}
-						/>
-					</div>
+	<main class="main">
+		<section class="head">
+			<h1>Pricing</h1>
+			<p class="sub">Every feature is free. You only pay for space.</p>
+
+			<div class="controls">
+				<div class="seg">
+					<button
+						type="button"
+						class:on={!annual}
+						onclick={() => (cycle = 'monthly')}
+						aria-pressed={!annual}
+					>
+						Monthly
+					</button>
+					<button
+						type="button"
+						class:on={annual}
+						onclick={() => (cycle = 'annual')}
+						aria-pressed={annual}
+					>
+						Annual · save 17%
+					</button>
 				</div>
 
-				<div class="pricing-grid">
-					{#each plans as plan (plan.id)}
-						<div class="plan-card" class:highlight={plan.highlight}>
-							<div class="plan-top">
-								<div class="plan-name">
-									<h3>{plan.name}</h3>
-									{#if plan.highlight}<Badge tone="accent">Recommended</Badge>{/if}
-								</div>
-								<div class="price">
-									<span class="amount">{plan.amount}</span>
-									<span class="period">{plan.per}</span>
-								</div>
-								<p class="description">{plan.description}</p>
-							</div>
-
-							<ul class="features">
-								{#each plan.features as feature (feature)}
-									<li><Icon icon="ri:check-line" class="check-icon" width="15" /> {feature}</li>
-								{/each}
-							</ul>
-
-							<Button block variant={plan.variant} href={plan.href}>{plan.cta}</Button>
-						</div>
+				<div class="seg mono">
+					{#each ['USD', 'EUR', 'INR'] as c (c)}
+						<button
+							type="button"
+							class:on={currency === c}
+							onclick={() => (currency = c)}
+							aria-pressed={currency === c}
+						>
+							{c}
+						</button>
 					{/each}
 				</div>
-
-				<div class="selfhost">
-					<div class="sh-text">
-						<span class="sh-title">Self-host</span>
-						<span class="sh-desc">Run Silocat on your own hardware. Free forever, AGPL-3.0, no limits.</span>
-					</div>
-					<Button variant="ghost" href="https://github.com/clickswave/silocat" target="_blank">
-						<Icon icon="ri:github-fill" width="16" /> View on GitHub
-					</Button>
-				</div>
-
-				<p class="footnote">
-					Plans are prepaid, no stored card and no auto-renewal. Anonymous drops are always free and
-					expire after 7 days; account storage stays until you delete it.
-				</p>
 			</div>
+		</section>
+
+		<section class="grid">
+			{#each plans as p (p.id)}
+				<div class="plan" class:strong={p.strong}>
+					<div class="plan-top">
+						<span class="plan-name">{p.name}</span>
+						{#if p.badge}<span class="badge">{p.badge}</span>{/if}
+					</div>
+
+					<div class="price-block">
+						<div class="price-row">
+							<span class="amount">{p.price}</span>
+							<span class="per">{p.per}</span>
+						</div>
+						<span class="bill-note">{p.billNote}</span>
+					</div>
+
+					<span class="tagline">{p.tagline}</span>
+
+					<div class="features">
+						{#each p.features as f (f)}
+							<div class="feature">
+								<Icon name="check" size={13} stroke={2.2} />
+								<span>{f}</span>
+							</div>
+						{/each}
+					</div>
+
+					<a href={p.href} class="cta {p.style}">{p.cta}</a>
+				</div>
+			{/each}
+		</section>
+
+		<section class="tail">
+			<div class="selfhost">
+				<div class="sh-text">
+					<span class="sh-title">Run Silocat on your own hardware.</span>
+					<span class="sh-sub">Free forever, AGPL-3.0, no limits.</span>
+				</div>
+				<a
+					href="https://github.com/clickswave/silocat"
+					target="_blank"
+					rel="noreferrer"
+					class="sh-btn"
+				>
+					<Icon name="github" size={15} />
+					View on GitHub
+				</a>
+			</div>
+
+			<p class="footnote">
+				Plans are prepaid, no stored card and no auto-renewal. Anonymous drops are always free and
+				expire after 7 days; account storage stays until you delete it.
+			</p>
 		</section>
 	</main>
 
@@ -155,152 +178,290 @@
 </div>
 
 <style lang="scss">
-	.page-container {
+	.page {
 		min-height: 100vh;
 		display: flex;
 		flex-direction: column;
-	}
-	.content {
-		flex: 1;
+		background: var(--bg);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+		line-height: var(--lh-normal);
 	}
 
-	.header {
-		text-align: center;
-		margin-bottom: var(--space-8);
+	.main {
+		flex: 1;
+		width: 100%;
+		max-width: var(--container);
+		margin: 0 auto;
+		padding-inline: var(--gutter);
+	}
+
+	.head {
+		padding: clamp(2.5rem, 7vw, 4.5rem) 0 var(--space-6);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--space-3);
+		text-align: center;
+		gap: var(--space-4);
 
 		h1 {
+			margin: 0;
 			font-size: var(--fs-h1);
-		}
-		p {
-			color: var(--ink-mute);
-			font-size: var(--fs-body);
-			margin-bottom: var(--space-2);
-		}
-		.controls {
-			display: flex;
-			gap: var(--space-3);
-			flex-wrap: wrap;
-			justify-content: center;
+			font-weight: var(--fw-black);
+			letter-spacing: var(--tracking-tight);
+			line-height: var(--lh-tight);
 		}
 	}
 
-	.pricing-grid {
+	.sub {
+		margin: 0;
+		max-width: 48ch;
+		font-size: var(--fs-lg);
+		color: var(--ink-mute);
+	}
+
+	.controls {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: var(--space-3);
+		padding-top: var(--space-2);
+	}
+
+	.seg {
+		display: flex;
+		padding: 2px;
+		border-radius: 8px;
+		background: var(--tint-soft);
+		border: 1px solid var(--edge);
+
+		button {
+			height: 28px;
+			padding-inline: 0.875rem;
+			border-radius: var(--radius-sm);
+			border: 1px solid transparent;
+			background: transparent;
+			font: inherit;
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--ink-faint);
+			cursor: pointer;
+			transition:
+				background var(--dur-fast) var(--ease),
+				color var(--dur-fast) var(--ease);
+
+			&.on {
+				background: var(--raised);
+				border-color: var(--edge);
+				color: var(--ink);
+			}
+		}
+
+		&.mono button {
+			font-family: var(--font-mono);
+			padding-inline: 0.75rem;
+			font-weight: var(--fw-regular);
+		}
+	}
+
+	.grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
-		gap: var(--space-4);
-		align-items: stretch;
-
-		@media (max-width: 860px) {
-			grid-template-columns: 1fr;
-			max-width: 420px;
-			margin-inline: auto;
-		}
+		gap: 0.75rem;
+		max-width: 960px;
+		margin: 0 auto;
 	}
 
-	.plan-card {
+	.plan {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		padding: var(--space-5);
+		border-radius: var(--radius-md);
 		background: var(--surface);
 		border: 1px solid var(--edge);
-		border-radius: var(--radius-md);
-		padding: var(--space-6);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5);
 
-		&.highlight {
-			border-color: var(--accent);
+		&.strong {
+			border-color: var(--edge-strong);
 		}
 	}
+
 	.plan-top {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-	.plan-name {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--space-2);
-		h3 {
-			font-size: var(--fs-body);
-			font-weight: var(--fw-semibold);
-		}
 	}
-	.price {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-1);
-		.amount {
-			font-size: var(--fs-h2);
-			font-weight: var(--fw-semibold);
-			letter-spacing: var(--tracking-tight);
-		}
-		.period {
-			color: var(--ink-faint);
-			font-size: var(--fs-sm);
-		}
+
+	.plan-name {
+		font-size: 1rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
 	}
-	.description {
-		color: var(--ink-mute);
-		font-size: var(--fs-sm);
-		margin: 0;
+
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		height: 20px;
+		padding-inline: 0.4375rem;
+		border-radius: var(--radius-sm);
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		background: var(--accent-soft);
+		color: var(--accent);
 	}
-	.features {
-		list-style: none;
-		padding: 0;
-		margin: 0;
+
+	.price-block {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
-		flex: 1;
+		gap: 0.125rem;
+	}
 
-		li {
-			display: flex;
-			gap: var(--space-2);
-			color: var(--ink-mute);
+	.price-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.375rem;
+	}
+
+	.amount {
+		font-family: var(--font-mono);
+		font-size: 2rem;
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.per,
+	.bill-note {
+		font-family: var(--font-mono);
+		color: var(--ink-faint);
+	}
+	.per {
+		font-size: var(--fs-sm);
+	}
+	.bill-note {
+		font-size: var(--fs-xs);
+	}
+
+	.tagline {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.features {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4375rem;
+		padding-top: 0.125rem;
+	}
+
+	.feature {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--ink-faint);
+
+		span {
 			font-size: var(--fs-sm);
-			line-height: var(--lh-snug);
-			:global(.check-icon) {
-				color: var(--ink-faint);
-				flex-shrink: 0;
-				margin-top: 2px;
-			}
+			color: var(--ink-mute);
 		}
+	}
+
+	.cta {
+		margin-top: auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 38px;
+		border-radius: var(--radius-md);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+		transition: filter var(--dur-fast) var(--ease);
+
+		&:hover {
+			filter: brightness(1.08);
+		}
+
+		&.ghost {
+			border: 1px solid var(--edge);
+			color: var(--ink);
+		}
+		&.solid {
+			background: var(--accent);
+			color: #fff;
+			border: 1px solid transparent;
+		}
+	}
+
+	.tail {
+		max-width: 960px;
+		margin: 0 auto;
+		padding-top: var(--space-6);
 	}
 
 	.selfhost {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-4);
-		flex-wrap: wrap;
-		margin-top: var(--space-4);
-		padding: var(--space-4) var(--space-5);
+		padding: 1.25rem;
 		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
+		background: var(--surface);
+	}
 
-		.sh-text {
-			display: flex;
-			flex-direction: column;
-			gap: 2px;
-		}
-		.sh-title {
-			font-size: var(--fs-body);
-			font-weight: var(--fw-semibold);
-		}
-		.sh-desc {
-			font-size: var(--fs-sm);
-			color: var(--ink-mute);
+	.sh-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.sh-title {
+		font-size: 0.9375rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.sh-sub {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.sh-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.4375rem;
+		height: 36px;
+		padding-inline: 1rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--edge);
+		color: var(--ink);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+		transition:
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			border-color: var(--edge-strong);
+			color: var(--ink);
 		}
 	}
 
 	.footnote {
-		text-align: center;
-		margin-top: var(--space-6);
-		font-size: var(--fs-sm);
+		margin: 0;
+		padding: 1.25rem 0.125rem clamp(2.5rem, 6vw, 4rem);
+		font-size: var(--fs-xs);
 		color: var(--ink-faint);
+		text-align: center;
+	}
+
+	@media (max-width: 860px) {
+		.grid {
+			grid-template-columns: 1fr;
+		}
 	}
 </style>

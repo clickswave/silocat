@@ -3,6 +3,8 @@
 	import Footer from '$lib/components/Footer.svelte';
 	import { page } from '$app/stores';
 
+	let { children } = $props();
+
 	const links = [
 		{ href: '/policies/terms-of-service', label: 'Terms of Service' },
 		{ href: '/policies/acceptable-use', label: 'Acceptable Use Policy' },
@@ -13,223 +15,214 @@
 	];
 </script>
 
-<div class="policy-layout">
+<div class="page">
 	<Navbar />
 
-	<div class="content-wrapper">
-		<aside class="sidebar">
-			<h3 class="eyebrow">Legal Center</h3>
-			<div class="links">
-				{#each links as link}
-					<a href={link.href} class:active={$page.url.pathname === link.href}>
-						{link.label}
-					</a>
+	<main class="main">
+		<nav class="rail" aria-label="Legal Center">
+			<span class="eyebrow">Legal Center</span>
+			<div class="rail-links">
+				{#each links as l (l.href)}
+					<a href={l.href} class:active={$page.url.pathname === l.href}>{l.label}</a>
 				{/each}
 			</div>
-		</aside>
+		</nav>
 
-		<main class="main-content">
-			<div class="container narrow policy-prose">
-				<slot />
-			</div>
-		</main>
-	</div>
+		<!-- One prose stylesheet, shared by all six documents. The pages carry
+		     content only; every heading, list and link style lives here. -->
+		<article class="prose">
+			{@render children()}
+		</article>
+	</main>
 
 	<Footer />
 </div>
 
 <style lang="scss">
-	.policy-layout {
-		position: relative;
-		z-index: 1;
+	.page {
 		min-height: 100vh;
 		display: flex;
 		flex-direction: column;
+		background: var(--bg);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+		line-height: var(--lh-normal);
 	}
 
-	.content-wrapper {
-		display: flex;
+	.main {
 		flex: 1;
 		width: 100%;
-		max-width: var(--container-wide);
-		margin-inline: auto;
-		position: relative;
-		z-index: 10;
-		gap: var(--space-6);
-		padding-inline: var(--gutter);
-
-		@media (max-width: 860px) {
-			flex-direction: column;
-			gap: 0;
-			padding-inline: 0;
-		}
+		max-width: var(--container);
+		margin: 0 auto;
+		padding: clamp(2rem, 5vw, 3.5rem) var(--gutter);
+		display: flex;
+		gap: clamp(2rem, 5vw, 4rem);
+		align-items: flex-start;
 	}
 
-	.sidebar {
-		flex: none;
-		width: 280px;
-		padding-block: var(--space-10) var(--space-6);
-
-		@media (max-width: 860px) {
-			width: 100%;
-			border-bottom: 1px solid var(--hairline);
-			padding: var(--space-5) var(--gutter);
-		}
-
-		h3 {
-			margin-bottom: var(--space-5);
-		}
-
-		.links {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-1);
-
-			@media (max-width: 860px) {
-				flex-direction: row;
-				flex-wrap: wrap;
-				gap: var(--space-2);
-			}
-
-			a {
-				color: var(--text-secondary);
-				padding: var(--space-3) var(--space-4);
-				border: 1px solid transparent;
-				border-radius: var(--radius-sm);
-				transition:
-					color var(--dur) var(--ease),
-					background var(--dur) var(--ease),
-					border-color var(--dur) var(--ease);
-				font-size: var(--fs-sm);
-				font-weight: var(--fw-medium);
-
-				&:hover {
-					color: var(--text-primary);
-					background: var(--tint-soft);
-				}
-
-				&.active {
-					background: var(--tint-soft);
-					border-color: var(--border-default);
-					color: var(--primary);
-				}
-			}
-		}
-	}
-
-	.main-content {
-		flex: 1;
-		min-width: 0;
-		padding-block: var(--space-10) var(--space-12);
-
-		@media (max-width: 860px) {
-			padding-block: var(--space-6) var(--space-10);
-		}
-	}
-
-	.policy-prose {
-		margin-inline: 0;
-		padding-inline: 0;
-
-		@media (max-width: 860px) {
-			padding-inline: var(--gutter);
-		}
-	}
-
-	/* ---- shared prose styles applied to every policy page ---- */
-	.policy-prose :global(.policy-document) {
+	.rail {
+		position: sticky;
+		top: 84px;
+		flex: 0 0 200px;
 		display: flex;
 		flex-direction: column;
+		gap: var(--space-3);
 	}
 
-	.policy-prose :global(h1) {
-		font-size: var(--fs-h1);
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+	}
+
+	.rail-links {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+
+		a {
+			display: flex;
+			align-items: center;
+			min-height: 32px;
+			padding: 0.375rem 0.625rem;
+			border-radius: 8px;
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--ink-mute);
+			text-decoration: none;
+			transition:
+				background var(--dur-fast) var(--ease),
+				color var(--dur-fast) var(--ease);
+
+			&:hover {
+				background: var(--nav-hover);
+				color: var(--ink);
+			}
+			&.active {
+				background: var(--accent-soft);
+				color: var(--accent);
+			}
+		}
+	}
+
+	.prose {
+		flex: 1;
+		min-width: 0;
+		max-width: 640px;
+		display: flex;
+		flex-direction: column;
+		gap: 1.125rem;
+	}
+
+	/* The documents are plain markup, so the stylesheet reaches into them. */
+	.prose :global(h1) {
+		margin: 0;
+		font-size: clamp(1.5rem, 3vw, 2rem);
 		font-weight: var(--fw-black);
-		margin-bottom: var(--space-2);
+		letter-spacing: var(--tracking-tight);
+		line-height: 1.15;
 	}
 
-	.policy-prose :global(.last-updated) {
-		color: var(--text-muted);
-		font-size: var(--fs-sm);
-		font-family: var(--font-mono);
-		margin: 0 0 var(--space-8);
-	}
-
-	.policy-prose :global(section) {
-		margin-bottom: var(--space-8);
-
-		&:last-child {
-			margin-bottom: 0;
-		}
-	}
-
-	.policy-prose :global(section h2) {
-		font-size: var(--fs-h3);
+	.prose :global(h2) {
+		margin: var(--space-4) 0 0;
+		font-size: 1.25rem;
 		font-weight: var(--fw-semibold);
-		margin-bottom: var(--space-4);
+		letter-spacing: var(--tracking-tight);
 	}
 
-	.policy-prose :global(section h2)::before {
-		content: '';
-		display: inline-block;
-		width: 3px;
-		height: 0.9em;
-		margin-right: var(--space-3);
-		vertical-align: -0.05em;
-		border-radius: var(--radius-sm);
-		background: var(--accent-gradient);
-	}
-
-	.policy-prose :global(p) {
-		color: var(--text-secondary);
-		line-height: var(--lh-normal);
-		margin-bottom: var(--space-4);
-
-		&:last-child {
-			margin-bottom: 0;
-		}
-	}
-
-	.policy-prose :global(strong) {
-		color: var(--text-primary);
+	.prose :global(h3) {
+		margin: var(--space-2) 0 0;
+		font-size: 1rem;
 		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
 	}
 
-	.policy-prose :global(ul) {
-		color: var(--text-secondary);
-		line-height: var(--lh-normal);
-		margin: 0 0 var(--space-4);
-		padding-left: var(--space-5);
+	.prose :global(p) {
+		margin: 0;
+		color: var(--ink-mute);
+		text-wrap: pretty;
 	}
 
-	.policy-prose :global(li) {
-		margin-bottom: var(--space-2);
+	.prose :global(ul),
+	.prose :global(ol) {
+		margin: 0;
+		padding-left: 1.25rem;
+		color: var(--ink-mute);
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
 	}
 
-	.policy-prose :global(li)::marker {
-		color: var(--primary);
+	.prose :global(ul ul),
+	.prose :global(ol ol),
+	.prose :global(ul ol),
+	.prose :global(ol ul) {
+		margin: 0.375rem 0 0;
+		gap: var(--space-1);
 	}
 
-	.policy-prose :global(code) {
-		font-family: var(--font-mono);
-		font-size: 0.9em;
-		background: var(--tint-soft);
-		border: 1px solid var(--hairline);
-		border-radius: var(--radius-sm);
-		padding: 0.1em 0.4em;
-		color: var(--text-primary);
-	}
-
-	.policy-prose :global(a) {
-		color: var(--primary);
+	.prose :global(a) {
+		color: var(--accent);
 		text-decoration: none;
-		transition: color var(--dur) var(--ease);
+
+		&:hover {
+			color: var(--accent-hover);
+			text-decoration: underline;
+		}
 	}
 
-	.policy-prose :global(a:hover) {
-		color: var(--primary-hover);
-		text-decoration: underline;
-		text-underline-offset: 3px;
+	.prose :global(strong) {
+		color: var(--ink);
+		font-weight: var(--fw-semibold);
 	}
 
+	.prose :global(code) {
+		font-family: var(--font-mono);
+		font-size: 0.875em;
+		color: var(--ink);
+	}
+
+	/* "Last updated" line, and the contact card the documents close with. */
+	.prose :global(.updated) {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.prose :global(.contact) {
+		margin-top: var(--space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: 1rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.prose :global(.contact strong) {
+		font-size: var(--fs-sm);
+	}
+
+	@media (max-width: 860px) {
+		.main {
+			flex-direction: column;
+			gap: var(--space-6);
+		}
+		.rail {
+			position: static;
+			flex: 1 1 auto;
+			width: 100%;
+		}
+		.rail-links {
+			flex-direction: row;
+			flex-wrap: wrap;
+			gap: var(--space-1);
+		}
+	}
 </style>
