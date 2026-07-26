@@ -10,7 +10,12 @@ export async function POST({ request, locals }) {
 
     try {
         const payload = await request.json();
-        let response = await ApiServerClient.post('/billing/verify', payload);
+        // /billing sits behind validate_token, so the caller's key has to travel
+        // with the request. Without it the gateway takes the money and the grant
+        // is refused, which is the worst possible way for this call to fail.
+        let response = await ApiServerClient.post('/billing/verify', payload, {
+            headers: { 'X-Api-Key': user.api_key }
+        });
 
         // Fetch fresh user data to update session
         if (response.status === 200) {
