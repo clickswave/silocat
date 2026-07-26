@@ -22,13 +22,18 @@ pub async fn handle(
 ) -> impl IntoResponse {
     let user_id = token_user.id;
 
-    let new_key = Uuid::new_v4().to_string();
+    let minted = match crate::libs::apikey::mint() {
+        Some(k) => k,
+        None => return respond(500, "Could not rotate API key", vec![], json!({})),
+    };
+    let new_key = minted.raw;
 
-    let result = sqlx::query!(
-        "UPDATE users SET api_key = $1 WHERE id = $2",
-        new_key,
-        user_id
+    let result = sqlx::query(
+        "UPDATE users SET api_key = $1, api_key_enc = $2, api_key_migrated = TRUE WHERE id = $3",
     )
+    .bind(&minted.blind_index)
+    .bind(&minted.encrypted)
+    .bind(&user_id)
     .execute(&axum_state.pg_pool)
     .await;
 

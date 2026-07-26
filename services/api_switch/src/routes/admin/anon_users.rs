@@ -21,6 +21,7 @@ pub struct AnonymousUser {
     pub last_seen: DateTime<Utc>,
     pub bandwidth_usage_bytes: i64,
     pub last_reset_stats: DateTime<Utc>,
+    pub api_key_migrated: bool,
 }
 
 pub fn router() -> Router<crate::AppState> {

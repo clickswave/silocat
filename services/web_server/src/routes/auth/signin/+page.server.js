@@ -4,6 +4,7 @@ import { redirect } from '@sveltejs/kit';
 import { validateTurnstileToken } from '$lib/turnstile.js';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
+import { clientIpHeaders } from '$lib/server/client-ip.js';
 
 const { PUBLIC_TURNSTILE_KEY } = env;
 
@@ -21,7 +22,8 @@ export const load = async ({ locals }) => {
 
 /** @satisfies {import('./$types').Actions} */
 export const actions = {
-	default: async ({ request, locals }) => {
+	default: async (event) => {
+		const { request, locals } = event;
 		let data = await request.formData();
 		let email = data.get('email')?.trim();
 		let password = data.get('password')?.trim();
@@ -44,7 +46,7 @@ export const actions = {
 				email: email,
 				password: password
 			};
-			let response = await ApiServerClient.post(ApiServerRoutes.login, payload).then(
+			let response = await ApiServerClient.post(ApiServerRoutes.login, payload, { headers: clientIpHeaders(event) }).then(
 				(res) => res.data
 			);
 			await locals.session.user.set(response.data.user);

@@ -11,8 +11,15 @@ pub struct User {
     pub email: String,
     #[serde(skip_serializing)]
     pub password_hash: String,
+    /// Blind index of the key, not the key. See libs::apikey.
     #[serde(skip_serializing)]
     pub api_key: String,
+    /// Encrypted key, decrypted only to show the owner their own key.
+    #[serde(skip_serializing)]
+    pub api_key_enc: Option<String>,
+    /// False while the row still holds a plaintext key (see apikey_backfill).
+    #[serde(skip_serializing)]
+    pub api_key_migrated: bool,
     pub created_on: DateTime<Utc>,
     pub account_type: String,
 
@@ -75,7 +82,12 @@ pub fn token_data(user: User, subscription: Option<Subscription>) -> UserTokenDa
         // uses this to offer "set password" vs "change password".
         password_set: !user.password_hash.trim().is_empty(),
         username: user.username,
-        api_key: user.api_key,
+        // The session carries the real key so the client can send X-Api-Key.
+        api_key: user
+            .api_key_enc
+            .as_deref()
+            .and_then(crate::libs::apikey::decrypt)
+            .unwrap_or_default(),
         subscription: subscription,
         account_type: user.account_type,
         default_storage_bytes: user.default_storage_bytes,

@@ -67,6 +67,14 @@ async fn main() -> anyhow::Result<()> {
     require_env(&required);
 
     // establish a postgres connection + R2 (both modes need these)
+    // API keys are stored as a blind index plus ciphertext; without this secret
+    // neither lookups nor display work, so refuse to start rather than serve a
+    // half-authenticating process.
+    if !libs::apikey::is_configured() {
+        eprintln!("[fatal] API_KEY_ENC_KEY is not set. Generate one with: openssl rand -hex 32");
+        std::process::exit(1);
+    }
+
     let pg_pool = libs::postgresql::pool().await?;
     let r2 = libs::r2::R2::new().await;
 
@@ -78,6 +86,14 @@ async fn main() -> anyhow::Result<()> {
 
     // run all migrations
     sqlx::migrate!("./migrations").run(&pg_pool).await?;
+
+    // Convert any keys still stored in plaintext. No-op once the fleet has
+    // rolled forward; runs before the listener binds so no request can observe
+    // a half-migrated row.
+    if let Err(e) = libs::apikey_backfill::run(&pg_pool).await {
+        eprintln!("[fatal] API key backfill failed: {e}");
+        std::process::exit(1);
+    }
 
     // source authority sign from env
     let authority_sign = match std::env::var("INFRA_COMMUNICATION_SECRET"){

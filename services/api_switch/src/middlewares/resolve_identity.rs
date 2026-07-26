@@ -46,6 +46,10 @@ pub async fn resolve_identity(
         .map(str::to_string)
         .filter(|k| !k.is_empty());
 
+    // Everything downstream (lookups, owns()) compares blind indexes, so the
+    // raw key is converted here at the boundary and never stored or compared.
+    let key = key.and_then(|k| crate::libs::apikey::blind_index(&k));
+
     let caller: Option<Caller> = match key {
         Some(k) => {
             // Registered user?

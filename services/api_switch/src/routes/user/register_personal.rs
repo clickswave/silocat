@@ -153,6 +153,11 @@ pub async fn handle(
         }
     }
 
+    let minted = match libs::apikey::mint() {
+        Some(k) => k,
+        None => return respond(500, "Server misconfigured", vec![], json!({})),
+    };
+
     let user = sqlx::query_as::<_, models::User>(
         "
         INSERT INTO users
@@ -164,6 +169,8 @@ pub async fn handle(
              otp,
              otp_expires_at,
              api_key,
+             api_key_enc,
+             api_key_migrated,
              team_id,
              subscription_id,
              account_type,
@@ -171,7 +178,7 @@ pub async fn handle(
              country
             )
         VALUES
-            ( $1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes', $6, $7, $8, $9, $10, $11)
+            ( $1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes', $6, $7, TRUE, $8, $9, $10, $11, $12)
         RETURNING *
         "
     )
@@ -180,7 +187,8 @@ pub async fn handle(
     .bind(&payload.email)
     .bind(password_hash)
     .bind(&otp)
-    .bind(rng::uuid())
+    .bind(&minted.blind_index)
+    .bind(&minted.encrypted)
     .bind(None::<String>)
     .bind(None::<String>)
     .bind("personal")

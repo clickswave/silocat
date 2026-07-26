@@ -1,9 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network.js';
+import { clientIpHeaders } from '$lib/server/client-ip.js';
 
 // POST /api/v1/user/reset-password  { email, otp, new_password }
 // On success the user is logged straight in (session established).
-export async function POST({ request, locals }) {
+export async function POST(event) {
+	const { request, locals } = event;
 	let payload;
 	try {
 		payload = await request.json();
@@ -12,7 +14,7 @@ export async function POST({ request, locals }) {
 	}
 
 	try {
-		const res = await ApiServerClient.post('/user/reset-password', payload);
+		const res = await ApiServerClient.post('/user/reset-password', payload, { headers: clientIpHeaders(event) });
 		const user = res.data?.data?.user;
 		if (user) {
 			await locals.session.user.set(user);

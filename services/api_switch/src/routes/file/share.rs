@@ -24,9 +24,69 @@ pub struct ToggleSharePayload {
     pub clear_password: Option<bool>,
 }
 
-// Simple SHA-256 hex gate for share links (not a user credential).
-fn hash_share_pw(pw: &str) -> String {
-    hex::encode(Sha256::digest(pw.as_bytes()))
+/// Hash a share-link password for storage.
+///
+/// Argon2id, same parameters as account passwords. A link password is often the
+/// only gate on a share whose contents were never client-side encrypted, so it
+/// gets treated as a real credential: per-link salt (so one rainbow table can't
+/// cover every link) and a work factor that makes offline cracking expensive.
+fn hash_share_pw(pw: &str) -> Option<String> {
+    crate::libs::argon2::hash(pw.to_string()).ok()
+}
+
+/// Check a supplied share password against the stored hash.
+///
+/// Returns false when nothing was supplied. Handles both formats:
+///   - `$argon2id$...` PHC strings, verified by the argon2 crate (constant time)
+///   - legacy 64-char SHA-256 hex from before this was salted, compared in
+///     constant time so the comparison itself leaks nothing
+///
+/// Callers must rate-limit before reaching here: Argon2id is deliberately
+/// expensive (~19 MB, ~50 ms per call), which is a denial-of-service lever on
+/// an unauthenticated endpoint if left unmetered.
+fn verify_share_pw(supplied: Option<&str>, stored: &str) -> bool {
+    let Some(pw) = supplied.map(str::trim).filter(|p| !p.is_empty()) else {
+        return false;
+    };
+
+    if stored.starts_with("$argon2") {
+        return crate::libs::argon2::verify(&pw.to_string(), stored.to_string());
+    }
+
+    // Legacy unsalted SHA-256. Still accepted so existing links keep working;
+    // upgraded to Argon2id on the next successful use (see upgrade_share_pw).
+    let computed = hex::encode(Sha256::digest(pw.as_bytes()));
+    crate::middlewares::ct_eq(computed.as_bytes(), stored.as_bytes())
+}
+
+/// True when a stored hash is in the old unsalted format and should be rewritten.
+fn is_legacy_share_pw(stored: &str) -> bool {
+    !stored.starts_with("$argon2")
+}
+
+/// Throttle password attempts on a public share link.
+///
+/// Applied only once we know the link actually has a password, so ordinary
+/// downloads are never throttled. Two buckets: per-IP stops one attacker, and
+/// per-token stops a distributed attack converging on a single link. This is
+/// also what keeps Argon2id from becoming a memory-exhaustion lever, so it must
+/// run before any verification work.
+fn share_pw_allowed(state: &crate::AppState, ip: &str, token: &str) -> bool {
+    const WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+    state.rate_limiter.check(&format!("sharepw:{}", ip), 30, WINDOW)
+        && state.rate_limiter.check(&format!("sharepwtok:{}", token), 20, WINDOW)
+}
+
+/// Rewrite a legacy SHA-256 link password as Argon2id after a successful check.
+/// Best-effort: on failure the old hash stays and the next use retries.
+async fn upgrade_share_pw(pool: &sqlx::PgPool, table: &str, id: &str, pw: &str) {
+    let Some(new_hash) = hash_share_pw(pw.trim()) else { return };
+    let sql = if table == "files" {
+        "UPDATE files SET share_password_hash = $1 WHERE id = $2"
+    } else {
+        "UPDATE folders SET share_password_hash = $1 WHERE id = $2"
+    };
+    let _ = sqlx::query(sql).bind(new_hash).bind(id).execute(pool).await;
 }
 
 #[derive(Deserialize)]
@@ -68,7 +128,12 @@ pub async fn toggle_share(
         None => (false, None),
     };
     let (pw_update, pw_value) = match (payload.password.as_ref(), payload.clear_password) {
-        (Some(p), _) if !p.trim().is_empty() => (true, Some(hash_share_pw(p.trim()))),
+        (Some(p), _) if !p.trim().is_empty() => match hash_share_pw(p.trim()) {
+            Some(h) => (true, Some(h)),
+            // Never fall through to "no password" on a hashing failure: that
+            // would silently publish the share unprotected.
+            None => return respond(500, "Could not set the link password", vec![], json!({})),
+        },
         (_, Some(true)) => (true, None),
         _ => (false, None),
     };
@@ -444,16 +509,15 @@ pub struct PublicFetchChunksPayload {
 }
 
 pub async fn public_fetch_file_chunks(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<PublicFetchChunksPayload>,
 ) -> impl IntoResponse {
+    let client_ip = crate::libs::geoip::client_ip(&headers, addr);
     let token = payload.token;
     let file_id = payload.file_id;
-    let supplied_pw_hash = payload
-        .password
-        .as_ref()
-        .filter(|p| !p.trim().is_empty())
-        .map(|p| hash_share_pw(p.trim()));
+    let supplied_pw = payload.password.as_deref();
 
     // Verify folder token
     let folder = sqlx::query!(
@@ -470,8 +534,17 @@ pub async fn public_fetch_file_chunks(
             }
         }
         if let Some(ref required) = folder_rec.share_password_hash {
-            if supplied_pw_hash.as_deref() != Some(required.as_str()) {
+            // Meter before the KDF runs, not after.
+            if !share_pw_allowed(&axum_state, &client_ip, &token) {
+                return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
+            }
+            if !verify_share_pw(supplied_pw, required) {
                 return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            }
+            if is_legacy_share_pw(required) {
+                if let Some(pw) = supplied_pw {
+                    upgrade_share_pw(&axum_state.pg_pool, "folders", &folder_rec.id, pw).await;
+                }
             }
         }
         if folder_rec.share_type == Some("once".to_string()) {
@@ -552,15 +625,14 @@ pub async fn public_fetch_file_chunks(
 
 
 pub async fn public_authorize_download(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(payload): Json<PublicDownloadPayload>,
 ) -> impl IntoResponse {
+    let client_ip = crate::libs::geoip::client_ip(&headers, addr);
     let token = payload.token;
-    let supplied_pw_hash = payload
-        .password
-        .as_ref()
-        .filter(|p| !p.trim().is_empty())
-        .map(|p| hash_share_pw(p.trim()));
+    let supplied_pw = payload.password.as_deref();
 
     // Check file
     let file_query = sqlx::query!(
@@ -577,8 +649,17 @@ pub async fn public_authorize_download(
             }
         }
         if let Some(ref required) = r.share_password_hash {
-            if supplied_pw_hash.as_deref() != Some(required.as_str()) {
+            // Meter before the KDF runs, not after.
+            if !share_pw_allowed(&axum_state, &client_ip, &token) {
+                return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
+            }
+            if !verify_share_pw(supplied_pw, required) {
                 return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            }
+            if is_legacy_share_pw(required) {
+                if let Some(pw) = supplied_pw {
+                    upgrade_share_pw(&axum_state.pg_pool, "files", &r.id, pw).await;
+                }
             }
         }
         // Atomically enforce the once-limit and bump the counter in one
@@ -655,8 +736,17 @@ pub async fn public_authorize_download(
             }
         }
         if let Some(ref required) = r.share_password_hash {
-            if supplied_pw_hash.as_deref() != Some(required.as_str()) {
+            // Meter before the KDF runs, not after.
+            if !share_pw_allowed(&axum_state, &client_ip, &token) {
+                return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
+            }
+            if !verify_share_pw(supplied_pw, required) {
                 return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            }
+            if is_legacy_share_pw(required) {
+                if let Some(pw) = supplied_pw {
+                    upgrade_share_pw(&axum_state.pg_pool, "folders", &r.id, pw).await;
+                }
             }
         }
         // Atomically enforce the once-limit for the folder link (see the file
@@ -704,4 +794,42 @@ pub async fn public_authorize_download(
     }
 
     respond(404, "Invalid link", vec![], json!({}))
+}
+
+#[cfg(test)]
+mod share_pw_tests {
+    use super::*;
+
+    #[test]
+    fn argon2_roundtrip() {
+        let stored = hash_share_pw("k7-Fern-Ridge-92").expect("hash");
+        assert!(stored.starts_with("$argon2"));
+        assert!(verify_share_pw(Some("k7-Fern-Ridge-92"), &stored));
+        assert!(verify_share_pw(Some("  k7-Fern-Ridge-92  "), &stored), "trims");
+        assert!(!verify_share_pw(Some("wrong"), &stored));
+    }
+
+    #[test]
+    fn per_link_salt_means_distinct_hashes() {
+        let a = hash_share_pw("same").unwrap();
+        let b = hash_share_pw("same").unwrap();
+        assert_ne!(a, b, "identical passwords must not share a digest");
+    }
+
+    #[test]
+    fn legacy_sha256_still_verifies_and_is_flagged() {
+        let legacy = hex::encode(Sha256::digest("old-password".as_bytes()));
+        assert!(is_legacy_share_pw(&legacy));
+        assert!(verify_share_pw(Some("old-password"), &legacy));
+        assert!(!verify_share_pw(Some("nope"), &legacy));
+        assert!(!is_legacy_share_pw(&hash_share_pw("x").unwrap()));
+    }
+
+    #[test]
+    fn absent_or_blank_password_never_passes() {
+        let stored = hash_share_pw("secret").unwrap();
+        assert!(!verify_share_pw(None, &stored));
+        assert!(!verify_share_pw(Some(""), &stored));
+        assert!(!verify_share_pw(Some("   "), &stored));
+    }
 }

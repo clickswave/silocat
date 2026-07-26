@@ -159,7 +159,11 @@ pub async fn handle(
             };
             let username = format!("{}{}", base, libs::rng::number(4));
             let user_id = libs::rng::uuid();
-            let api_key = libs::rng::uuid();
+            let minted = match libs::apikey::mint() {
+                Some(k) => k,
+                None => return respond(500, "Server misconfigured", vec![], json!({})),
+            };
+            let api_key = minted.blind_index.clone();
             let geo_country = sanitize_country(payload.client_country.as_deref()).or_else(|| {
                 axum_state
                     .geoip
@@ -169,13 +173,14 @@ pub async fn handle(
 
             let created = sqlx::query_as::<_, User>(
                 "INSERT INTO users \
-                 (id, username, email, password_hash, otp, api_key, account_type, default_storage_bytes, email_verified, profile_image, country) \
-                 VALUES ($1, $2, $3, '', '', $4, 'personal', $5, true, $6, $7) RETURNING *",
+                 (id, username, email, password_hash, otp, api_key, api_key_enc, api_key_migrated, account_type, default_storage_bytes, email_verified, profile_image, country) \
+                 VALUES ($1, $2, $3, '', '', $4, $5, TRUE, 'personal', $6, true, $7, $8) RETURNING *",
             )
             .bind(&user_id)
             .bind(&username)
             .bind(&google_user.email)
             .bind(&api_key)
+            .bind(&minted.encrypted)
             .bind(53687091200_i64)
             .bind(&google_user.picture)
             .bind(&geo_country)

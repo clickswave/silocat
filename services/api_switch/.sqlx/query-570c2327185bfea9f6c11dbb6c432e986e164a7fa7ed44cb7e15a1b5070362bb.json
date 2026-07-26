@@ -142,6 +142,16 @@
         "ordinal": 27,
         "name": "otp_attempts",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 28,
+        "name": "api_key_enc",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 29,
+        "name": "api_key_migrated",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -174,6 +184,8 @@
       true,
       true,
       true,
+      true,
+      false,
       true,
       false
     ]

@@ -1,3 +1,5 @@
+pub mod apikey;
+pub mod apikey_backfill;
 pub mod input_validators;
 pub mod configs;
 pub mod r2;

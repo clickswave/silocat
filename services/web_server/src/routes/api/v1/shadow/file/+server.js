@@ -1,25 +1,16 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { clientIpHeaders } from '$lib/server/client-ip.js';
 
-function getClientIp(headers) {
-	// Cloudflare
-	const cfIp = headers.get('cf-connecting-ip');
-	if (cfIp) return cfIp;
+async function validateRequest(event) {
 
-	// Reverse proxies
-	const xff = headers.get('x-forwarded-for');
-	if (xff) return xff.split(',')[0].trim();
-
-	return null;
-}
-
-async function validateRequest({ request }) {
-
+	const { request } = event;
 	let headers = request.headers;
 
 	// 1. API key enforcement
 	const apiKey = request.headers.get('X-Api-Key');
-	const clientIp = getClientIp(headers) || "127.0.0.1";
+	const ipHeaders = clientIpHeaders(event);
+	const clientIp = ipHeaders['CF-Connecting-IP'] || '127.0.0.1';
 	const userAgent = headers.get('user-agent');
 	// Cloudflare geo headers (best case)
 	const geo = {
@@ -39,7 +30,7 @@ async function validateRequest({ request }) {
 	};
 	try {
 		let validate = await ApiServerClient.post(ApiServerRoutes.validateShadowUser, payload, {
-			headers: { 'CF-Connecting-IP': clientIp }
+			headers: ipHeaders
 		}).then(res => res.data);
 		let { user } = validate;
 		return { success: true, user };
@@ -56,9 +47,11 @@ async function validateRequest({ request }) {
 	}
 }
 
-export async function POST({ request, locals }) {
+export async function POST(event) {
 
-	let { success, user, error } = await validateRequest({ request, headers: locals.headers });
+	const { request, locals } = event;
+
+	let { success, user, error } = await validateRequest(event);
 	if (!success) {
 		return json({ error: error.message || 'Unauthorized' }, { status: error.status || 401 });
 	}
@@ -76,8 +69,9 @@ export async function POST({ request, locals }) {
 	let body;
 	try {
 		body = await request.json();
-		// Inject owner API key from headers (for anonymous management)
-		body.owner_api_key = await validateRequest({ request, headers: locals.headers }).then(r => r.user?.api_key || request.headers.get('X-Api-Key'));
+		// Inject owner API key from headers (for anonymous management). Reuse the
+		// user resolved above rather than re-validating: this runs on every upload.
+		body.owner_api_key = user?.api_key || request.headers.get('X-Api-Key');
 
 		if (body.file_size && body.file_size > limit) {
 			const limitGb = limit / (1024 * 1024 * 1024);
@@ -92,11 +86,10 @@ export async function POST({ request, locals }) {
 	}
 
 	try {
-		const clientIp = getClientIp(request.headers) || '127.0.0.1';
 		const sessionUser = await locals.session.user.get();
 		const apiKey = sessionUser?.api_key || request.headers.get('X-Api-Key') || undefined;
 		let response = await ApiServerClient.post(ApiServerRoutes.createFile, body, {
-			headers: { 'CF-Connecting-IP': clientIp, 'X-Api-Key': apiKey }
+			headers: { ...clientIpHeaders(event), 'X-Api-Key': apiKey }
 		}).then(res => res.data);
 		return json(response);
 	} catch (err) {

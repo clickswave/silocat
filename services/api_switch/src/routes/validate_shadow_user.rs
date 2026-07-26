@@ -50,6 +50,12 @@ pub async fn handle(
         .and_then(|r| libs::geoip::lookup(r, &ip))
         .unwrap_or_else(|| json!({}));
 
+    // The browser generates this key; store only its blind index.
+    let api_key_index = match libs::apikey::blind_index(&payload.api_key) {
+        Some(i) => i,
+        None => return respond(500, "Server misconfigured", vec![], json!({})),
+    };
+
     // Insert or update the anonymous user keyed by browser api_key.
     let insert_query = sqlx::query!(
         "INSERT INTO anonymous_users (api_key, ip_address, user_agent, geo_location, last_seen)
@@ -59,7 +65,7 @@ pub async fn handle(
          ip_address = EXCLUDED.ip_address,
          user_agent = EXCLUDED.user_agent,
          geo_location = EXCLUDED.geo_location",
-        payload.api_key,
+        api_key_index,
         ip,
         user_agent,
         geo_json

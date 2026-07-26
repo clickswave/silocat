@@ -71,7 +71,7 @@ pub async fn authority_sign_check(
 
 /// Constant-time comparison, so a timing side channel cannot leak the sign one
 /// byte at a time.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

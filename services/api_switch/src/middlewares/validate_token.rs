@@ -28,10 +28,15 @@ pub async fn validate_token(
         Err(_) => return unauthorized.into_response(),
     };
 
+    let api_key_index = match crate::libs::apikey::blind_index(api_key) {
+        Some(i) => i,
+        None => return unauthorized.into_response(),
+    };
+
     let user = match sqlx::query_as::<_, models::User>(
         "SELECT * FROM users WHERE api_key = $1",
     )
-    .bind(api_key)
+    .bind(&api_key_index)
         .fetch_optional(&state.pg_pool)
         .await
     {
