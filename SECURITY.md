@@ -5,7 +5,7 @@ those claims are wrong, we want to know before your users do.
 
 ## Reporting a vulnerability
 
-Email **security@silo.cat** with:
+Email **team@silo.cat** with:
 
 - what you found and where (file, endpoint, or a URL),
 - how to reproduce it, ideally a minimal proof of concept,

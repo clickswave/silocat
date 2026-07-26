@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/clickswave/silocat/security/policy
-    about: Do not open a public issue. Email security@silo.cat instead.
+    about: Do not open a public issue. Email team@silo.cat instead.
   - name: Question or help with self-hosting
     url: https://github.com/clickswave/silocat/discussions
     about: Ask in Discussions rather than opening an issue.

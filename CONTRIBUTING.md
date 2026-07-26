@@ -25,7 +25,7 @@ the share links, or the auth path need a design conversation before code, not
 after.
 
 **Do not open an issue for a security problem.** Read
-[SECURITY.md](SECURITY.md) and email security@silo.cat instead.
+[SECURITY.md](SECURITY.md) and email team@silo.cat instead.
 
 ## Running it
 
