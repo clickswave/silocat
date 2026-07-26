@@ -1,0 +1,11 @@
+-- Retire the admin_users table.
+--
+-- Admin access is now a single high-entropy secret in `ADMIN_COMMUNICATION_SECRET`, checked
+-- against the `X-Admin-Secret` header. There is no admin account, so there is
+-- no credential to seed, store, or leak.
+--
+-- This is the fix for a real problem: migration 0022 shipped a live argon2 hash
+-- for the seeded admin account in the repository. Dropping the table removes the stored
+-- credential from every deployment; removing the hash from 0021/0022 (done in
+-- the same change) removes it from the source.
+DROP TABLE IF EXISTS admin_users;

@@ -1,77 +1,59 @@
+//! Admin gate.
+//!
+//! The admin surface is protected by a single high-entropy secret supplied in
+//! a header (name from `ADMIN_COMMUNICATION_SECRET_HEADER`, default `X-Admin-Secret`)
+//! and compared against `ADMIN_COMMUNICATION_SECRET` from the environment.
+//!
+//! This deliberately replaces the previous `admin_users` table + password login
+//! + HMAC session tokens. That design required a seeded credential to exist in a
+//! migration, which meant a real password hash sat in the repository: fatal for
+//! a project going open source. There is now no admin account to seed, no hash
+//! to leak, and nothing to crack, because the secret is random rather than
+//! human-chosen.
+//!
+//! Two properties are kept from the old design and matter more than sessions:
+//!
+//! 1. It is SEPARATE from `INFRA_COMMUNICATION_SECRET` (the shared frontend<->backend gate),
+//!    so knowing the shared sign is never sufficient to reach admin.
+//! 2. It FAILS CLOSED. With `ADMIN_COMMUNICATION_SECRET` unset or empty the entire admin tree
+//!    is unreachable, rather than falling back to a derivable or default value.
+//!
+//! Tradeoff, stated plainly: a static secret carries no per-admin identity, no
+//! expiry, and no way to revoke one operator without rotating for everyone. With
+//! a single operator that costs nothing. If more people ever need admin access,
+//! reintroduce per-admin sessions rather than passing this value around.
+
 use crate::routes::respond;
 use axum::{
     extract::Request,
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use hmac::{Hmac, Mac};
 use serde_json::json;
-use sha2::Sha256;
 
-type HmacSha256 = Hmac<Sha256>;
-
-/// Identity attached to the request once an admin token is verified.
-#[derive(Clone, Debug)]
-pub struct AdminIdentity {
-    pub id: String,
-}
-
-/// The signing secret for admin session tokens. This is deliberately SEPARATE
-/// from `AUTHORITY_SIGN` (the shared frontend<->backend gate): knowing the shared
-/// sign must NOT be enough to forge an admin session. If it is unset/empty the
-/// admin surface is **disabled** (fail closed) rather than falling back to a
-/// derivable key.
+/// The configured admin secret, or `None` when the surface is disabled.
 fn admin_secret() -> Option<String> {
-    std::env::var("ADMIN_TOKEN_SECRET")
+    std::env::var("ADMIN_COMMUNICATION_SECRET")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
-fn sign(key: &str, payload: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(payload.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
-}
-
-/// Mint a stateless admin session token: `{admin_id}.{exp}.{sig}` where
-/// `sig = hex(HMAC-SHA256(ADMIN_TOKEN_SECRET, "{admin_id}.{exp}"))`.
-/// Returns `None` if the admin surface is not configured (secret unset).
-pub fn mint(admin_id: &str, ttl_secs: i64) -> Option<String> {
-    let secret = admin_secret()?;
-    let exp = chrono::Utc::now().timestamp() + ttl_secs;
-    let payload = format!("{}.{}", admin_id, exp);
-    let sig = sign(&secret, &payload);
-    Some(format!("{}.{}", payload, sig))
-}
-
-/// Verify a token; returns the admin id on success. Constant-time signature
-/// check (via `Mac::verify_slice`), rejects on expiry or if admin is disabled.
-fn verify(token: &str) -> Option<String> {
-    let secret = admin_secret()?;
-    let parts: Vec<&str> = token.splitn(3, '.').collect();
-    if parts.len() != 3 {
-        return None;
+/// Constant-time comparison so a timing side channel cannot leak the secret one
+/// byte at a time.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
     }
-    let (admin_id, exp_str, sig_hex) = (parts[0], parts[1], parts[2]);
-    let payload = format!("{}.{}", admin_id, exp_str);
-
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).ok()?;
-    mac.update(payload.as_bytes());
-    let sig = hex::decode(sig_hex).ok()?;
-    mac.verify_slice(&sig).ok()?; // constant-time
-
-    let exp: i64 = exp_str.parse().ok()?;
-    if chrono::Utc::now().timestamp() > exp {
-        return None;
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
     }
-    Some(admin_id.to_string())
+    diff == 0
 }
 
-/// Middleware: require a valid `X-Admin-Token` on every admin route. Fails closed
-/// when `ADMIN_TOKEN_SECRET` is unset — the admin API is unreachable until it is
-/// configured, so the shared `AUTHORITY_SIGN` alone can never reach admin.
-pub async fn validate_admin_token(mut request: Request, next: Next) -> Response {
+/// Middleware: require a valid `X-Admin-Secret` on every admin route.
+pub async fn validate_admin_secret(request: Request, next: Next) -> Response {
     let unauthorized = respond(
         401,
         "Unauthorized",
@@ -79,16 +61,21 @@ pub async fn validate_admin_token(mut request: Request, next: Next) -> Response 
         json!({}),
     );
 
-    let admin_id = match request
-        .headers()
-        .get("X-Admin-Token")
-        .and_then(|v| v.to_str().ok())
-        .and_then(verify)
-    {
-        Some(id) => id,
+    // No secret configured => the admin surface does not exist.
+    let expected = match admin_secret() {
+        Some(s) => s,
         None => return unauthorized.into_response(),
     };
 
-    request.extensions_mut().insert(AdminIdentity { id: admin_id });
+    let provided = request
+        .headers()
+        .get(super::admin_header().as_str())
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !ct_eq(provided.as_bytes(), expected.as_bytes()) {
+        return unauthorized.into_response();
+    }
+
     next.run(request).await
 }

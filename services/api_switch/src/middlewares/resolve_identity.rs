@@ -7,7 +7,7 @@ use axum::{
 /// The authenticated caller behind an `X-Api-Key`. The file/folder routes serve
 /// both registered users ("sanctum") and anonymous ("shadow") sessions, so a
 /// caller is either a real user or a known shadow key. Resolved server-side from
-/// the key — never from a client-supplied `user_id`/`owner_api_key` body field.
+/// the key: never from a client-supplied `user_id`/`owner_api_key` body field.
 #[derive(Clone, Debug)]
 pub struct Caller {
     /// The presented key: a user's `api_key` or a shadow anonymous `api_key`.
@@ -33,8 +33,7 @@ impl Caller {
 
 /// Non-rejecting identity resolver for the file/folder routers. Attaches an
 /// `Option<Caller>` to every request: `Some` when the `X-Api-Key` resolves to a
-/// user or a shadow session, `None` otherwise. Handlers decide what to require —
-/// reads allow public objects with no caller; writes demand ownership.
+/// user or a shadow session, `None` otherwise. Handlers decide what to require: /// reads allow public objects with no caller; writes demand ownership.
 pub async fn resolve_identity(
     State(state): State<crate::AppState>,
     mut request: Request,

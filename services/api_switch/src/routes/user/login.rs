@@ -5,9 +5,18 @@ use serde_json::{json};
 use crate::{libs, models};
 use crate::routes::respond;
 
-/// A real argon2id hash used only to equalize verify timing when the email is
-/// unknown (defeats login-timing account enumeration). Not a credential.
-const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$REDACTED$REDACTED";
+/// Verified against when the email is unknown, so a missing account costs the
+/// same time as a wrong password and cannot be detected by timing.
+///
+/// The salt and digest are random bytes: this hash corresponds to no password
+/// that has ever existed, and cracking it yields nothing. That matters, because
+/// this constant previously held the hash of a real account's password, which
+/// meant the credential shipped in the source even after it was removed from
+/// the migration that first introduced it.
+///
+/// Argon2 verification does the full KDF work before comparing, so a digest
+/// that matches nothing equalises timing exactly as a real one would.
+const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$kcAIvWgAXrW1BuRgpYA/qw$H8fMKKi/uocv5jEa6IXKk0L7eADTErOBQyi3DrClIoI";
 
 #[derive(Deserialize, Debug)]
 pub struct Payload {
@@ -56,7 +65,7 @@ pub async fn handle(
         Ok(user) => user,
         Err(sqlx::Error::RowNotFound) => {
             // Run a verify against a dummy hash so an unknown email takes the
-            // same time as a wrong password — no email enumeration by timing.
+            // same time as a wrong password: no email enumeration by timing.
             let _ = libs::argon2::verify(&payload.password, DUMMY_HASH.to_string());
             return respond(
                 401,

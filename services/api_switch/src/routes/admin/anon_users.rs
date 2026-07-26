@@ -8,7 +8,6 @@ use crate::routes::respond;
 
 
 // We need to define a local struct because AnonUser is not fully defined in models.rs (it was missed in previous context or only sql exists)
-// Actually, I saw create_anonymous_users.sql, but checking models.rs again...
 // Looking at models.rs content from previous turn... it wasn't there!
 // So I will define a local struct here matching the DB schema.
 

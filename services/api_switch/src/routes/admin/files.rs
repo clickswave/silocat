@@ -50,7 +50,7 @@ pub async fn list_files(
     }
 }
 
-/// GET /admin/files/{id}/download — reassemble the file from its chunks and
+/// GET /admin/files/{id}/download: reassemble the file from its chunks and
 /// stream it as an attachment. Only for UNENCRYPTED files (E2E-encrypted files
 /// are stored as ciphertext the server can't decrypt). Size-capped to keep the
 /// admin box from OOMing on huge files.
