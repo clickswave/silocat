@@ -192,12 +192,76 @@ fn render_otp_email(
         .replace("{{SECURITY_NOTE}}", &esc(security_note))
 }
 
+/// Send a transactional email through the SES v2 API using a stored template.
+///
+/// `template_key` is suffixed onto the configured prefix, so "verify-email"
+/// becomes "silocat-verify-email". `data` is the Handlebars substitution data
+/// the template expects. Credentials and region come from the standard AWS
+/// environment variables via the SDK's default provider chain.
+async fn send_ses_templated(
+    cfg: &SmtpConfig,
+    to_email: &str,
+    template_key: &str,
+    data: serde_json::Value,
+) -> Result<(), String> {
+    let region = aws_sdk_sesv2::config::Region::new(cfg.ses_region.clone());
+    let shared = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(region)
+        .load()
+        .await;
+    let client = aws_sdk_sesv2::Client::new(&shared);
+
+    let from = format!("{} <{}>", cfg.from_name, cfg.from_email);
+    let template_name = format!("{}{}", cfg.template_prefix, template_key);
+
+    let dest = aws_sdk_sesv2::types::Destination::builder()
+        .to_addresses(to_email)
+        .build();
+    let tmpl = aws_sdk_sesv2::types::Template::builder()
+        .template_name(&template_name)
+        .template_data(data.to_string())
+        .build();
+    let content = aws_sdk_sesv2::types::EmailContent::builder()
+        .template(tmpl)
+        .build();
+
+    client
+        .send_email()
+        .from_email_address(from)
+        .destination(dest)
+        .reply_to_addresses(cfg.reply_to_email.clone())
+        .content(content)
+        .send()
+        .await
+        .map_err(|e| format!("SES send_email failed ({}): {:?}", template_name, e))?;
+    Ok(())
+}
+
+/// True when this environment should use SES stored templates.
+///
+/// Deliberately a runtime flag rather than a compile-time choice: prod stays on
+/// SMTP until AWS grants production access, and flipping it is then one env var
+/// and a restart rather than a rebuild.
+fn ses_enabled(cfg: &SmtpConfig) -> bool {
+    cfg.use_ses_templates
+}
+
 pub async fn send_verification_email(
     smtp_config: &SmtpConfig,
     to_name: &str,
     to_email: &str,
     otp: &str,
-) -> anyhow::Result<Response, String> {
+) -> anyhow::Result<(), String> {
+    if ses_enabled(smtp_config) {
+        return send_ses_templated(
+            smtp_config,
+            to_email,
+            "verify-email",
+            serde_json::json!({ "NAME": to_name, "CODE": otp }),
+        )
+        .await;
+    }
+
     let email_body = render_otp_email(
         to_name,
         "Confirm your email",
@@ -220,7 +284,7 @@ pub async fn send_verification_email(
         email_body,
     };
 
-    send(smtp_config, &email_data).await
+    send(smtp_config, &email_data).await.map(|_| ())
 }
 
 /// Internal support/contact message from a signed-in user. Sent to the support
@@ -289,7 +353,22 @@ pub async fn send_ticket_update_email(
     ticket_subject: &str,
     kind: &str,
     excerpt: &str,
-) -> anyhow::Result<Response, String> {
+) -> anyhow::Result<(), String> {
+    if ses_enabled(smtp_config) {
+        return send_ses_templated(
+            smtp_config,
+            to_email,
+            "ticket-update",
+            serde_json::json!({
+                "NAME": to_name,
+                "TICKET_ID": ticket_id,
+                "TICKET_SUBJECT": ticket_subject,
+                "MESSAGE": excerpt,
+            }),
+        )
+        .await;
+    }
+
     let resolved = kind == "resolved";
     let heading = if resolved { "Your ticket was resolved" } else { "New reply from SiloCat" };
     let intro = if resolved {
@@ -359,7 +438,7 @@ pub async fn send_ticket_update_email(
         email_body: body,
     };
 
-    send(smtp_config, &email_data).await
+    send(smtp_config, &email_data).await.map(|_| ())
 }
 
 pub async fn send_password_reset_email(
@@ -367,7 +446,17 @@ pub async fn send_password_reset_email(
     to_name: &str,
     to_email: &str,
     otp: &str,
-) -> anyhow::Result<Response, String> {
+) -> anyhow::Result<(), String> {
+    if ses_enabled(smtp_config) {
+        return send_ses_templated(
+            smtp_config,
+            to_email,
+            "password-reset",
+            serde_json::json!({ "NAME": to_name, "CODE": otp }),
+        )
+        .await;
+    }
+
     let email_body = render_otp_email(
         to_name,
         "Reset your password",
@@ -390,5 +479,5 @@ pub async fn send_password_reset_email(
         email_body,
     };
 
-    send(smtp_config, &email_data).await
+    send(smtp_config, &email_data).await.map(|_| ())
 }

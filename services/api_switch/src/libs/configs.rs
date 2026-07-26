@@ -21,6 +21,13 @@ pub struct SmtpConfig {
     pub from_email: String,
     pub reply_to_name: String,
     pub reply_to_email: String,
+    /// Send via the SES v2 API with stored templates instead of the SMTP relay.
+    /// Off by default, so an env that hasn't been granted SES production access
+    /// keeps working on SMTP until the flag is flipped.
+    pub use_ses_templates: bool,
+    pub ses_region: String,
+    /// Prefix on stored template names: "silocat-" + "verify-email".
+    pub template_prefix: String,
 }
 
 pub fn smtp_config() -> anyhow::Result<SmtpConfig> {
@@ -41,6 +48,18 @@ pub fn smtp_config() -> anyhow::Result<SmtpConfig> {
             reply_to_name: env::var("SMTP_REPLY_TO_NAME")
                 .unwrap_or_else(|_| "Silocat Support".to_string()),
             reply_to_email: env::var("SMTP_REPLY_TO_EMAIL").unwrap_or_else(|_| from_email),
+            use_ses_templates: env::var("EMAIL_USE_SES_TEMPLATES")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            ses_region: env::var("AWS_REGION")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .or_else(|| env::var("SES_REGION").ok().filter(|v| !v.is_empty()))
+                .unwrap_or_else(|| "eu-central-1".to_string()),
+            template_prefix: env::var("SES_TEMPLATE_PREFIX")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "silocat-".to_string()),
         })
 
     } else {
