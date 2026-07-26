@@ -132,7 +132,14 @@ pub async fn handle(
                 email_verified: user.email_verified,
                 password_set: true,
                 subscription,
-                api_key: user.api_key,
+                // The session carries the real key so the client can send
+                // X-Api-Key. user.api_key is the blind index, which authenticates
+                // nothing: it is what the index of a presented key is compared to.
+                api_key: user
+                    .api_key_enc
+                    .as_deref()
+                    .and_then(crate::libs::apikey::decrypt)
+                    .unwrap_or_default(),
                 account_type: user.account_type,
                 default_storage_bytes: user.default_storage_bytes,
                 country: user.country,
