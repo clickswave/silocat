@@ -432,6 +432,20 @@
 	let files = $state([]);
 	let isDragging = $state(false);
 	let isUploading = $state(false);
+	// Cancellation for an in-flight upload. Hashing and encryption run in a
+	// worker and cannot be interrupted mid-call, so the signal is checked at
+	// every await boundary; the chunk PUT gets the signal directly so a large
+	// transfer stops immediately rather than at the next chunk.
+	let uploadAbort = $state(null);
+	const UPLOAD_HALTED = 'upload-halted';
+
+	function throwIfHalted(signal) {
+		if (signal?.aborted) throw new Error(UPLOAD_HALTED);
+	}
+
+	function cancelUpload() {
+		uploadAbort?.abort();
+	}
 	let showUploadModal = $state(false);
 	let encryptionEnabled = $state(false);
 	let password = $state('');
@@ -795,12 +809,14 @@
 	}
 
 	const uploadMutation = createMutation(() => ({
-		mutationFn: async ({ file, folderId, onProgress }) => {
+		mutationFn: async ({ file, folderId, onProgress, signal }) => {
 			await sodium.ready; // Still need main thread sodium for random generation (nonce/salt)?
 			// crypto_hash and crypto_secretbox are the heavy ones.
 
+			throwIfHalted(signal);
 			uploadStats.phase = 'Hashing file…';
 			const fileChecksum = await getFileChecksum(file);
+			throwIfHalted(signal);
 			let key = null;
 			let salt = null;
 
@@ -809,6 +825,7 @@
 				salt = generateSalt(); // Fast
 				uploadStats.phase = 'Deriving encryption key…';
 				key = await deriveKeyFromPasswordWorker(password, salt);
+				throwIfHalted(signal);
 			}
 
 			const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -862,6 +879,7 @@
 			let fileUploadedBytes = 0;
 
 			for (let i = 0; i < totalChunks; i++) {
+				throwIfHalted(signal);
 				const chunkMeta = chunksMeta[i];
 				const serverChunk = serverChunks[i];
 				const chunkBlob = file.slice(chunkMeta.start, chunkMeta.end);
@@ -885,6 +903,7 @@
 				for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 					try {
 						await axios.put(serverChunk.presigned_url, dataToUpload, {
+							signal,
 							headers: { 'Content-Type': 'application/octet-stream' },
 							onUploadProgress: (progressEvent) => {
 								if (onProgress)
@@ -994,6 +1013,8 @@
 	async function startUpload() {
 		if (files.length === 0) return;
 		isUploading = true;
+		uploadAbort = new AbortController();
+		const signal = uploadAbort.signal;
 		folderCache.clear(); // Reset cache for new upload session
 
 		uploadStats.startTime = Date.now();
@@ -1031,6 +1052,7 @@
 					await uploadMutation.mutateAsync({
 						file,
 						folderId,
+						signal,
 						onProgress: (chunkPct, fileBytes) => {
 							uploadStats.chunkProgress = chunkPct;
 							uploadStats.fileProgress = (fileBytes / file.size) * 100;
@@ -1041,6 +1063,11 @@
 					successCount++;
 					globalUploadedBytesBase += file.size;
 				} catch (e) {
+					// A halt cancels the whole queue: the user asked to stop, not to
+					// skip one file and carry on with the rest.
+					if (signal.aborted || e?.message === UPLOAD_HALTED || e?.code === 'ERR_CANCELED') {
+						throw new Error(UPLOAD_HALTED);
+					}
 					failCount++;
 					console.error(`Failed to upload ${fileItem.name || 'file'}:`, e);
 					toast.error(`Failed to upload ${fileItem.name || 'file'}: ${e.message}`);
@@ -1058,8 +1085,28 @@
 				// Keep modal open if all failed?
 				toast.error('All uploads failed.');
 			}
+		} catch (e) {
+			if (e?.message === UPLOAD_HALTED) {
+				// Files already finished stay: they are uploaded and refusing to
+				// acknowledge them would be a lie. Report both halves.
+				toast.info(
+					successCount > 0
+						? `Upload halted. ${successCount} file${successCount === 1 ? '' : 's'} already finished.`
+						: 'Upload halted.'
+				);
+				if (successCount > 0) {
+					queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
+					queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
+					queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
+				}
+				files = [];
+				showUploadModal = false;
+			} else {
+				throw e;
+			}
 		} finally {
 			isUploading = false;
+			uploadAbort = null;
 		}
 	}
 
@@ -2325,7 +2372,14 @@
 					<Icon icon="ri:upload-cloud-2-line" width="20" />
 					<span>Upload files</span>
 				</div>
-				<button class="close-btn" onclick={() => (showUploadModal = false)} aria-label="Close">
+				<!-- During an upload the cross halts it rather than closing behind a
+				     transfer that keeps running unseen. -->
+				<button
+					class="close-btn"
+					onclick={() => (isUploading ? cancelUpload() : (showUploadModal = false))}
+					aria-label={isUploading ? 'Halt upload' : 'Close'}
+					title={isUploading ? 'Halt upload' : 'Close'}
+				>
 					<Icon icon="ri:close-line" width="22" />
 				</button>
 			</header>
