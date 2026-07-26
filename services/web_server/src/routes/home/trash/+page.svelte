@@ -39,7 +39,7 @@
 			// Most recently deleted first: that is what someone opening the trash
 			// is nearly always looking for.
 			trashItems = [...folders, ...files].sort(
-				(a, b) => new Date(b.deleted_on || 0) - new Date(a.deleted_on || 0)
+				(a, b) => new Date(b.deleted_on || 0).getTime() - new Date(a.deleted_on || 0).getTime()
 			);
 		} catch (e) {
 			console.error(e);

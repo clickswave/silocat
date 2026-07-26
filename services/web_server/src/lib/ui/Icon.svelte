@@ -2,7 +2,8 @@
 	import { ICONS, resolveIcon } from './icons.js';
 
 	let {
-		name,
+		/** Design-set icon name. Either this or `icon` must be given. */
+		name = undefined,
 		icon = undefined, // legacy alias prop, so `<Icon icon="ri:x" />` keeps working
 		size = 16,
 		width = undefined, // legacy alias for size
