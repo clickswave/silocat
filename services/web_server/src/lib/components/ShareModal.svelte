@@ -1,7 +1,7 @@
 <script>
 	import { createEventDispatcher } from 'svelte';
 	import { slide } from 'svelte/transition';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import axios from 'axios';
 	import { toast } from 'svelte-sonner';
 
@@ -45,7 +45,6 @@
 				`/api/v1/sanctum/file/share/info/${item.id}?user_id=${window.currentUser?.id || ''}`
 			);
 			// Note: user_id might be needed if not in session?
-			// Actually, the proxy handles the session and backend expects query param or extension.
 			// My proxy `info/[id]/+server.js` forwarding logic might need checking if it passes user_id?
 
 			if (res.data.success) {
@@ -190,7 +189,7 @@
 					<Icon icon="ri:loader-4-line" class="spinner" width="32" />
 				</div>
 			{:else}
-				<div class="section toggle-section">
+				<div class="sm-section toggle-section">
 					<div class="option-row">
 						<div class="info">
 							<span class="label">Share access</span>
@@ -220,7 +219,7 @@
 				</div>
 
 				{#if shareType !== 'off'}
-					<div class="section link-section" transition:slide>
+					<div class="sm-section link-section" transition:slide>
 						<div class="input-group">
 							<input type="text" readonly value={link} />
 							<div class="actions">
@@ -304,8 +303,9 @@
 		left: 0;
 		width: 100vw;
 		height: 100vh;
-		background: rgba(0, 0, 0, 0.65);
-		backdrop-filter: blur(8px);
+		background: var(--scrim);
+		/* No blur: backdrop-filter is on the design's kill list, and it makes
+		   the scrim read as frosted glass instead of a flat scrim. */
 		z-index: 1000;
 		display: flex;
 		align-items: center;
@@ -315,7 +315,7 @@
 
 	.modal {
 		background: var(--bg-elevated);
-		border: 1px solid var(--border-default);
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-lg);
 		width: 100%;
 		max-width: 480px;
@@ -328,8 +328,8 @@
 	}
 
 	.modal-header {
-		padding: var(--space-5);
-		border-bottom: 1px solid var(--hairline);
+		/* Matches ui/Modal: no divider under the header, tighter padding. */
+		padding: 1rem 1rem 0.875rem;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -345,19 +345,20 @@
 		.title-icon {
 			display: grid;
 			place-items: center;
-			width: 34px;
-			height: 34px;
+			width: 28px;
+			height: 28px;
 			flex-shrink: 0;
-			border-radius: var(--radius-md);
+			border-radius: 8px;
 			background: var(--tint-soft);
-			color: var(--primary);
+			/* Neutral: the chip labels the dialog, it is not an action. */
+			color: var(--ink-mute);
 		}
 
 		h3 {
 			margin: 0;
-			font-size: var(--fs-lg);
+			font-size: 0.9375rem;
 			font-weight: var(--fw-semibold);
-			color: var(--text-primary);
+			color: var(--ink);
 			overflow: hidden;
 			text-overflow: ellipsis;
 			white-space: nowrap;
@@ -366,7 +367,7 @@
 		.close-btn {
 			background: transparent;
 			border: none;
-			color: var(--text-muted);
+			color: var(--ink-faint);
 			cursor: pointer;
 			padding: var(--space-1);
 			border-radius: var(--radius-sm);
@@ -374,18 +375,20 @@
 			transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 
 			&:hover {
-				color: var(--text-primary);
+				color: var(--ink);
 				background: var(--tint-softer);
 			}
 		}
 	}
 
 	.modal-body {
-		padding: var(--space-6);
+		padding: 0 1rem 1rem;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
-		flex: 1;
+		gap: 0.875rem;
+		/* Sized to content: `flex: 1` left a tall empty panel whenever sharing
+		   was off and the link section was hidden. */
+		flex: 0 1 auto;
 		min-height: 0;
 		overflow-y: auto;
 
@@ -396,12 +399,15 @@
 
 			.spinner {
 				animation: spin 1s linear infinite;
-				color: var(--primary);
+				color: var(--accent);
 			}
 		}
 	}
 
-	.section {
+	/* Named `sm-section`, not `section`: global.scss defines a marketing-page
+	   `.section` utility with ~96px of vertical padding, which leaked in here
+	   and left the dialog mostly empty space. */
+	.sm-section {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
@@ -419,19 +425,19 @@
 			gap: var(--space-1);
 
 			.label {
-				color: var(--text-primary);
+				color: var(--ink);
 				font-weight: var(--fw-medium);
 			}
 			.desc {
 				font-size: var(--fs-sm);
-				color: var(--text-muted);
+				color: var(--ink-faint);
 			}
 		}
 
 		.toggles {
 			display: flex;
 			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
+			border: 1px solid var(--edge);
 			padding: var(--space-1);
 			border-radius: var(--radius-md);
 			gap: var(--space-1);
@@ -439,7 +445,7 @@
 			.toggle-btn {
 				background: transparent;
 				border: none;
-				color: var(--text-secondary);
+				color: var(--ink-faint);
 				padding: var(--space-2) var(--space-3);
 				border-radius: var(--radius-sm);
 				font-family: inherit;
@@ -448,14 +454,16 @@
 				transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 				font-weight: var(--fw-medium);
 
+				/* A neutral segmented control. "Off" is a state, not an action, so
+				   painting it accent made the safe default look like the CTA. */
 				&.active {
-					background: var(--accent-gradient);
-					color: #fff;
-					box-shadow: 0 4px 12px -4px var(--primary-glow);
+					background: var(--raised);
+					border: 1px solid var(--edge);
+					color: var(--ink);
 				}
 
 				&:hover:not(.active) {
-					color: var(--text-primary);
+					color: var(--ink);
 				}
 			}
 		}
@@ -468,17 +476,17 @@
 		input {
 			flex: 1;
 			background: var(--bg-input);
-			border: 1px solid var(--border-default);
+			border: 1px solid var(--edge);
 			border-radius: var(--radius-sm);
 			padding: 0.75rem 0.95rem;
-			color: var(--text-secondary);
+			color: var(--ink-mute);
 			font-size: var(--fs-sm);
 			font-family: var(--font-mono);
 
 			&:focus {
 				outline: none;
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
 			}
 		}
 
@@ -489,8 +497,8 @@
 
 		.action-btn {
 			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			color: var(--text-secondary);
+			border: 1px solid var(--edge);
+			color: var(--ink-mute);
 			width: 42px;
 			border-radius: var(--radius-sm);
 			cursor: pointer;
@@ -502,7 +510,7 @@
 
 			&:hover {
 				background: var(--tint-softer);
-				color: var(--text-primary);
+				color: var(--ink);
 			}
 
 			&.copy {
@@ -528,7 +536,7 @@
 		flex-wrap: wrap;
 		gap: var(--space-2);
 		font-size: var(--fs-sm);
-		color: var(--text-muted);
+		color: var(--ink-faint);
 		padding-left: var(--space-1);
 
 		.badge {
@@ -537,8 +545,8 @@
 			gap: 3px;
 			font-size: var(--fs-xs);
 			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			color: var(--text-secondary);
+			border: 1px solid var(--edge);
+			color: var(--ink-mute);
 			padding: 2px 7px;
 			border-radius: 999px;
 			&.danger {
@@ -554,7 +562,7 @@
 		gap: var(--space-3);
 		margin-top: var(--space-4);
 		padding-top: var(--space-4);
-		border-top: 1px solid var(--hairline);
+		border-top: 1px solid var(--edge);
 
 		.opt-field {
 			display: flex;
@@ -563,38 +571,63 @@
 
 			.opt-label {
 				font-size: var(--fs-xs);
-				color: var(--text-muted);
+				color: var(--ink-faint);
 				font-weight: var(--fw-medium);
 				display: flex;
 				align-items: center;
 				gap: var(--space-2);
 			}
 			.set-tag {
-				font-size: 0.65rem;
-				text-transform: uppercase;
-				letter-spacing: 0.04em;
-				color: var(--success);
-				background: rgba(61, 220, 151, 0.12);
+				font-size: 0.6875rem;
+				font-weight: var(--fw-medium);
+				color: var(--ok);
+				background: var(--ok-soft);
 				padding: 1px 6px;
-				border-radius: 999px;
+				border-radius: var(--radius-sm);
 			}
 			select,
 			input {
-				background: var(--bg-input);
-				border: 1px solid var(--border-default);
+				height: 36px;
+				background: var(--surface);
+				border: 1px solid var(--edge);
 				border-radius: var(--radius-sm);
-				padding: 0.6rem 0.75rem;
-				color: var(--text-primary);
-				font-family: inherit;
-				font-size: var(--fs-sm);
+				padding: 0 0.625rem;
+				color: var(--ink);
+				font-family: var(--font-sans);
+				font-size: 0.875rem;
 				outline: none;
-				transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+				transition:
+					border-color var(--dur-fast) var(--ease),
+					box-shadow var(--dur-fast) var(--ease);
+
+				&::placeholder {
+					color: var(--ink-faint);
+				}
 				&:focus {
-					border-color: var(--primary);
-					box-shadow: 0 0 0 3px var(--primary-glow);
+					border-color: var(--accent);
+					box-shadow: 0 0 0 3px var(--focus-ring);
 				}
 				&:disabled {
 					opacity: 0.5;
+				}
+			}
+
+			/* A native select renders the OS control, which ignores the theme and
+			   looks foreign next to every other field. Strip the chrome and draw
+			   our own chevron so it matches the inputs beside it. */
+			select {
+				appearance: none;
+				-webkit-appearance: none;
+				padding-right: 2rem;
+				cursor: pointer;
+				background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca6' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 10l6 6 6-6'/%3E%3C/svg%3E");
+				background-repeat: no-repeat;
+				background-position: right 0.625rem center;
+				background-size: 15px 15px;
+
+				option {
+					background: var(--raised);
+					color: var(--ink);
 				}
 			}
 		}
@@ -603,10 +636,10 @@
 			align-items: center;
 			gap: var(--space-2);
 			font-size: var(--fs-sm);
-			color: var(--text-secondary);
+			color: var(--ink-mute);
 			cursor: pointer;
 			input {
-				accent-color: var(--primary);
+				accent-color: var(--accent);
 			}
 		}
 		.save-opts {

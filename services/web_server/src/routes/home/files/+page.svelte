@@ -1,6 +1,5 @@
 <script>
 	import FolderCard from '$lib/components/FolderCard.svelte';
-	import StatsCard from '$lib/components/StatsCard.svelte';
 	import FileCard from '$lib/components/FileCard.svelte';
 	import { flip } from 'svelte/animate'; // Add flip import for smooth list reordering animation
 	import { FrontendClient } from '$lib/frontendClient.js';
@@ -122,9 +121,9 @@
 		showShareModal = true;
 	}
 
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
-	import { toast } from 'svelte-sonner';
+	import { toast } from '$lib/toast.js';
 	import axios from 'axios';
 	import {
 		encryptChunk,
@@ -145,7 +144,6 @@
 	// ... existing imports ...
 
 	// Helper to format bytes
-	// ...
 
 	// State for Modals
 	let fileInput = $state(null);
@@ -166,7 +164,6 @@
 	let itemToShare = $state(null);
 
 	// --- Upload Logic ---
-	// ...
 
 	// --- Folder Navigation State ---
 	let currentFolderId = $state(null);
@@ -232,7 +229,6 @@
 				// we might fail. For now, we reuse the `password` variable which is utilized in the upload modal
 				// OR `decryptionPassword` from download modal?
 				// The file card usage uses `decryptionPassword` and `showDecryptModal`.
-				// Let's rely on user unlocking a file first or just prompt if we want to be fancy.
 				// For this MVP step, we'll error if encrypted and no password available in `decryptionPassword`.
 				if (!decryptionPassword) {
 					toast.error(
@@ -364,13 +360,11 @@
 	function handleDeleteFolder(folder) {
 		folderToDelete = folder;
 		// Fetch stats before showing modal? Or show modal with loading?
-		// Let's fetch stats first to show "X items will be deleted" immediately
 		// Reset stats
 		deletedItemCount = null;
 
 		// Ideally we show a loading toast or just wait a bit?
 		// Or we open modal and it shows "Calculating items..."
-		// Let's open modal and trigger fetch.
 		showDeleteFolderModal = true;
 		fetchDeletionStats(folder.id);
 	}
@@ -803,7 +797,6 @@
 	const uploadMutation = createMutation(() => ({
 		mutationFn: async ({ file, folderId, onProgress }) => {
 			await sodium.ready; // Still need main thread sodium for random generation (nonce/salt)?
-			// Actually, random generation is fast and non-blocking.
 			// crypto_hash and crypto_secretbox are the heavy ones.
 
 			uploadStats.phase = 'Hashing file…';
@@ -975,7 +968,6 @@
 				// If failed, check if it's "already exists" kind of error
 				// In a real app we'd fetch or use a "find_by_name" endpoint.
 				// Assuming creation might fail if exists? Or maybe backend allows duplicates?
-				// For now, let's try to fetch if create fails or assumes success.
 				console.warn(`Could not create folder ${part}, trying to find existing...`, e);
 
 				// Fallback: Fetch folders in parent and find one with matching name
@@ -1032,7 +1024,6 @@
 						} catch (err) {
 							console.error('Folder creation failed for', relativePath, err);
 							// Continue to upload to root? OR skip?
-							// Let's skip to keep integrity
 							throw new Error(`Failed to create folder structure: ${err.message}`);
 						}
 					}
@@ -1563,7 +1554,7 @@
 	}
 
 	// ===================================================================
-	//  Marquee (drag-to-select) — grid empty space
+	//  Marquee (drag-to-select): grid empty space
 	// ===================================================================
 	let gridEl = $state(null);
 	let marquee = $state({ active: false, x0: 0, y0: 0, x1: 0, y1: 0 });
@@ -1606,374 +1597,524 @@
 		window.removeEventListener('mousemove', gridMouseMove);
 		window.removeEventListener('mouseup', gridMouseUp);
 	}
+	// ---- additions for the redesigned shell --------------------------------
+	import { glyphForMime } from '$lib/ui/icons.js';
+	import { page as pageStore } from '$app/stores';
+
+	// The sidebar's Upload button links to /home/files?upload=1, so arriving with
+	// that flag opens the upload overlay straight away.
+	$effect(() => {
+		if ($pageStore.url.searchParams.get('upload') === '1' && !showUploadModal) {
+			showUploadModal = true;
+			const url = new URL(window.location.href);
+			url.searchParams.delete('upload');
+			history.replaceState({}, '', url);
+		}
+	});
+
+	// Offline banner: the grid is useless without the API, and a silent empty
+	// grid reads as "your files are gone", which is the worst possible lie here.
+	let offline = $state(false);
+	$effect(() => {
+		if (!browser) return;
+		offline = !navigator.onLine;
+		const on = () => (offline = false);
+		const off = () => (offline = true);
+		window.addEventListener('online', on);
+		window.addEventListener('offline', off);
+		return () => {
+			window.removeEventListener('online', on);
+			window.removeEventListener('offline', off);
+		};
+	});
+
+	function retryLoad() {
+		offline = !navigator.onLine;
+		refreshView();
+	}
+
+	let hasQuery = $derived(searchQuery.trim().length > 0);
+	let allSelected = $derived(selectedItems.size > 0 && selectedItems.size === totalCount);
+	let isEmptyState = $derived(!isLoadingView && totalCount === 0 && !hasQuery);
+	let isNoResults = $derived(!isLoadingView && totalCount === 0 && hasQuery);
+
+	function sortArrow(key) {
+		if (sortKey !== key) return '';
+		return sortDir === 'asc' ? ' ↑' : ' ↓';
+	}
+
+	function isSelected(type, id) {
+		return selectedItems.has(`${type}:${id}`);
+	}
+
+	/** Checkbox shows in select mode, on selection, or on row hover in list view. */
+	function showCheck(type, id) {
+		return selectMode || isSelected(type, id);
+	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="dashboard-container">
-	<div class="dashboard-header">
-		<div class="breadcrumbs-container">
+<div class="files">
+	<!-- Breadcrumbs + actions -->
+	<div class="topbar">
+		<div class="crumbs">
 			{#if folderPath.length > 1}
-				<button class="icon-btn back-btn" onclick={navigateUp}>
-					<Icon icon="ri:arrow-left-line" />
+				<button type="button" class="up" aria-label="Up one level" onclick={navigateUp}>
+					<Icon name="chevron-left" size={16} />
 				</button>
 			{/if}
-			<div class="breadcrumbs">
-				{#each folderPath as breadcrumb, i}
-					{#if i > 0}
-						<span class="divider">/</span>
-					{/if}
+			{#each folderPath as crumb, i (crumb.id ?? 'root')}
+				{#if i > 0}<span class="sep">/</span>{/if}
+				{#if i === folderPath.length - 1}
+					<span class="crumb current" aria-current="page">{crumb.name}</span>
+				{:else}
 					<button
-						class="crumb {i === folderPath.length - 1 ? 'active' : ''} {(breadcrumb.id === null &&
-							dragTargetId === 'root') ||
-						(breadcrumb.id !== null && dragTargetId === breadcrumb.id)
-							? 'drag-target-active-crumb'
-							: ''}"
+						type="button"
+						class="crumb"
+						class:drop-target={(crumb.id === null && dragTargetId === 'root') ||
+							(crumb.id !== null && dragTargetId === crumb.id)}
 						onclick={() => navigateToBreadcrumb(i)}
-						ondragover={(e) => handleBreadcrumbDragOver(e, breadcrumb)}
+						ondragover={(e) => handleBreadcrumbDragOver(e, crumb)}
 						ondragleave={handleItemDragLeave}
-						ondrop={(e) => handleBreadcrumbDrop(e, breadcrumb)}
+						ondrop={(e) => handleBreadcrumbDrop(e, crumb)}
 					>
-						{breadcrumb.name}
+						{crumb.name}
 					</button>
-				{/each}
-			</div>
+				{/if}
+			{/each}
 		</div>
 
-		<div class="header-actions">
-			<button class="action-btn" onclick={() => (showUploadModal = true)}>
-				<Icon icon="ri:upload-cloud-2-line" />
-				<span>Upload</span>
+		<div class="top-actions">
+			<button type="button" class="btn primary" onclick={() => (showUploadModal = true)}>
+				<Icon name="upload" size={16} />
+				Upload
 			</button>
-			<button class="action-btn outline" onclick={handleCreateFolder}>
-				<Icon icon="ri:folder-add-line" />
-				<span>New Folder</span>
+			<button type="button" class="btn ghost" onclick={handleCreateFolder}>
+				<Icon name="folder-plus" size={16} />
+				New Folder
 			</button>
 		</div>
 	</div>
 
-	<!-- Toolbar: search / sort / view / select -->
-	<div class="files-toolbar">
-		<div class="search-box">
-			<Icon icon="ri:search-line" width="18" />
-			<input
-				type="text"
-				placeholder="Search this folder"
-				bind:value={searchQuery}
-				spellcheck="false"
-			/>
-			{#if searchQuery}
-				<button class="clear-search" aria-label="Clear search" onclick={() => (searchQuery = '')}>
-					<Icon icon="ri:close-line" width="16" />
+	<!-- Toolbar -->
+	<div class="toolbar">
+		<div class="search">
+			<span class="search-glyph"><Icon name="search" size={15} /></span>
+			<input type="text" placeholder="Search this folder" bind:value={searchQuery} spellcheck="false" />
+			{#if hasQuery}
+				<button
+					type="button"
+					class="search-clear"
+					aria-label="Clear search"
+					onclick={() => (searchQuery = '')}
+				>
+					<Icon name="close" size={13} />
 				</button>
 			{/if}
 		</div>
 
-		<div class="toolbar-right">
-			<div class="sort-group">
-				{#each [{ k: 'name', l: 'Name' }, { k: 'size', l: 'Size' }, { k: 'date', l: 'Date' }] as s}
+		<div class="tools">
+			<div class="sorts">
+				<span class="sort-label">Sort</span>
+				{#each [{ k: 'name', l: 'Name' }, { k: 'size', l: 'Size' }, { k: 'date', l: 'Date' }] as s (s.k)}
 					<button
-						class="sort-btn {sortKey === s.k ? 'active' : ''}"
+						type="button"
+						class="sort"
+						class:active={sortKey === s.k}
 						onclick={() => toggleSort(s.k)}
 					>
-						{s.l}
-						{#if sortKey === s.k}
-							<Icon icon={sortDir === 'asc' ? 'ri:arrow-up-s-line' : 'ri:arrow-down-s-line'} width="16" />
-						{/if}
+						{s.l}{sortArrow(s.k)}
 					</button>
 				{/each}
 			</div>
 
+			<span class="divider"></span>
+
 			<button
-				class="tool-icon {selectMode ? 'active' : ''}"
-				title="Select mode"
+				type="button"
+				class="tool"
+				class:on={selectMode}
 				aria-label="Toggle select mode"
+				aria-pressed={selectMode}
 				onclick={() => {
 					selectMode = !selectMode;
 					if (!selectMode) clearSelection();
 				}}
 			>
-				<Icon icon="ri:checkbox-multiple-line" width="18" />
+				<Icon name="checkbox-on" size={16} />
 			</button>
 
-			<div class="view-toggle">
+			<div class="view-seg">
 				<button
-					class={viewMode === 'grid' ? 'active' : ''}
-					title="Grid view"
+					type="button"
+					class:on={viewMode === 'grid'}
 					aria-label="Grid view"
 					onclick={() => (viewMode = 'grid')}
 				>
-					<Icon icon="ri:layout-grid-line" width="18" />
+					<Icon name="grid" size={15} />
 				</button>
 				<button
-					class={viewMode === 'list' ? 'active' : ''}
-					title="List view"
+					type="button"
+					class:on={viewMode === 'list'}
 					aria-label="List view"
 					onclick={() => (viewMode = 'list')}
 				>
-					<Icon icon="ri:list-unordered" width="18" />
+					<Icon name="list" size={15} />
 				</button>
 			</div>
 		</div>
 	</div>
 
-	<!-- Bulk action bar -->
+	<!-- Bulk bar -->
 	{#if selectedItems.size > 0}
-		<div class="bulk-bar" transition:fade={{ duration: 120 }}>
+		<div class="bulk" transition:fade={{ duration: 120 }}>
 			<div class="bulk-left">
-				<button class="bulk-x" aria-label="Clear selection" onclick={clearSelection}>
-					<Icon icon="ri:close-line" width="18" />
+				<button type="button" class="bulk-x" aria-label="Clear selection" onclick={clearSelection}>
+					<Icon name="close" size={14} />
 				</button>
 				<span class="bulk-count">{selectedItems.size} selected</span>
-				<button class="bulk-link" onclick={selectAll} disabled={selectedItems.size === totalCount}>
+				<button type="button" class="bulk-link" disabled={allSelected} onclick={selectAll}>
 					Select all
 				</button>
 			</div>
 			<div class="bulk-actions">
-				<button class="bulk-btn" onclick={bulkDownload} title="Download">
-					<Icon icon="ri:download-line" width="18" /><span>Download</span>
+				<button type="button" class="bulk-btn" onclick={bulkDownload}>
+					<Icon name="download" size={15} />Download
 				</button>
-				<button class="bulk-btn" onclick={bulkMoveOpen} title="Move">
-					<Icon icon="ri:folder-transfer-line" width="18" /><span>Move</span>
+				<button type="button" class="bulk-btn" onclick={bulkMoveOpen}>
+					<Icon name="folder-move" size={15} />Move
 				</button>
-				<button class="bulk-btn" onclick={() => bulkStar(true)} title="Star">
-					<Icon icon="ri:star-line" width="18" /><span>Star</span>
+				<button type="button" class="bulk-btn" onclick={() => bulkStar(true)}>
+					<Icon name="star" size={15} />Star
 				</button>
 				{#if selectedItems.size === 1}
-					<button class="bulk-btn" onclick={bulkShareSingle} title="Share">
-						<Icon icon="ri:share-forward-line" width="18" /><span>Share</span>
+					<button type="button" class="bulk-btn" onclick={bulkShareSingle}>
+						<Icon name="share" size={15} />Share
 					</button>
 				{/if}
-				<button class="bulk-btn danger" onclick={bulkDelete} title="Delete">
-					<Icon icon="ri:delete-bin-line" width="18" /><span>Delete</span>
+				<span class="divider"></span>
+				<button type="button" class="bulk-btn danger" onclick={bulkDelete}>
+					<Icon name="trash" size={15} />Delete
 				</button>
 			</div>
 		</div>
 	{/if}
 
-	<!-- Unified Resource Area -->
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	{#if offline}
+		<div class="offline">
+			<Icon name="alert" size={15} />
+			<span>You're offline. Your files are safe, we just can't reach them right now.</span>
+			<button type="button" onclick={retryLoad}>Retry</button>
+		</div>
+	{/if}
+
+	<!-- Resource area -->
+	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
-		class="resource-area {viewMode}"
+		class="area"
 		bind:this={gridEl}
 		ondragover={handleDragOver}
 		ondragleave={handleDragLeave}
 		ondrop={handleDrop}
 		onmousedown={gridMouseDown}
 		oncontextmenu={openEmptyContext}
-		role="region"
-		aria-label="File drop zone"
 	>
 		{#if isDragging && !isInternalDrag}
-			<div class="drag-overlay" transition:fade={{ duration: 150 }}>
-				<Icon icon="ri:upload-cloud-2-fill" width="60" />
+			<div class="drop-overlay" transition:fade={{ duration: 120 }}>
+				<Icon name="upload-lg" size={44} />
 				<span>Drop files to upload</span>
 			</div>
 		{/if}
 
 		{#if isLoadingView && totalCount === 0}
-			<!-- Skeletons -->
-			{#each Array(viewMode === 'grid' ? 10 : 8) as _, i (i)}
-				<div class="skeleton {viewMode}"></div>
-			{/each}
-		{:else if totalCount === 0}
-			<!-- Empty / no-results state -->
-			<div class="empty-state">
-				{#if searchQuery}
-					<Icon icon="ri:search-eye-line" width="64" />
-					<p>No items match “{searchQuery}”.</p>
-					<button class="text-btn" onclick={() => (searchQuery = '')}>Clear search</button>
-				{:else}
-					<Icon icon="ri:folder-open-line" width="64" />
-					<p>This folder is empty</p>
-					<button class="text-btn" onclick={() => (showUploadModal = true)}>Upload content</button>
-				{/if}
+			<div class="grid">
+				{#each Array(8) as _, i (i)}
+					<div class="sk-card">
+						<span class="sk-tile"></span>
+						<span class="sk-line" style="width:70%"></span>
+						<span class="sk-line thin" style="width:45%"></span>
+					</div>
+				{/each}
+			</div>
+		{:else if isEmptyState}
+			<div class="state">
+				<Icon name="folder-open" size={34} stroke={1.3} />
+				<div class="state-text">
+					<span class="state-title">This folder is empty</span>
+					<span class="state-line">
+						Drop something in, or use the button. It is encrypted before it leaves your browser.
+					</span>
+				</div>
+				<button type="button" class="state-cta" onclick={() => (showUploadModal = true)}>
+					Upload content
+				</button>
+			</div>
+		{:else if isNoResults}
+			<div class="state">
+				<Icon name="search-empty" size={34} stroke={1.3} />
+				<div class="state-text">
+					<span class="state-title">Nothing matches “{searchQuery}”</span>
+					<span class="state-line">Try a shorter search, or clear it to see everything here.</span>
+				</div>
+				<button type="button" class="state-cta" onclick={() => (searchQuery = '')}>
+					Clear search
+				</button>
 			</div>
 		{:else if viewMode === 'grid'}
-			<!-- GRID: folders then files -->
-			{#each visFolders as folder (folder.id)}
-				<div
-					class="cell {dragTargetId === folder.id ? 'drag-target-active' : ''} {selectedItems.has(`folder:${folder.id}`) ? 'is-selected' : ''}"
-					data-key={`folder:${folder.id}`}
-					animate:flip={{ duration: 250 }}
-					draggable="true"
-					ondragstart={(e) => handleItemDragStart(e, folder, 'folder')}
-					ondragover={(e) => handleItemDragOver(e, folder)}
-					ondragleave={handleItemDragLeave}
-					ondrop={(e) => handleItemDrop(e, folder)}
-					ondragend={handleItemDragEnd}
-					oncontextmenu={(e) => openItemContext(e, folder, 'folder')}
-					ondblclick={() => handleFolderClick(folder)}
-					role="listitem"
-				>
-					{#if selectMode || selectedItems.has(`folder:${folder.id}`)}
-						<button
-							class="sel-check {selectedItems.has(`folder:${folder.id}`) ? 'on' : ''}"
-							aria-label="Select"
-							onclick={(e) => {
-								e.stopPropagation();
-								toggleKey(`folder:${folder.id}`);
-							}}
-						>
-							<Icon icon={selectedItems.has(`folder:${folder.id}`) ? 'ri:checkbox-fill' : 'ri:checkbox-blank-line'} width="20" />
-						</button>
-					{/if}
-					<FolderCard
-						name={folder.name}
-						count={folder.count}
-						starred={folder.starred}
+			<div class="grid">
+				{#each visFolders as folder (folder.id)}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+					<div
+						class="card"
+						class:selected={isSelected('folder', folder.id)}
+						class:drop-target={dragTargetId === folder.id}
+						data-key={`folder:${folder.id}`}
+						animate:flip={{ duration: 220 }}
+						role="button"
+						tabindex="0"
+						draggable="true"
 						onclick={(e) => handleItemClick(e, folder, 'folder')}
-						ondownloadzip={() => startDownloadFolderZip(folder)}
-						onrename={() => handleRenameFolder(folder)}
-						ondelete={() => handleDeleteFolder(folder)}
-						onstar={() => handleStar(folder, 'folder')}
-						onshare={() => handleShare(folder, 'folder')}
-					/>
-				</div>
-			{/each}
+						ondblclick={() => handleFolderClick(folder)}
+						onkeydown={(e) => e.key === 'Enter' && handleFolderClick(folder)}
+						oncontextmenu={(e) => openItemContext(e, folder, 'folder')}
+						ondragstart={(e) => handleItemDragStart(e, folder, 'folder')}
+						ondragover={(e) => handleItemDragOver(e, folder)}
+						ondragleave={handleItemDragLeave}
+						ondrop={(e) => handleItemDrop(e, folder)}
+						ondragend={handleItemDragEnd}
+					>
+						<div class="card-top">
+							<span class="folder-glyph"><Icon name="folder-wide" size={26} stroke={1.5} /></span>
+							<div class="card-tools">
+								{#if folder.starred}
+									<span class="ind"><Icon name="star-fill" size={14} /></span>
+								{/if}
+								<button
+									type="button"
+									class="card-btn"
+									aria-label="Share"
+									title="Share"
+									onclick={(e) => { e.stopPropagation(); handleShare(folder, 'folder'); }}
+								>
+									<Icon name="share" size={14} />
+								</button>
+								<button
+									type="button"
+									class="card-btn"
+									aria-label="Folder actions"
+									onclick={(e) => { e.stopPropagation(); openItemContext(e, folder, 'folder'); }}
+								>
+									<Icon name="dots-vertical" size={15} filled />
+								</button>
+							</div>
+						</div>
+						<div class="card-text">
+							<span class="card-name" title={folder.name}>{folder.name}</span>
+							<span class="card-meta">{folder.count ?? 0} items</span>
+						</div>
+						{#if showCheck('folder', folder.id)}
+							<span class="check" class:on={isSelected('folder', folder.id)}>
+								<Icon name="check-sm" size={11} stroke={3} />
+							</span>
+						{/if}
+					</div>
+				{/each}
 
-			{#each visFiles as file (file.id)}
-				<div
-					class="cell {selectedItems.has(`file:${file.id}`) ? 'is-selected' : ''}"
-					data-key={`file:${file.id}`}
-					animate:flip={{ duration: 250 }}
-					draggable="true"
-					ondragstart={(e) => handleItemDragStart(e, file, 'file')}
-					ondragend={handleItemDragEnd}
-					oncontextmenu={(e) => openItemContext(e, file, 'file')}
-					ondblclick={() => openFilePreview(file)}
-					role="listitem"
-				>
-					{#if selectMode || selectedItems.has(`file:${file.id}`)}
-						<button
-							class="sel-check {selectedItems.has(`file:${file.id}`) ? 'on' : ''}"
-							aria-label="Select"
-							onclick={(e) => {
-								e.stopPropagation();
-								toggleKey(`file:${file.id}`);
-							}}
-						>
-							<Icon icon={selectedItems.has(`file:${file.id}`) ? 'ri:checkbox-fill' : 'ri:checkbox-blank-line'} width="20" />
-						</button>
-					{/if}
-					<FileCard
-						name={file.name}
-						size={formatSize(file.size)}
-						date={formatTime(file.created_on)}
-						type={file.type}
-						encrypted={file.encrypted}
-						starred={file.starred}
+				{#each visFiles as file (file.id)}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+					<div
+						class="card"
+						class:selected={isSelected('file', file.id)}
+						data-key={`file:${file.id}`}
+						animate:flip={{ duration: 220 }}
+						role="button"
+						tabindex="0"
+						draggable="true"
 						onclick={(e) => handleItemClick(e, file, 'file')}
-						ondownload={() => handleDownload(file)}
-						ondelete={() => handleDelete(file)}
-						onstar={() => handleStar(file, 'file')}
-						onshare={() => handleShare(file, 'file')}
-					/>
-				</div>
-			{/each}
-		{:else}
-			<!-- LIST VIEW -->
-			<div class="list-head">
-				<span class="lh-name">Name</span>
-				<span class="lh-size">Size</span>
-				<span class="lh-date">Modified</span>
-				<span class="lh-actions"></span>
+						ondblclick={() => openFilePreview(file)}
+						onkeydown={(e) => e.key === 'Enter' && openFilePreview(file)}
+						oncontextmenu={(e) => openItemContext(e, file, 'file')}
+						ondragstart={(e) => handleItemDragStart(e, file, 'file')}
+						ondragend={handleItemDragEnd}
+					>
+						<div class="card-top">
+							<span class="file-tile"><Icon name={glyphForMime(file.mime, file.name)} size={18} /></span>
+							<div class="card-tools">
+								{#if file.starred}
+									<span class="ind"><Icon name="star-fill" size={14} /></span>
+								{/if}
+								{#if file.encrypted}
+									<span class="ind faint"><Icon name="lock" size={14} stroke={1.8} /></span>
+								{/if}
+								<button
+									type="button"
+									class="card-btn"
+									aria-label="Share"
+									title="Share"
+									onclick={(e) => { e.stopPropagation(); handleShare(file, 'file'); }}
+								>
+									<Icon name="share" size={14} />
+								</button>
+								<button
+									type="button"
+									class="card-btn"
+									aria-label="File actions"
+									onclick={(e) => { e.stopPropagation(); openItemContext(e, file, 'file'); }}
+								>
+									<Icon name="dots-vertical" size={15} filled />
+								</button>
+							</div>
+						</div>
+						<div class="card-text">
+							<span class="card-name" title={file.name}>{file.name}</span>
+							<div class="card-meta">
+								<span>{formatSize(file.size)}</span>
+								<span class="dot">·</span>
+								<span>{formatTime(file.created_on)}</span>
+							</div>
+						</div>
+						{#if showCheck('file', file.id)}
+							<span class="check" class:on={isSelected('file', file.id)}>
+								<Icon name="check-sm" size={11} stroke={3} />
+							</span>
+						{/if}
+					</div>
+				{/each}
 			</div>
 
-			{#each visFolders as folder (folder.id)}
-				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-				<div
-					class="row {dragTargetId === folder.id ? 'drag-target-active' : ''} {selectedItems.has(`folder:${folder.id}`) ? 'is-selected' : ''}"
-					data-key={`folder:${folder.id}`}
-					animate:flip={{ duration: 250 }}
-					draggable="true"
-					ondragstart={(e) => handleItemDragStart(e, folder, 'folder')}
-					ondragover={(e) => handleItemDragOver(e, folder)}
-					ondragleave={handleItemDragLeave}
-					ondrop={(e) => handleItemDrop(e, folder)}
-					ondragend={handleItemDragEnd}
-					oncontextmenu={(e) => openItemContext(e, folder, 'folder')}
-					onclick={(e) => handleItemClick(e, folder, 'folder')}
-					ondblclick={() => handleFolderClick(folder)}
-					role="listitem"
-				>
-					<span class="r-name">
-						{#if selectMode || selectedItems.has(`folder:${folder.id}`)}
-							<button
-								class="sel-check inline {selectedItems.has(`folder:${folder.id}`) ? 'on' : ''}"
-								aria-label="Select"
-								onclick={(e) => { e.stopPropagation(); toggleKey(`folder:${folder.id}`); }}
-							>
-								<Icon icon={selectedItems.has(`folder:${folder.id}`) ? 'ri:checkbox-fill' : 'ri:checkbox-blank-line'} width="18" />
-							</button>
-						{/if}
-						<Icon icon="ri:folder-3-fill" width="20" class="r-icon folder" />
-						<span class="nm" title={folder.name}>{folder.name}</span>
-						{#if folder.starred}<Icon icon="ri:star-fill" width="14" class="r-star" />{/if}
-					</span>
-					<span class="r-size">{folder.count} items</span>
-					<span class="r-date">{folder.created_on ? formatTime(folder.created_on) : '—'}</span>
-					<button
-						class="r-menu"
-						aria-label="Actions"
-						onclick={(e) => { e.stopPropagation(); openItemContext(e, folder, 'folder'); }}
-					>
-						<Icon icon="ri:more-2-fill" width="18" />
+			{#if hasMore}
+				<div class="more">
+					<button type="button" onclick={() => (visibleCount += PAGE_SIZE)}>
+						Load more ({totalCount - visibleCount} remaining)
 					</button>
 				</div>
-			{/each}
-
-			{#each visFiles as file (file.id)}
-				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-				<div
-					class="row {selectedItems.has(`file:${file.id}`) ? 'is-selected' : ''}"
-					data-key={`file:${file.id}`}
-					animate:flip={{ duration: 250 }}
-					draggable="true"
-					ondragstart={(e) => handleItemDragStart(e, file, 'file')}
-					ondragend={handleItemDragEnd}
-					oncontextmenu={(e) => openItemContext(e, file, 'file')}
-					onclick={(e) => handleItemClick(e, file, 'file')}
-					ondblclick={() => openFilePreview(file)}
-					role="listitem"
-				>
-					<span class="r-name">
-						{#if selectMode || selectedItems.has(`file:${file.id}`)}
-							<button
-								class="sel-check inline {selectedItems.has(`file:${file.id}`) ? 'on' : ''}"
-								aria-label="Select"
-								onclick={(e) => { e.stopPropagation(); toggleKey(`file:${file.id}`); }}
-							>
-								<Icon icon={selectedItems.has(`file:${file.id}`) ? 'ri:checkbox-fill' : 'ri:checkbox-blank-line'} width="18" />
-							</button>
-						{/if}
-						<Icon
-							icon={file.type === 'image' ? 'ri:image-2-fill' : file.type === 'video' ? 'ri:film-fill' : file.type === 'audio' ? 'ri:music-fill' : file.type === 'doc' ? 'ri:file-text-fill' : 'ri:file-fill'}
-							width="20"
-							class="r-icon"
-						/>
-						<span class="nm" title={file.name}>{file.name}</span>
-						{#if file.encrypted}<Icon icon="ri:lock-fill" width="13" class="r-lock" />{/if}
-						{#if file.starred}<Icon icon="ri:star-fill" width="14" class="r-star" />{/if}
-					</span>
-					<span class="r-size">{formatSize(file.size)}</span>
-					<span class="r-date">{formatTime(file.created_on)}</span>
-					<button
-						class="r-menu"
-						aria-label="Actions"
-						onclick={(e) => { e.stopPropagation(); openItemContext(e, file, 'file'); }}
-					>
-						<Icon icon="ri:more-2-fill" width="18" />
-					</button>
+			{/if}
+		{:else}
+			<div class="list">
+				<div class="lhead">
+					<span>Name</span>
+					<span class="right">Size</span>
+					<span class="right">Modified</span>
+					<span></span>
 				</div>
-			{/each}
-		{/if}
 
-		{#if hasMore && !isLoadingView}
-			<div class="load-more-wrap">
-				<button class="load-more" onclick={() => (visibleCount += PAGE_SIZE)}>
-					Load more ({totalCount - visibleCount} remaining)
-				</button>
+				{#each visFolders as folder (folder.id)}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+					<div
+						class="lrow"
+						class:selected={isSelected('folder', folder.id)}
+						class:drop-target={dragTargetId === folder.id}
+						data-key={`folder:${folder.id}`}
+						animate:flip={{ duration: 220 }}
+						role="button"
+						tabindex="0"
+						draggable="true"
+						onclick={(e) => handleItemClick(e, folder, 'folder')}
+						ondblclick={() => handleFolderClick(folder)}
+						onkeydown={(e) => e.key === 'Enter' && handleFolderClick(folder)}
+						oncontextmenu={(e) => openItemContext(e, folder, 'folder')}
+						ondragstart={(e) => handleItemDragStart(e, folder, 'folder')}
+						ondragover={(e) => handleItemDragOver(e, folder)}
+						ondragleave={handleItemDragLeave}
+						ondrop={(e) => handleItemDrop(e, folder)}
+						ondragend={handleItemDragEnd}
+					>
+						<div class="lname">
+							{#if showCheck('folder', folder.id)}
+								<span class="check inline" class:on={isSelected('folder', folder.id)}>
+									<Icon name="check-sm" size={11} stroke={3} />
+								</span>
+							{/if}
+							<span class="lglyph"><Icon name="folder" size={16} /></span>
+							<span class="ltext" title={folder.name}>{folder.name}</span>
+							{#if folder.starred}<span class="ind"><Icon name="star-fill" size={13} /></span>{/if}
+						</div>
+						<span class="lmeta right">{folder.count ?? 0} items</span>
+						<span class="lmeta right">{folder.created_on ? formatTime(folder.created_on) : '-'}</span>
+						<div class="lactions">
+							<button
+								type="button"
+								class="card-btn"
+								aria-label="Share"
+								title="Share"
+								onclick={(e) => { e.stopPropagation(); handleShare(folder, 'folder'); }}
+							>
+								<Icon name="share" size={14} />
+							</button>
+							<button
+								type="button"
+								class="card-btn"
+								aria-label="Actions"
+								onclick={(e) => { e.stopPropagation(); openItemContext(e, folder, 'folder'); }}
+							>
+								<Icon name="dots-vertical" size={15} filled />
+							</button>
+						</div>
+					</div>
+				{/each}
+
+				{#each visFiles as file (file.id)}
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+					<div
+						class="lrow"
+						class:selected={isSelected('file', file.id)}
+						data-key={`file:${file.id}`}
+						animate:flip={{ duration: 220 }}
+						role="button"
+						tabindex="0"
+						draggable="true"
+						onclick={(e) => handleItemClick(e, file, 'file')}
+						ondblclick={() => openFilePreview(file)}
+						onkeydown={(e) => e.key === 'Enter' && openFilePreview(file)}
+						oncontextmenu={(e) => openItemContext(e, file, 'file')}
+						ondragstart={(e) => handleItemDragStart(e, file, 'file')}
+						ondragend={handleItemDragEnd}
+					>
+						<div class="lname">
+							{#if showCheck('file', file.id)}
+								<span class="check inline" class:on={isSelected('file', file.id)}>
+									<Icon name="check-sm" size={11} stroke={3} />
+								</span>
+							{/if}
+							<span class="lglyph"><Icon name={glyphForMime(file.mime, file.name)} size={16} /></span>
+							<span class="ltext" title={file.name}>{file.name}</span>
+							{#if file.encrypted}
+								<span class="ind faint"><Icon name="lock" size={13} stroke={1.9} /></span>
+							{/if}
+							{#if file.starred}<span class="ind"><Icon name="star-fill" size={13} /></span>{/if}
+						</div>
+						<span class="lmeta right">{formatSize(file.size)}</span>
+						<span class="lmeta right">{formatTime(file.created_on)}</span>
+						<div class="lactions">
+							<button
+								type="button"
+								class="card-btn"
+								aria-label="Share"
+								title="Share"
+								onclick={(e) => { e.stopPropagation(); handleShare(file, 'file'); }}
+							>
+								<Icon name="share" size={14} />
+							</button>
+							<button
+								type="button"
+								class="card-btn"
+								aria-label="Actions"
+								onclick={(e) => { e.stopPropagation(); openItemContext(e, file, 'file'); }}
+							>
+								<Icon name="dots-vertical" size={15} filled />
+							</button>
+						</div>
+					</div>
+				{/each}
+
+				{#if hasMore}
+					<div class="more">
+						<button type="button" onclick={() => (visibleCount += PAGE_SIZE)}>
+							Load more ({totalCount - visibleCount} remaining)
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -1981,11 +2122,10 @@
 
 {#if marquee.active}
 	<div
-		class="marquee-rect"
+		class="marquee"
 		style="left:{marqueeBox.left}px; top:{marqueeBox.top}px; width:{marqueeBox.width}px; height:{marqueeBox.height}px;"
 	></div>
 {/if}
-
 {#if ctx.open}
 	<ContextMenu x={ctx.x} y={ctx.y} items={ctx.items} onclose={closeCtx} />
 {/if}
@@ -2010,7 +2150,11 @@
 	<InputModal
 		bind:show={showPreviewDecryptModal}
 		title="Unlock to preview"
-		placeholder="Enter Password"
+		label="Password"
+		placeholder="Decryption password"
+		hint="Set when this file was uploaded. We never had a copy."
+		mono
+		type="password"
 		submitLabel="Unlock"
 		icon="ri:lock-unlock-line"
 		onconfirm={confirmPreviewDecrypt}
@@ -2085,8 +2229,9 @@
 {#if showCreateFolderModal}
 	<InputModal
 		bind:show={showCreateFolderModal}
-		title="Create Folder"
-		placeholder="Folder Name"
+		title="New folder"
+		label="Folder name"
+		placeholder="Untitled folder"
 		submitLabel="Create"
 		icon="ri:folder-add-line"
 		onconfirm={confirmCreateFolder}
@@ -2096,9 +2241,9 @@
 {#if showRenameFolderModal}
 	<InputModal
 		bind:show={showRenameFolderModal}
-		title="Rename Folder"
+		title="Rename folder"
+		label="Folder name"
 		initialValue={newFolderName}
-		placeholder="New Name"
 		submitLabel="Rename"
 		icon="ri:edit-line"
 		onconfirm={confirmRenameFolder}
@@ -2108,8 +2253,12 @@
 {#if showDecryptModal}
 	<InputModal
 		bind:show={showDecryptModal}
-		title="Decrypt File"
-		placeholder="Enter Password"
+		title="Decrypt file"
+		label="Password"
+		placeholder="Decryption password"
+		hint="Set when this file was uploaded. We never had a copy."
+		mono
+		type="password"
 		submitLabel="Decrypt"
 		icon="ri:lock-unlock-line"
 		onconfirm={confirmDecrypt}
@@ -2337,746 +2486,922 @@
 {/if}
 
 <style lang="scss">
-	.dashboard-container {
-		width: 100%;
+	/* =====================================================================
+	   Files: the core screen. Flat surfaces, one hairline, one accent.
+	   The area is a single bordered card that owns its own scroll, so the
+	   toolbar and bulk bar stay put while the grid moves.
+	   ===================================================================== */
+	.files {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
+		gap: 0.75rem;
 		height: 100%;
+		min-height: 0;
+		overflow: hidden;
 	}
 
-	.dashboard-header {
+	/* ---- breadcrumbs + actions ---- */
+	.topbar {
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
-		align-items: center;
 		gap: var(--space-4);
-		flex-wrap: wrap;
-
-		.breadcrumbs-container {
-			display: flex;
-			align-items: center;
-			gap: var(--space-4);
-			min-width: 0;
-		}
-
-		.back-btn {
-			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			color: var(--text-primary);
-			width: 36px;
-			height: 36px;
-			border-radius: var(--radius-sm);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			cursor: pointer;
-			flex-shrink: 0;
-			transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
-
-			&:hover {
-				background: var(--tint-softer);
-				color: var(--text-primary);
-				border-color: var(--border-strong);
-			}
-		}
-
-		.breadcrumbs {
-			display: flex;
-			align-items: center;
-			gap: var(--space-2);
-			font-size: var(--fs-h3);
-			font-weight: var(--fw-semibold);
-			letter-spacing: var(--tracking-tight);
-			color: var(--ink-faint);
-			flex-wrap: wrap;
-
-			.divider {
-				opacity: 0.4;
-				font-size: var(--fs-sm);
-			}
-
-			.crumb {
-				background: none;
-				border: none;
-				color: inherit;
-				font: inherit;
-				cursor: pointer;
-				padding: var(--space-1) var(--space-2);
-				border-radius: var(--radius-sm);
-				transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-
-				&:hover {
-					background: var(--tint-soft);
-					color: var(--text-primary);
-				}
-
-				&.active {
-					color: var(--text-primary);
-					font-weight: var(--fw-semibold);
-					cursor: default;
-					&:hover {
-						background: none;
-					}
-				}
-			}
-		}
-
-		.header-actions {
-			display: flex;
-			gap: var(--space-3);
-
-			.action-btn {
-				display: flex;
-				align-items: center;
-				gap: var(--space-2);
-				padding: 0.6rem 1rem;
-				border-radius: var(--radius-md);
-				font-weight: var(--fw-medium);
-				font-size: var(--fs-sm);
-				cursor: pointer;
-				border: 1px solid transparent;
-				background: var(--accent-gradient);
-				color: #fff;
-				box-shadow: 0 6px 18px -6px var(--primary-glow);
-				transition: filter var(--dur) var(--ease), background var(--dur) var(--ease),
-					border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
-
-				&:hover {
-					filter: brightness(1.06);
-					transform: translateY(-1px);
-				}
-
-				&.outline {
-					background: var(--tint-soft);
-					border-color: var(--border-default);
-					color: var(--text-primary);
-					box-shadow: none;
-					&:hover {
-						filter: none;
-						background: var(--tint-softer);
-						border-color: var(--border-strong);
-					}
-				}
-			}
-		}
+		padding: 0.25rem 0.125rem 0;
 	}
 
-	.resource-area {
-		position: relative;
-		min-height: 200px;
-		padding-bottom: var(--space-5);
-
-		&.grid {
-			display: grid;
-			grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-			grid-auto-rows: 1fr;
-			gap: var(--space-5);
-		}
-		&.list {
-			display: flex;
-			flex-direction: column;
-			gap: 2px;
-		}
-
-		.drag-overlay {
-			position: absolute;
-			inset: 0;
-			background: rgba(0, 0, 0, 0.78);
-			backdrop-filter: blur(8px);
-			z-index: 50;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			gap: var(--space-4);
-			border-radius: var(--radius-md);
-			border: 2px dashed var(--primary);
-			color: var(--text-primary);
-			font-weight: var(--fw-semibold);
-			pointer-events: none;
-		}
-
-		.empty-state {
-			grid-column: 1 / -1;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			padding: var(--space-10) 0;
-			gap: var(--space-4);
-			color: var(--text-secondary);
-
-			p {
-				font-size: var(--fs-body);
-				font-weight: var(--fw-medium);
-			}
-			.text-btn {
-				background: none;
-				border: none;
-				color: var(--primary);
-				cursor: pointer;
-				font-weight: var(--fw-semibold);
-				margin-top: var(--space-2);
-				font-size: var(--fs-sm);
-				transition: color var(--dur) var(--ease);
-
-				&:hover {
-					color: var(--primary-hover);
-					text-decoration: underline;
-				}
-			}
-		}
-	}
-
-	/* ---- Toolbar ---- */
-	.files-toolbar {
+	.crumbs {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
+		gap: 0.375rem;
+		min-width: 0;
+		overflow: hidden;
 	}
-	.search-box {
-		flex: 1;
-		min-width: 200px;
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		background: var(--bg-input);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		padding: 0 var(--space-3);
-		color: var(--text-muted);
-		transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 
-		&:focus-within {
-			border-color: var(--primary);
-			box-shadow: 0 0 0 3px var(--primary-glow);
-		}
-		input {
-			flex: 1;
-			min-width: 0;
-			background: transparent;
-			border: none;
-			outline: none;
-			color: var(--text-primary);
-			font-family: inherit;
-			font-size: var(--fs-sm);
-			padding: 0.6rem 0;
-		}
-		.clear-search {
-			background: none;
-			border: none;
-			color: var(--text-muted);
-			cursor: pointer;
-			display: flex;
-			padding: 2px;
-			border-radius: var(--radius-sm);
-			&:hover {
-				color: var(--text-primary);
-			}
-		}
-	}
-	.toolbar-right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.sort-group {
-		display: flex;
-		background: var(--tint-soft);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		padding: 2px;
-		gap: 2px;
-
-		.sort-btn {
-			display: inline-flex;
-			align-items: center;
-			gap: 2px;
-			background: transparent;
-			border: none;
-			color: var(--text-muted);
-			font-family: inherit;
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			padding: var(--space-2) var(--space-3);
-			border-radius: var(--radius-sm);
-			cursor: pointer;
-			transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-
-			&:hover {
-				color: var(--text-primary);
-			}
-			&.active {
-				background: var(--bg-elevated);
-				color: var(--text-primary);
-				box-shadow: var(--shadow-card);
-			}
-		}
-	}
-	.tool-icon,
-	.view-toggle button {
-		background: var(--tint-soft);
-		border: 1px solid var(--border-default);
-		color: var(--text-muted);
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-2);
+	.up {
+		width: 28px;
+		height: 28px;
+		flex: 0 0 28px;
+		border: 0;
+		background: none;
 		border-radius: var(--radius-sm);
-		transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+		display: grid;
+		place-items: center;
+		color: var(--ink-mute);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
 
 		&:hover {
-			color: var(--text-primary);
+			background: var(--tint-soft);
+			color: var(--ink);
 		}
-		&.active {
+	}
+
+	.crumb {
+		padding: 0.25rem 0.375rem;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		font: inherit;
+		font-size: 0.9375rem;
+		color: var(--ink-mute);
+		cursor: pointer;
+		white-space: nowrap;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+		&.current {
+			font-weight: var(--fw-medium);
+			color: var(--ink);
+			cursor: default;
+		}
+		/* Breadcrumbs are drop targets: dragging onto one moves items up a level. */
+		&.drop-target {
 			background: var(--accent-soft);
 			color: var(--accent);
-			border-color: transparent;
-		}
-	}
-	.tool-icon {
-		border-radius: var(--radius-md);
-	}
-	.view-toggle {
-		display: flex;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-		button {
-			border: none;
-			border-radius: 0;
 		}
 	}
 
-	/* ---- Bulk action bar ---- */
-	.bulk-bar {
+	.sep {
+		color: var(--ink-faint);
+		font-size: 0.9375rem;
+	}
+
+	.top-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex: 0 0 auto;
+	}
+
+	.btn {
+		display: flex;
+		align-items: center;
+		gap: 0.4375rem;
+		height: 34px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-md);
+		border: 1px solid transparent;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		white-space: nowrap;
+		transition:
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease);
+
+		&.primary {
+			background: var(--accent);
+			color: #fff;
+
+			&:hover {
+				background: var(--accent-hover);
+			}
+		}
+		&.ghost {
+			border-color: var(--edge);
+			background: none;
+			color: var(--ink);
+
+			&:hover {
+				background: var(--tint-soft);
+				border-color: var(--edge-strong);
+			}
+		}
+	}
+
+	/* ---- toolbar ---- */
+	.toolbar {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--space-3);
-		flex-wrap: wrap;
-		background: var(--bg-elevated);
-		border: 1px solid var(--border-active, var(--border-default));
-		border-radius: var(--radius-md);
-		padding: var(--space-2) var(--space-3);
-		box-shadow: var(--shadow-card);
-
-		.bulk-left {
-			display: flex;
-			align-items: center;
-			gap: var(--space-3);
-		}
-		.bulk-x {
-			background: transparent;
-			border: none;
-			color: var(--text-muted);
-			cursor: pointer;
-			display: flex;
-			padding: 4px;
-			border-radius: var(--radius-sm);
-			&:hover {
-				color: var(--text-primary);
-				background: var(--tint-soft);
-			}
-		}
-		.bulk-count {
-			font-weight: var(--fw-semibold);
-			color: var(--text-primary);
-			font-size: var(--fs-sm);
-		}
-		.bulk-link {
-			background: none;
-			border: none;
-			color: var(--primary);
-			cursor: pointer;
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			&:disabled {
-				color: var(--text-dim);
-				cursor: default;
-			}
-		}
-		.bulk-actions {
-			display: flex;
-			gap: var(--space-1);
-			flex-wrap: wrap;
-		}
-		.bulk-btn {
-			display: inline-flex;
-			align-items: center;
-			gap: var(--space-1);
-			background: transparent;
-			border: 1px solid transparent;
-			color: var(--text-secondary);
-			font-family: inherit;
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			padding: var(--space-2) var(--space-3);
-			border-radius: var(--radius-sm);
-			cursor: pointer;
-			transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-			&:hover {
-				background: var(--tint-soft);
-				color: var(--text-primary);
-			}
-			&.danger {
-				color: var(--danger);
-				&:hover {
-					background: var(--danger-soft);
-				}
-			}
-		}
+		gap: var(--space-4);
+		padding-inline: 0.125rem;
 	}
 
-	/* ---- Grid cell wrapper ---- */
-	.cell {
+	.search {
 		position: relative;
-		border-radius: var(--radius-md);
-		transition: box-shadow var(--dur) var(--ease);
+		flex: 0 1 300px;
 
-		/* Inset ring on the card itself so the 2px selection border never
-		   overflows the grid edge (which clipped the leftmost column). */
-		&.is-selected :global(.file-card),
-		&.is-selected :global(.folder-card) {
-			box-shadow: inset 0 0 0 2px var(--primary);
-			border-color: var(--primary);
-		}
-	}
-	.sel-check {
-		position: absolute;
-		top: var(--space-2);
-		left: var(--space-2);
-		z-index: 5;
-		background: var(--bg-elevated);
-		border: none;
-		border-radius: var(--radius-sm);
-		color: var(--text-muted);
-		cursor: pointer;
-		display: flex;
-		padding: 1px;
-		box-shadow: var(--shadow-card);
-		&.on {
-			color: var(--primary);
-		}
-		&.inline {
-			position: static;
-			box-shadow: none;
-			background: transparent;
-			padding: 0;
-			margin-right: 2px;
-		}
-	}
-
-	/* ---- Skeletons ---- */
-	.skeleton {
-		border-radius: var(--radius-md);
-		background: linear-gradient(
-			100deg,
-			var(--tint-soft) 30%,
-			var(--tint-softer) 50%,
-			var(--tint-soft) 70%
-		);
-		background-size: 200% 100%;
-		animation: shimmer 1.3s infinite;
-		&.grid {
-			min-height: 160px;
-		}
-		&.list {
-			height: 52px;
-		}
-	}
-	@keyframes shimmer {
-		from {
-			background-position: 200% 0;
-		}
-		to {
-			background-position: -200% 0;
-		}
-	}
-
-	/* ---- List view ---- */
-	.list-head,
-	.row {
-		display: grid;
-		grid-template-columns: 1fr 110px 150px 40px;
-		align-items: center;
-		gap: var(--space-3);
-		padding: 0 var(--space-3);
-	}
-	.list-head {
-		height: 36px;
-		font-size: var(--fs-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--text-dim);
-		border-bottom: 1px solid var(--hairline);
-		position: sticky;
-		top: 0;
-		background: var(--bg-base, transparent);
-		z-index: 2;
-		.lh-size,
-		.lh-date {
-			text-align: left;
-		}
-	}
-	.row {
-		height: 52px;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		color: var(--text-secondary);
-		transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-		user-select: none;
-
-		&:hover {
-			background: var(--bg-card-hover);
-			.r-menu {
-				opacity: 1;
-			}
-		}
-		&.is-selected {
-			background: var(--tint-soft);
-			box-shadow: inset 2px 0 0 var(--primary);
-		}
-
-		.r-name {
-			display: flex;
-			align-items: center;
-			gap: var(--space-2);
-			min-width: 0;
-			:global(.r-icon) {
-				color: var(--text-secondary);
-				flex: none;
-			}
-			:global(.r-icon.folder) {
-				color: var(--primary);
-			}
-			.nm {
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
-				color: var(--text-primary);
-				font-weight: var(--fw-medium);
-				font-size: var(--fs-sm);
-			}
-			:global(.r-star) {
-				color: var(--warning);
-				flex: none;
-			}
-			:global(.r-lock) {
-				color: var(--warning);
-				flex: none;
-			}
-		}
-		.r-size,
-		.r-date {
-			font-size: var(--fs-xs);
-			color: var(--text-muted);
-			font-family: var(--font-mono);
-		}
-		.r-menu {
-			background: transparent;
-			border: none;
-			color: var(--text-muted);
-			cursor: pointer;
-			display: flex;
-			justify-content: center;
-			padding: var(--space-1);
+		input {
+			width: 100%;
+			height: 32px;
+			padding: 0 2rem;
 			border-radius: var(--radius-sm);
-			opacity: 0;
-			transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease),
-				background var(--dur) var(--ease);
-			&:hover {
-				color: var(--text-primary);
-				background: var(--tint-soft);
+			background: var(--surface);
+			border: 1px solid var(--edge);
+			color: var(--ink);
+			font: inherit;
+			font-size: var(--fs-sm);
+			outline: none;
+			transition:
+				border-color var(--dur-fast) var(--ease),
+				box-shadow var(--dur-fast) var(--ease);
+
+			&::placeholder {
+				color: var(--ink-faint);
+			}
+			&:focus {
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
 			}
 		}
 	}
 
-	/* ---- Load more ---- */
-	.load-more-wrap {
-		grid-column: 1 / -1;
-		display: flex;
-		justify-content: center;
-		padding: var(--space-5) 0 var(--space-2);
-	}
-	.load-more {
-		background: var(--tint-soft);
-		border: 1px solid var(--border-default);
-		color: var(--text-secondary);
-		font-family: inherit;
-		font-weight: var(--fw-medium);
-		font-size: var(--fs-sm);
-		padding: var(--space-2) var(--space-5);
-		border-radius: 999px;
-		cursor: pointer;
-		&:hover {
-			color: var(--text-primary);
-			background: var(--tint-softer);
-		}
-	}
-
-	/* ---- Marquee selection rectangle ---- */
-	.marquee-rect {
-		position: fixed;
-		z-index: 40;
-		background: var(--primary-glow, rgba(99, 102, 241, 0.15));
-		border: 1px solid var(--primary);
-		border-radius: 2px;
+	.search-glyph {
+		position: absolute;
+		left: 0.625rem;
+		top: 50%;
+		transform: translateY(-50%);
+		color: var(--ink-faint);
 		pointer-events: none;
 	}
 
-	@media (max-width: 640px) {
-		.list-head {
-			grid-template-columns: 1fr 70px 40px;
-			.lh-date {
-				display: none;
-			}
+	.search-clear {
+		position: absolute;
+		right: 0.375rem;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 22px;
+		height: 22px;
+		border: 0;
+		background: none;
+		border-radius: 5px;
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
 		}
-		.row {
-			grid-template-columns: 1fr 70px 40px;
-			.r-date {
-				display: none;
+	}
+
+	.tools {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		flex: 0 0 auto;
+	}
+
+	.sorts {
+		display: flex;
+		align-items: center;
+		gap: 0.125rem;
+	}
+
+	.sort-label {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		margin-right: var(--space-1);
+	}
+
+	.sort {
+		height: 28px;
+		padding-inline: var(--space-2);
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		color: var(--ink-faint);
+		cursor: pointer;
+		white-space: nowrap;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+		}
+		/* The active sort is ink, not accent: it is a state, not an action. */
+		&.active {
+			color: var(--ink);
+		}
+	}
+
+	.divider {
+		width: 1px;
+		height: 18px;
+		background: var(--edge);
+		flex: 0 0 auto;
+	}
+
+	.tool {
+		width: 30px;
+		height: 30px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+		&.on {
+			background: var(--accent-soft);
+			color: var(--accent);
+		}
+	}
+
+	.view-seg {
+		display: flex;
+		padding: 2px;
+		border-radius: 8px;
+		background: var(--tint-soft);
+		border: 1px solid var(--edge);
+
+		button {
+			width: 28px;
+			height: 26px;
+			border: 0;
+			background: transparent;
+			border-radius: var(--radius-sm);
+			display: grid;
+			place-items: center;
+			color: var(--ink-faint);
+			cursor: pointer;
+			transition:
+				background var(--dur-fast) var(--ease),
+				color var(--dur-fast) var(--ease);
+
+			&.on {
+				background: var(--raised);
+				color: var(--ink);
 			}
 		}
 	}
 
-	/* Bulk-download per-file password modal */
-	.bulkpw-intro {
-		margin: 0;
-		font-size: var(--fs-sm);
-		color: var(--text-muted);
-	}
-	.bulkpw-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		max-height: 320px;
-		overflow-y: auto;
-	}
-	.bulkpw-row {
+	/* ---- bulk bar ---- */
+	.bulk {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--space-4);
+		height: 44px;
+		padding: 0 0.625rem 0 var(--space-2);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		border: 1px solid var(--edge-strong);
+		flex: 0 0 auto;
 	}
-	.bulkpw-file {
+
+	.bulk-left {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+	}
+
+	.bulk-x {
+		width: 26px;
+		height: 26px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-mute);
+		cursor: pointer;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.bulk-count {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		white-space: nowrap;
+	}
+
+	.bulk-link {
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		padding: 0.25rem 0.375rem;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+		&:disabled {
+			color: var(--ink-faint);
+			cursor: not-allowed;
+		}
+	}
+
+	.bulk-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.bulk-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		height: 28px;
+		padding-inline: 0.625rem;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		font: inherit;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		cursor: pointer;
+		white-space: nowrap;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+		&.danger {
+			color: var(--danger);
+
+			&:hover {
+				background: var(--danger-soft);
+			}
+		}
+	}
+
+	/* ---- offline ---- */
+	.offline {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		min-width: 0;
-		flex: 1 1 160px;
-		color: var(--text-secondary);
+		padding: 0.625rem 0.875rem;
+		border-radius: var(--radius-md);
+		background: var(--warn-soft);
+		border: 1px solid var(--edge);
+		color: var(--warn);
 		font-size: var(--fs-sm);
-		:global(svg) {
-			color: var(--warning);
-			flex-shrink: 0;
-		}
+		flex: 0 0 auto;
+
 		span {
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-			color: var(--text-primary);
+			flex: 1;
+			color: var(--ink-mute);
 		}
-	}
-	.bulkpw-row input {
-		flex: 1 1 160px;
-		min-width: 0;
-		background: var(--bg-input);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-sm);
-		padding: 0.6rem 0.8rem;
-		color: var(--text-primary);
-		font-family: var(--font-mono);
-		font-size: var(--fs-sm);
-		outline: none;
-		transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-		&:focus {
-			border-color: var(--primary);
-			box-shadow: 0 0 0 3px var(--primary-glow);
+
+		button {
+			border: 0;
+			background: none;
+			font: inherit;
+			font-size: var(--fs-sm);
+			font-weight: var(--fw-medium);
+			color: var(--warn);
+			cursor: pointer;
 		}
 	}
 
-	/* Modal Styles */
+	/* ---- area ---- */
+	.area {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		overflow: auto;
+	}
+
+	.drop-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-3);
+		border-radius: var(--radius-md);
+		border: 1px dashed var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-size: var(--fs-body);
+		font-weight: var(--fw-medium);
+		pointer-events: none;
+	}
+
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+		gap: 0.75rem;
+		padding: 1rem;
+	}
+
+	/* ---- cards ---- */
+	.card {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		/* The corner checkbox lives in this bottom gutter. It is reserved on
+		   every card, selected or not, so selecting one never reflows the grid. */
+		padding: 0.875rem 0.875rem 2.25rem;
+		border-radius: var(--radius-md);
+		/* Cards carry their hairline at rest, so the grid reads as a set of
+		   objects rather than floating text; selection swaps it to accent. */
+		border: 1px solid var(--edge);
+		background: transparent;
+		cursor: default;
+		transition:
+			background var(--dur-fast) var(--ease),
+			border-color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--surface-hover);
+
+			.card-btn {
+				opacity: 1;
+			}
+		}
+		&.selected {
+			background: var(--accent-soft);
+			border-color: var(--accent);
+		}
+		&.drop-target {
+			border-color: var(--accent);
+			background: var(--accent-soft);
+		}
+	}
+
+	.card-top {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+	}
+
+	.folder-glyph {
+		color: var(--ink-mute);
+		display: grid;
+		place-items: center;
+	}
+
+	.file-tile {
+		display: grid;
+		place-items: center;
+		width: 34px;
+		height: 34px;
+		border-radius: 8px;
+		background: var(--tint-soft);
+		color: var(--ink-mute);
+	}
+
+	.card-tools {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.ind {
+		display: grid;
+		place-items: center;
+		color: var(--ink-mute);
+
+		&.faint {
+			color: var(--ink-faint);
+		}
+	}
+
+	/* Hover-revealed on cards, always visible in list rows. */
+	.card-btn {
+		width: 24px;
+		height: 24px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+		/* Visible but quiet at rest: hiding them entirely means people never
+		   learn the card has a share button. */
+		opacity: 0.55;
+		transition:
+			opacity var(--dur-fast) var(--ease),
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover,
+		&:focus-visible {
+			background: var(--tint-softer);
+			color: var(--ink);
+			opacity: 1;
+		}
+	}
+
+	.card-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1875rem;
+		min-width: 0;
+	}
+
+	.card-name {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.card-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.4375rem;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.dot {
+		opacity: 0.5;
+	}
+
+	.check {
+		position: absolute;
+		left: 0.625rem;
+		bottom: 0.625rem;
+		width: 16px;
+		height: 16px;
+		border-radius: 4px;
+		display: grid;
+		place-items: center;
+		background: var(--surface);
+		border: 1px solid var(--edge-strong);
+		color: #fff;
+
+		:global(svg) {
+			opacity: 0;
+		}
+
+		&.on {
+			background: var(--accent);
+			border-color: var(--accent);
+
+			:global(svg) {
+				opacity: 1;
+			}
+		}
+		&.inline {
+			position: static;
+			flex: 0 0 16px;
+		}
+	}
+
+	/* ---- list ---- */
+	.lhead,
+	.lrow {
+		display: grid;
+		grid-template-columns: 1fr 110px 130px 64px;
+		gap: var(--space-4);
+		align-items: center;
+	}
+
+	.lhead {
+		padding: 0.625rem 1rem;
+		border-bottom: 1px solid var(--edge);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		position: sticky;
+		top: 0;
+		background: var(--surface);
+		z-index: 1;
+	}
+
+	.lrow {
+		padding: 0.5rem 1rem;
+		border-bottom: 1px solid var(--edge);
+		cursor: default;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--surface-hover);
+		}
+		&.selected {
+			background: var(--accent-soft);
+			box-shadow: inset 2px 0 0 var(--accent);
+		}
+		&.drop-target {
+			background: var(--accent-soft);
+			box-shadow: inset 0 0 0 1px var(--accent);
+		}
+	}
+
+	.lname {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+	}
+
+	.lglyph {
+		flex: 0 0 auto;
+		display: grid;
+		place-items: center;
+		color: var(--ink-mute);
+	}
+
+	.ltext {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.lmeta {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.right {
+		text-align: right;
+	}
+
+	.lactions {
+		display: flex;
+		align-items: center;
+		gap: 0.125rem;
+		justify-self: end;
+
+		.card-btn {
+			opacity: 1;
+			width: 26px;
+			height: 26px;
+		}
+	}
+
+	/* ---- states ---- */
+	.state {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.875rem;
+		padding: 3rem 1rem;
+		text-align: center;
+		color: var(--ink-faint);
+	}
+
+	.state-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		max-width: 34ch;
+	}
+
+	.state-title {
+		font-size: var(--fs-lg);
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-tight);
+		color: var(--ink);
+	}
+
+	.state-line {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		line-height: var(--lh-normal);
+	}
+
+	.state-cta {
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		color: var(--accent);
+		padding: 0.4375rem 0.625rem;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--accent-soft);
+		}
+	}
+
+	.more {
+		display: flex;
+		justify-content: center;
+		padding: 0 1rem 1.25rem;
+
+		button {
+			border: 0;
+			background: none;
+			font: inherit;
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+			padding: 0.4375rem 0.75rem;
+			border-radius: var(--radius-sm);
+			cursor: pointer;
+			transition:
+				background var(--dur-fast) var(--ease),
+				color var(--dur-fast) var(--ease);
+
+			&:hover {
+				background: var(--tint-soft);
+				color: var(--ink);
+			}
+		}
+	}
+
+	/* ---- skeletons ---- */
+	.sk-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 0.875rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--edge);
+		animation: sk-pulse 1.4s ease-in-out infinite;
+	}
+
+	.sk-tile {
+		width: 34px;
+		height: 34px;
+		border-radius: 8px;
+		background: var(--tint-softer);
+	}
+
+	.sk-line {
+		height: 10px;
+		border-radius: 4px;
+		background: var(--tint-softer);
+
+		&.thin {
+			height: 9px;
+			background: var(--tint-soft);
+		}
+	}
+
+	@keyframes sk-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.55;
+		}
+	}
+
+	/* ---- marquee ---- */
+	.marquee {
+		position: fixed;
+		z-index: 40;
+		border: 1px solid var(--accent);
+		background: var(--accent-soft);
+		border-radius: 4px;
+		pointer-events: none;
+	}
+
+	/* =====================================================================
+	   Overlays that are still hand-rolled in this file (upload, bulk
+	   passwords). Same shell tokens as `ui/Modal`, so they read identically.
+	   ===================================================================== */
 	.modal-backdrop {
 		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100vw;
-		height: 100vh;
-		background: rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(8px);
+		inset: 0;
 		z-index: 1000;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: var(--gutter);
+		padding: var(--space-5);
+		background: var(--scrim);
 	}
 
 	.modal-content {
-		background: var(--bg-elevated);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-lg);
 		width: 100%;
-		max-width: 400px;
+		max-width: 480px;
 		display: flex;
 		flex-direction: column;
-		max-height: 90vh;
+		background: var(--raised);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		overflow: hidden;
+		max-height: min(84vh, 760px);
+	}
 
-		&.upload-modal {
-			max-width: 540px;
+	.modal-header {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 1rem 1rem 0.875rem;
+	}
+
+	.modal-title {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		flex: 1;
+		min-width: 0;
+		font-size: 0.9375rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+		color: var(--ink);
+	}
+
+	.close-btn {
+		width: 28px;
+		height: 28px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
 		}
+	}
 
-		.modal-header {
-			padding: var(--space-5) var(--space-5) var(--space-4);
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
+	.modal-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		padding: 0 1rem 1rem;
+		overflow-y: auto;
+	}
 
-			.modal-title {
-				display: flex;
-				align-items: center;
-				gap: var(--space-2);
-				font-weight: var(--fw-semibold);
-				font-size: var(--fs-lg);
-				color: var(--text-primary);
-			}
-
-			.close-btn {
-				background: transparent;
-				border: none;
-				color: var(--text-muted);
-				cursor: pointer;
-				display: flex;
-				padding: 4px;
-				margin: -4px;
-				border-radius: var(--radius-sm);
-				transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
-				&:hover {
-					color: var(--text-primary);
-					background: var(--tint-soft);
-				}
-			}
-		}
-
-		.modal-body {
-			flex: 1;
-			overflow-y: auto;
-			padding: 0 var(--space-5) var(--space-5);
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-4);
-		}
-
-		.modal-footer {
-			padding: var(--space-4) var(--space-5);
-			border-top: 1px solid var(--hairline);
-			display: flex;
-			justify-content: flex-end;
-			gap: var(--space-3);
-		}
+	.modal-footer {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		padding: 0.875rem 1rem;
+		border-top: 1px solid var(--edge);
 	}
 
 	.upload-area {
@@ -3084,50 +3409,44 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		min-height: 168px;
-		border: 1.5px dashed var(--border-strong);
+		gap: var(--space-2);
+		padding: 2rem 1rem;
+		border: 1px dashed var(--edge-strong);
 		border-radius: var(--radius-md);
+		background: var(--bg);
+		color: var(--ink-faint);
 		cursor: pointer;
-		transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
-		color: var(--text-secondary);
 		text-align: center;
-		padding: var(--space-6) var(--space-5);
-
-		.upload-area-icon {
-			display: grid;
-			place-items: center;
-			width: 52px;
-			height: 52px;
-			border-radius: 50%;
-			background: var(--tint-soft);
-			color: var(--primary);
-			margin-bottom: var(--space-3);
-			transition: transform var(--dur) var(--ease);
-		}
+		transition:
+			border-color var(--dur-fast) var(--ease),
+			background var(--dur-fast) var(--ease);
 
 		&:hover,
 		&.active {
-			border-color: var(--primary);
-			background: var(--tint-soft);
-			.upload-area-icon {
-				transform: translateY(-2px);
-			}
+			border-color: var(--accent);
+			background: var(--accent-soft);
 		}
 
 		p {
 			margin: 0;
-			font-weight: var(--fw-medium);
-			color: var(--text-primary);
+			font-size: var(--fs-body);
+			color: var(--ink);
 		}
+
 		.link {
-			color: var(--primary);
-			font-weight: var(--fw-semibold);
+			color: var(--accent);
 		}
+
 		.sub-text {
-			font-size: var(--fs-xs);
-			color: var(--text-muted);
-			margin-top: var(--space-1);
+			font-size: var(--fs-sm);
+			color: var(--ink-faint);
 		}
+	}
+
+	.upload-area-icon {
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
 	}
 
 	.encrypt-toggle {
@@ -3135,193 +3454,369 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-		width: 100%;
-		background: var(--tint-soft);
-		border: 1px solid var(--hairline);
+		padding: 0.75rem;
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
-		padding: var(--space-3) var(--space-4);
+		background: none;
+		font: inherit;
+		color: var(--ink);
 		cursor: pointer;
 		text-align: left;
-		transition: border-color var(--dur) var(--ease);
-
-		&.on {
-			border-color: var(--primary);
-		}
 
 		.encrypt-text {
 			display: flex;
 			align-items: center;
-			gap: var(--space-3);
-			color: var(--text-muted);
-			min-width: 0;
+			gap: 0.625rem;
+			color: var(--ink-mute);
 
-			> span {
+			span {
 				display: flex;
 				flex-direction: column;
-				min-width: 0;
 			}
-			.t1 {
-				color: var(--text-primary);
-				font-weight: var(--fw-medium);
-				font-size: var(--fs-sm);
-			}
-			.t2 {
-				color: var(--text-muted);
-				font-size: var(--fs-xs);
-			}
+		}
+		.t1 {
+			font-size: 0.875rem;
+			font-weight: var(--fw-medium);
+			color: var(--ink);
+		}
+		.t2 {
+			font-size: var(--fs-xs);
+			color: var(--ink-faint);
 		}
 
 		.switch {
-			flex: none;
-			width: 38px;
-			height: 22px;
-			border-radius: 999px;
-			background: var(--border-strong);
 			position: relative;
-			transition: background var(--dur) var(--ease);
-
-			.knob {
-				position: absolute;
-				top: 2px;
-				left: 2px;
-				width: 18px;
-				height: 18px;
-				border-radius: 50%;
-				background: #fff;
-				transition: transform var(--dur) var(--ease);
-			}
+			flex: 0 0 auto;
+			width: 34px;
+			height: 20px;
+			border-radius: var(--radius-full);
+			background: var(--tint-softer);
+			transition: background var(--dur-fast) var(--ease);
+		}
+		.knob {
+			position: absolute;
+			top: 2px;
+			left: 2px;
+			width: 16px;
+			height: 16px;
+			border-radius: var(--radius-full);
+			background: #fff;
+			transition: left var(--dur-fast) var(--ease);
 		}
 		&.on .switch {
-			background: var(--primary);
-			.knob {
-				transform: translateX(16px);
-			}
+			background: var(--accent);
+		}
+		&.on .knob {
+			left: 16px;
 		}
 	}
 
 	.password-input {
 		display: flex;
+		align-items: center;
 		gap: var(--space-2);
+		height: 38px;
+		padding-inline: 0.75rem;
+		border-radius: var(--radius-sm);
+		background: var(--bg);
+		border: 1px solid var(--edge);
 
 		.input-field {
 			flex: 1;
 			min-width: 0;
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			padding: 0.75rem 0.95rem;
-			border-radius: var(--radius-sm);
-			color: var(--text-primary);
-			font-family: var(--font-mono);
+			border: 0;
+			background: none;
 			outline: none;
-			transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-			&:focus {
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
+			color: var(--ink);
+			font-family: var(--font-mono);
+			font-size: 0.875rem;
 		}
-		.pw-icon-btn {
-			flex: none;
-			display: grid;
-			place-items: center;
-			width: 40px;
+	}
+
+	.pw-icon-btn {
+		border: 0;
+		background: none;
+		color: var(--ink-faint);
+		cursor: pointer;
+		display: grid;
+		place-items: center;
+
+		&:hover:not(:disabled) {
+			color: var(--ink);
+		}
+		&:disabled {
+			opacity: 0.4;
+			cursor: not-allowed;
+		}
+	}
+
+	.generate-btn {
+		flex: 0 0 auto;
+		height: 26px;
+		padding-inline: 0.5rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--edge);
+		background: none;
+		font: inherit;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		color: var(--ink);
+		cursor: pointer;
+
+		&:hover {
 			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			color: var(--text-muted);
-			cursor: pointer;
-			transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
-			&:hover:not(:disabled) {
-				color: var(--text-primary);
-				background: var(--tint-softer);
-			}
-			&:disabled {
-				opacity: 0.45;
-				cursor: not-allowed;
-			}
-		}
-		.generate-btn {
-			padding: 0 var(--space-3);
-			background: var(--tint-softer);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			color: var(--text-primary);
-			cursor: pointer;
-			font-size: var(--fs-sm);
-			font-weight: var(--fw-medium);
-			flex: none;
-			&:hover {
-				background: var(--bg-card-hover);
-			}
 		}
 	}
 
 	.selected-files {
-		.selected-files-head {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			margin-bottom: var(--space-3);
-			h3 {
-				font-size: var(--fs-sm);
-				color: var(--text-secondary);
-				margin: 0;
-			}
-			.clear-btn {
-				background: none;
-				border: none;
-				color: var(--text-muted);
-				font-size: var(--fs-xs);
-				cursor: pointer;
-				&:hover {
-					color: var(--primary);
-				}
-			}
-		}
-		.file-list-scroll {
-			max-height: 168px;
-			overflow-y: auto;
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-2);
-			&::-webkit-scrollbar {
-				width: 4px;
-			}
-			&::-webkit-scrollbar-thumb {
-				background: var(--border-strong);
-				border-radius: 999px;
-			}
-		}
-		.selected-file-row {
-			display: flex;
-			align-items: center;
-			gap: var(--space-3);
-			background: var(--bg-input);
-			padding: var(--space-2) var(--space-3);
-			border-radius: var(--radius-sm);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+
+	.selected-files-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.625rem 0.75rem;
+		border-bottom: 1px solid var(--edge);
+
+		h3 {
+			margin: 0;
 			font-size: var(--fs-sm);
-			color: var(--text-muted);
-			.name {
-				flex: 1;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
-				color: var(--text-primary);
+			font-weight: var(--fw-medium);
+		}
+	}
+
+	.clear-btn {
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		cursor: pointer;
+
+		&:hover {
+			color: var(--ink);
+		}
+	}
+
+	.file-list-scroll {
+		max-height: 180px;
+		overflow-y: auto;
+	}
+
+	.selected-file-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 0.5rem 0.75rem;
+		color: var(--ink-faint);
+
+		& + .selected-file-row {
+			border-top: 1px solid var(--edge);
+		}
+
+		.name {
+			flex: 1;
+			min-width: 0;
+			font-size: var(--fs-sm);
+			color: var(--ink);
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.size {
+			font-family: var(--font-mono);
+			font-size: var(--fs-xs);
+		}
+	}
+
+	.remove-btn {
+		width: 22px;
+		height: 22px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	/* Uploading state: one ring, one phase line, mono bytes. */
+	.upload-progress-container {
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+		padding: 0.5rem 0;
+	}
+
+	.progress-circle {
+		position: relative;
+		flex: 0 0 96px;
+		width: 96px;
+		height: 96px;
+	}
+
+	.circular-chart {
+		width: 96px;
+		height: 96px;
+		transform: rotate(-90deg);
+	}
+
+	.circle-bg {
+		fill: none;
+		stroke: var(--tint-softer);
+		stroke-width: 2.4;
+	}
+
+	.circle {
+		fill: none;
+		stroke: var(--accent);
+		stroke-width: 2.4;
+		stroke-linecap: round;
+		transition: stroke-dasharray var(--dur) var(--ease);
+	}
+
+	.percentage {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		font-family: var(--font-mono);
+		font-size: var(--fs-body);
+		color: var(--ink);
+	}
+
+	.upload-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		min-width: 0;
+
+		h3 {
+			margin: 0;
+			font-size: var(--fs-body);
+			font-weight: var(--fw-medium);
+		}
+	}
+
+	.current-file {
+		margin: 0;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.stats-row {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.bulkpw-intro {
+		margin: 0;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.bulkpw-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		max-height: 260px;
+		overflow-y: auto;
+	}
+
+	.bulkpw-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+
+		input {
+			flex: 0 0 180px;
+			height: 32px;
+			padding-inline: 0.625rem;
+			border-radius: var(--radius-sm);
+			background: var(--bg);
+			border: 1px solid var(--edge);
+			color: var(--ink);
+			font-family: var(--font-mono);
+			font-size: var(--fs-sm);
+			outline: none;
+
+			&:focus {
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
 			}
-			.size {
-				color: var(--text-muted);
-				font-size: var(--fs-xs);
-				font-family: var(--font-mono);
-			}
-			.remove-btn {
-				background: transparent;
-				border: none;
-				color: var(--text-muted);
-				cursor: pointer;
-				display: flex;
-				&:hover {
-					color: var(--danger);
-				}
-			}
+		}
+	}
+
+	.bulkpw-file {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+
+		span {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+	}
+
+	.btn-ghost,
+	.btn-primary {
+		height: 34px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-md);
+		border: 0;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+	}
+
+	.btn-ghost {
+		background: none;
+		color: var(--ink-mute);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.btn-primary {
+		background: var(--accent);
+		color: #fff;
+
+		&:hover:not(:disabled) {
+			background: var(--accent-hover);
+		}
+		&:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
 		}
 	}
 
@@ -3330,168 +3825,43 @@
 		place-items: center;
 		min-width: 18px;
 		height: 18px;
-		padding: 0 5px;
-		margin-left: 6px;
-		border-radius: 999px;
+		padding-inline: 5px;
+		border-radius: var(--radius-full);
 		background: rgba(255, 255, 255, 0.22);
-		font-size: var(--fs-xs);
-		font-weight: var(--fw-semibold);
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
 	}
 
-	/* Bottom-sheet on small screens */
-	@media (max-width: 600px) {
-		.modal-backdrop {
-			align-items: flex-end;
-			padding: 0;
+	@media (max-width: 900px) {
+		.toolbar {
+			flex-wrap: wrap;
 		}
-		.modal-content.upload-modal {
-			max-width: 100%;
-			max-height: 92vh;
-			border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-			border-bottom: none;
+		.search {
+			flex: 1 1 100%;
 		}
-		.modal-content.upload-modal .modal-header,
-		.modal-content.upload-modal .modal-body {
-			padding-left: var(--space-4);
-			padding-right: var(--space-4);
-		}
-		.modal-content.upload-modal .modal-footer {
-			padding: var(--space-4);
-			.btn {
-				flex: 1;
-			}
-		}
-	}
-
-	.upload-progress-container {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		flex: 1;
-		gap: var(--space-5);
-
-		.progress-circle {
-			position: relative;
-			width: 120px;
-			height: 120px;
-			.circular-chart {
-				display: block;
-				margin: 0 auto;
-				max-width: 100%;
-				max-height: 100%;
-			}
-			.circle-bg {
-				fill: none;
-				stroke: var(--tint-softer);
-				stroke-width: 2.5;
-			}
-			.circle {
-				fill: none;
-				stroke: var(--primary);
-				stroke-width: 2.5;
-				stroke-linecap: round;
-				transition: stroke-dasharray 0.3s ease;
-			}
-			.percentage {
-				position: absolute;
-				inset: 0;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-bold);
-				font-family: var(--font-mono);
-				color: var(--text-primary);
-			}
-		}
-
-		.upload-details {
-			text-align: center;
-			h3 {
-				font-size: var(--fs-lg);
-				color: var(--text-primary);
-				margin-bottom: var(--space-2);
-			}
-			.current-file {
-				color: var(--text-secondary);
-				font-size: var(--fs-sm);
-				margin-bottom: var(--space-1);
-				max-width: 300px;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
-			}
-			.stats-row {
-				font-size: var(--fs-sm);
-				color: var(--text-muted);
-				font-family: var(--font-mono);
-				margin-top: var(--space-2);
-			}
-		}
-	}
-
-	.selected-item {
-		background-color: var(--tint-soft);
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--primary);
-	}
-
-	.drag-target-active {
-		position: relative;
-		z-index: 10;
-	}
-
-	.drag-target-active::after {
-		content: '';
-		position: absolute;
-		inset: -4px;
-		z-index: 20;
-		border-radius: var(--radius-md);
-		border: 2px dashed var(--primary);
-		background-color: var(--tint-soft);
-		pointer-events: none;
-	}
-
-	.drag-target-active-crumb {
-		outline: 2px dashed var(--primary);
-		background-color: var(--tint-soft);
-		border-radius: var(--radius-sm);
-		color: var(--primary) !important;
-	}
-
-	@media (max-width: 600px) {
-		.dashboard-header {
-			align-items: flex-start;
-		}
-		.header-actions {
-			width: 100%;
-		}
-		.header-actions .action-btn {
-			flex: 1;
-			justify-content: center;
-		}
-		.resource-area.grid {
-			grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-			gap: var(--space-3);
-		}
-		.files-toolbar {
-			gap: var(--space-2);
-		}
-		.search-box {
-			order: -1;
-			width: 100%;
-			flex-basis: 100%;
-		}
-		.toolbar-right {
-			width: 100%;
-			justify-content: space-between;
-		}
-		.sort-group {
-			flex: 1;
-		}
-		.bulk-bar .bulk-btn span {
+		.sort-label {
 			display: none;
+		}
+		.lhead,
+		.lrow {
+			grid-template-columns: 1fr 90px 64px;
+		}
+		.lhead span:nth-child(3),
+		.lrow > .lmeta:nth-of-type(2) {
+			display: none;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.bulk {
+			height: auto;
+			flex-direction: column;
+			align-items: stretch;
+			gap: var(--space-2);
+			padding: var(--space-2);
+		}
+		.bulk-actions {
+			flex-wrap: wrap;
 		}
 	}
 </style>

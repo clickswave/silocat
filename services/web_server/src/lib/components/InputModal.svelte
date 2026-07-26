@@ -1,142 +1,171 @@
 <script>
-	import Modal from './Modal.svelte';
+	/**
+	 * The single-field prompt: New Folder, Rename, Decrypt.
+	 *
+	 * Built on `ui/Modal` so it shares one shell with every other overlay. The
+	 * field is labelled rather than relying on a bare placeholder, because a
+	 * placeholder disappears the moment you type and "what was this asking for?"
+	 * is the classic result.
+	 */
+	import Modal from '$lib/ui/Modal.svelte';
 
-	export let show = false; // Add show prop for bind:show
-	export let title = 'Enter Value';
-	export let placeholder = '';
-	export let initialValue = ''; // Renamed from value to match +page.svelte
-	export let submitLabel = 'Confirm';
-	export let cancelLabel = 'Cancel';
-	export let icon = ''; // Add icon prop since it's used in +page.svelte
+	let {
+		show = $bindable(false),
+		title = '',
+		icon = undefined,
+		/** Field label. Falls back to the title so callers can stay terse. */
+		label = '',
+		placeholder = '',
+		hint = '',
+		initialValue = '',
+		submitLabel = 'Save',
+		cancelLabel = 'Cancel',
+		/** Passwords and keys render in mono, like everywhere else. */
+		mono = false,
+		type = 'text',
+		onconfirm = () => {},
+		onclose = () => {}
+	} = $props();
 
-	// Callback props
-	export let onsubmit = (val) => {};
-	export let onconfirm = (val) => {}; // Alias for onsubmit if used interchangeably
-	export let onclose = () => {};
+	let value = $state(initialValue);
+	let inputEl = $state(null);
 
-	let value = initialValue;
-	let inputEl;
-
-	function handleSubmit() {
-		if (value.trim()) {
-			if (onsubmit) onsubmit(value);
-			if (onconfirm) onconfirm(value);
-			show = false; // Close on success
+	// Focus and pre-select on open: renaming should not require a manual select-all.
+	$effect(() => {
+		if (show && inputEl) {
+			inputEl.focus();
+			inputEl.select();
 		}
-	}
+	});
 
-	function handleClose() {
+	function close() {
 		show = false;
-		if (onclose) onclose();
+		value = initialValue;
+		onclose?.();
 	}
 
-	function handleKeyDown(e) {
+	function submit() {
+		const v = value.trim();
+		if (!v) return;
+		onconfirm?.(v);
+		show = false;
+		value = initialValue;
+	}
+
+	function onkeydown(e) {
 		if (e.key === 'Enter') {
-			handleSubmit();
+			e.preventDefault();
+			submit();
 		}
 	}
 </script>
 
-{#if show}
-	<Modal {title} {icon} onclose={handleClose}>
-		<div class="input-container">
-			<input
-				type="text"
-				bind:value
-				bind:this={inputEl}
-				{placeholder}
-				onkeydown={handleKeyDown}
-				autofocus
-			/>
-		</div>
-		<div class="actions">
-			<button class="btn-cancel" onclick={handleClose}>{cancelLabel}</button>
-			<button class="btn-submit" onclick={handleSubmit} disabled={!value.trim()}
-				>{submitLabel}</button
-			>
-		</div>
-	</Modal>
-{/if}
+<Modal open={show} {title} {icon} size="sm" onclose={close}>
+	<div class="field">
+		<label class="label" for="prompt-input">{label || title}</label>
+		<input
+			id="prompt-input"
+			bind:this={inputEl}
+			bind:value
+			{type}
+			{placeholder}
+			class:mono
+			{onkeydown}
+			autocomplete="off"
+			spellcheck="false"
+		/>
+		{#if hint}
+			<span class="hint">{hint}</span>
+		{/if}
+	</div>
+
+	{#snippet footer()}
+		<button type="button" class="ghost" onclick={close}>{cancelLabel}</button>
+		<button type="button" class="primary" disabled={!value.trim()} onclick={submit}>
+			{submitLabel}
+		</button>
+	{/snippet}
+</Modal>
 
 <style lang="scss">
-	.input-container {
-		width: 100%;
-
-		input {
-			width: 100%;
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			padding: 0.75rem 0.95rem;
-			color: var(--text-primary);
-			font-family: inherit;
-			font-size: var(--fs-body);
-			outline: none;
-			transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-
-			&:focus {
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
-
-			&::placeholder {
-				color: var(--text-muted);
-			}
-		}
-	}
-
-	.actions {
+	.field {
 		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-3);
-		margin-top: var(--space-2);
+		flex-direction: column;
+		gap: 0.375rem;
+	}
 
-		button {
-			padding: 0.7rem 1.25rem;
-			border-radius: var(--radius-pill);
-			font-family: inherit;
-			font-size: var(--fs-body);
-			font-weight: var(--fw-semibold);
-			cursor: pointer;
-			transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
-				filter var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-			border: 1px solid transparent;
+	.label {
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+	}
+
+	input {
+		height: 36px;
+		padding: 0 0.625rem;
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		border: 1px solid var(--edge);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: 0.875rem;
+		outline: none;
+		transition:
+			border-color var(--dur-fast) var(--ease),
+			box-shadow var(--dur-fast) var(--ease);
+
+		&::placeholder {
+			color: var(--ink-faint);
 		}
-
-		.btn-cancel {
-			background: var(--tint-soft);
-			color: var(--text-primary);
-			border-color: var(--border-default);
-
-			&:hover {
-				background: var(--tint-softer);
-				border-color: var(--border-strong);
-			}
+		&:focus {
+			border-color: var(--accent);
+			box-shadow: 0 0 0 3px var(--focus-ring);
 		}
-
-		.btn-submit {
-			background: var(--accent-gradient);
-			color: #fff;
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
-
-			&:hover {
-				filter: brightness(1.06);
-				box-shadow: 0 10px 28px -6px var(--primary-glow);
-			}
-
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
+		&.mono {
+			font-family: var(--font-mono);
 		}
 	}
 
-	@media (max-width: 600px) {
-		.actions {
-			flex-direction: column-reverse;
-			button {
-				width: 100%;
-			}
+	.hint {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.ghost,
+	.primary {
+		height: 34px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-md);
+		border: 1px solid transparent;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease),
+			filter var(--dur-fast) var(--ease);
+	}
+
+	.ghost {
+		background: none;
+		color: var(--ink-mute);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.primary {
+		background: var(--accent);
+		color: #fff;
+
+		&:hover:not(:disabled) {
+			filter: brightness(1.08);
+		}
+		&:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
 		}
 	}
 </style>

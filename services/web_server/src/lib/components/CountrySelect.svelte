@@ -1,5 +1,5 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { countries, getCountryName } from '$lib/countries';
 	import { clickOutside } from '$lib/clickOutside';
 
@@ -168,7 +168,7 @@
 				&:focus {
 					outline: none;
 					border-color: var(--primary);
-					box-shadow: 0 0 0 3px var(--primary-glow);
+					box-shadow: 0 0 0 3px var(--focus-ring);
 				}
 			}
 		}

@@ -1,5 +1,5 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 
 	export let name = 'Folder';
 	export let count = 0;

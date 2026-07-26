@@ -1,5 +1,6 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Modal from '$lib/ui/Modal.svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { onMount } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import axios from 'axios';
@@ -39,255 +40,189 @@
 	onMount(() => loadFolders(null));
 </script>
 
-<div
-	class="mv-backdrop"
-	transition:fade={{ duration: 150 }}
-	role="presentation"
-	onclick={(e) => {
-		if (e.target === e.currentTarget) onclose();
-	}}
->
-	<div class="mv-shell" transition:scale={{ duration: 180, start: 0.96 }}>
-		<header class="mv-head">
-			<div class="title"><Icon icon="ri:folder-transfer-line" width="20" /><span>Move to</span></div>
-			<button class="hbtn" onclick={() => onclose()} aria-label="Close">
-				<Icon icon="ri:close-line" width="20" />
-			</button>
-		</header>
+<Modal open={true} title="Move to" icon="folder-move" size="sm" onclose={() => onclose()}>
+	<div class="crumbs">
+		{#each path as c, i (c.id ?? 'root')}
+			{#if i > 0}<span class="sep">/</span>{/if}
+			{#if i === path.length - 1}
+				<span class="crumb current">{c.name}</span>
+			{:else}
+				<button type="button" class="crumb" onclick={() => jump(i)}>{c.name}</button>
+			{/if}
+		{/each}
+	</div>
 
-		<div class="mv-crumbs">
-			{#each path as c, i}
-				{#if i > 0}<span class="sep">/</span>{/if}
-				<button class="crumb" class:active={i === path.length - 1} onclick={() => jump(i)}>
-					{c.name}
+	<div class="targets">
+		{#if loading}
+			<div class="state"><Icon name="spinner" size={20} /></div>
+		{:else if folders.length === 0}
+			<div class="state">No sub-folders here</div>
+		{:else}
+			{#each folders as f (f.id)}
+				{@const blocked = excludeFolderIds.includes(f.id)}
+				<button type="button" class="target" disabled={blocked} onclick={() => open(f)}>
+					<Icon name="folder" size={16} />
+					<span class="t-name">{f.name}</span>
+					{#if blocked}
+						<span class="t-tag">moving</span>
+					{:else}
+						<Icon name="chevron-right" size={15} />
+					{/if}
 				</button>
 			{/each}
-		</div>
-
-		<div class="mv-list">
-			{#if loading}
-				<div class="mv-empty"><Icon icon="ri:loader-4-line" class="spin" width="24" /></div>
-			{:else if folders.length === 0}
-				<div class="mv-empty">No sub-folders here</div>
-			{:else}
-				{#each folders as f (f.id)}
-					{@const blocked = excludeFolderIds.includes(f.id)}
-					<button class="mv-row" disabled={blocked} onclick={() => open(f)}>
-						<Icon icon="ri:folder-3-fill" width="20" />
-						<span class="nm">{f.name}</span>
-						{#if blocked}
-							<span class="tag">moving</span>
-						{:else}
-							<Icon icon="ri:arrow-right-s-line" width="18" />
-						{/if}
-					</button>
-				{/each}
-			{/if}
-		</div>
-
-		<footer class="mv-foot">
-			<span class="dest">Destination: <strong>{path[path.length - 1].name}</strong></span>
-			<div class="foot-btns">
-				<button class="btn ghost" onclick={() => onclose()}>Cancel</button>
-				<button class="btn primary" onclick={() => onmove(currentId)}>Move here</button>
-			</div>
-		</footer>
+		{/if}
 	</div>
-</div>
+
+	<span class="dest">
+		Destination: <span class="dest-name">{path[path.length - 1].name}</span>
+	</span>
+
+	{#snippet footer()}
+		<button type="button" class="ghost" onclick={() => onclose()}>Cancel</button>
+		<button type="button" class="primary" onclick={() => onmove(currentId)}>Move here</button>
+	{/snippet}
+</Modal>
 
 <style lang="scss">
-	.mv-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(8px);
-		z-index: 1100;
+	.crumbs {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		flex-wrap: wrap;
+	}
+
+	.crumb {
+		padding: 0.25rem 0.375rem;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		font: inherit;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+		&.current {
+			color: var(--ink);
+			font-weight: var(--fw-medium);
+			cursor: default;
+		}
+	}
+
+	.sep {
+		color: var(--ink-faint);
+	}
+
+	.targets {
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+		max-height: 240px;
+		overflow-y: auto;
+	}
+
+	.target {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 0.625rem 0.75rem;
+		border: 0;
+		border-bottom: 1px solid var(--edge);
+		background: none;
+		text-align: left;
+		font: inherit;
+		color: var(--ink-mute);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:last-child {
+			border-bottom: 0;
+		}
+		&:hover:not(:disabled) {
+			background: var(--surface-hover);
+		}
+		&:disabled {
+			opacity: 0.45;
+			cursor: not-allowed;
+		}
+	}
+
+	.t-name {
+		flex: 1;
+		min-width: 0;
+		font-size: var(--fs-sm);
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.t-tag {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		color: var(--ink-faint);
+	}
+
+	.state {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: var(--space-5);
-	}
-	.mv-shell {
-		background: var(--bg-elevated);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-lg);
-		width: 100%;
-		max-width: 440px;
-		max-height: 80vh;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-	.mv-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-4) var(--space-5);
-		.title {
-			display: flex;
-			align-items: center;
-			gap: var(--space-2);
-			font-weight: var(--fw-semibold);
-			color: var(--text-primary);
-		}
-		.hbtn {
-			background: transparent;
-			border: none;
-			color: var(--text-muted);
-			cursor: pointer;
-			display: flex;
-			padding: 4px;
-			border-radius: var(--radius-sm);
-			&:hover {
-				color: var(--text-primary);
-				background: var(--tint-soft);
-			}
-		}
-	}
-	.mv-crumbs {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 2px;
-		padding: 0 var(--space-5) var(--space-3);
+		padding: 1.75rem 1rem;
 		font-size: var(--fs-sm);
-		.sep {
-			color: var(--text-dim);
-		}
-		.crumb {
-			background: none;
-			border: none;
-			color: var(--text-muted);
-			cursor: pointer;
-			padding: 2px 4px;
-			border-radius: var(--radius-sm);
-			&:hover {
-				color: var(--text-primary);
-			}
-			&.active {
-				color: var(--text-primary);
-				font-weight: var(--fw-medium);
-			}
-		}
+		color: var(--ink-faint);
 	}
-	.mv-list {
-		flex: 1;
-		overflow-y: auto;
-		padding: 0 var(--space-4) var(--space-3);
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-height: 120px;
 
-		.mv-empty {
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			color: var(--text-muted);
-			padding: var(--space-6);
-			font-size: var(--fs-sm);
-			:global(.spin) {
-				animation: spin 1s linear infinite;
-			}
-		}
-		.mv-row {
-			display: flex;
-			align-items: center;
-			gap: var(--space-3);
-			padding: var(--space-3);
-			background: transparent;
-			border: none;
-			border-radius: var(--radius-sm);
-			color: var(--text-secondary);
-			cursor: pointer;
-			text-align: left;
-			width: 100%;
-			transition: background var(--dur) var(--ease);
-			.nm {
-				flex: 1;
-				overflow: hidden;
-				text-overflow: ellipsis;
-				white-space: nowrap;
-				color: var(--text-primary);
-			}
-			.tag {
-				font-size: var(--fs-xs);
-				color: var(--text-dim);
-			}
-			&:hover:not(:disabled) {
-				background: var(--tint-soft);
-			}
-			&:disabled {
-				opacity: 0.45;
-				cursor: not-allowed;
-			}
-		}
+	.dest {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
 	}
-	.mv-foot {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		padding: var(--space-4) var(--space-5);
-		border-top: 1px solid var(--hairline);
-		.dest {
-			font-size: var(--fs-sm);
-			color: var(--text-muted);
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-			strong {
-				color: var(--text-primary);
-			}
-		}
-		.foot-btns {
-			display: flex;
-			gap: var(--space-2);
-			flex: none;
-		}
-		.btn {
-			border-radius: var(--radius-sm);
-			padding: var(--space-2) var(--space-4);
-			font-weight: var(--fw-medium);
-			cursor: pointer;
-			border: 1px solid transparent;
-			font-family: inherit;
-			&.ghost {
-				background: transparent;
-				border-color: var(--border-default);
-				color: var(--text-secondary);
-				&:hover {
-					color: var(--text-primary);
-				}
-			}
-			&.primary {
-				background: var(--primary);
-				color: #fff;
-				&:hover {
-					filter: brightness(1.05);
-				}
-			}
-		}
+
+	.dest-name {
+		color: var(--ink);
+		font-weight: var(--fw-medium);
 	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
+
+	.ghost,
+	.primary {
+		height: 34px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-md);
+		border: 1px solid transparent;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease),
+			filter var(--dur-fast) var(--ease);
+	}
+
+	.ghost {
+		background: none;
+		color: var(--ink-mute);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
 		}
 	}
 
-	@media (max-width: 600px) {
-		.mv-backdrop {
-			align-items: flex-end;
-			padding: 0;
-		}
-		.mv-shell {
-			max-width: 100%;
-			max-height: 88vh;
-			border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-		}
-		.mv-foot .btn {
-			flex: 1;
+	.primary {
+		background: var(--accent);
+		color: #fff;
+
+		&:hover {
+			filter: brightness(1.08);
 		}
 	}
 </style>

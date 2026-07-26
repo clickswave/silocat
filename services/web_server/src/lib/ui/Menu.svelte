@@ -1,6 +1,6 @@
 <script>
 	import { scale } from 'svelte/transition';
-	import Icon from '@iconify/svelte';
+	import Icon from './Icon.svelte';
 	import { menuState, closeMenu } from './menu.js';
 
 	let el = $state();

@@ -1,7 +1,7 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { page } from '$app/stores';
-	import { toast } from 'svelte-sonner';
+	import { toast } from '$lib/toast.js';
 	import { onMount } from 'svelte';
 
 	const id = $page.params.id;
@@ -105,78 +105,99 @@
 	}
 
 	onMount(load);
+	/** `12 Jul, 14:02`: short and mono, matching every other timestamp. */
+	function fmtShort(iso) {
+		if (!iso) return '';
+		const d = new Date(iso);
+		return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+	}
+
+	/** The opening message plus replies, as one ordered conversation. */
+	let messages = $derived(
+		ticket
+			? [
+					{
+						id: 'open',
+						role: 'user',
+						body: ticket.message,
+						at: ticket.created_at
+					},
+					...replies.map((r) => ({
+						id: r.id,
+						role: r.author_role === 'admin' ? 'admin' : 'user',
+						body: r.body,
+						at: r.created_at
+					}))
+				]
+			: []
+	);
 </script>
 
-<div class="thread-page">
-	<a class="back" href="/home/support"><Icon icon="ri:arrow-left-line" width="18" /> All tickets</a>
-
+<div class="thread">
 	{#if loading}
-		<div class="state"><Icon icon="svg-spinners:ring-resize" width="28" /></div>
+		<div class="state"><Icon name="spinner" size={26} /></div>
 	{:else if notFound}
 		<div class="state empty">
-			<Icon icon="ri:error-warning-line" width="40" />
-			<p>Ticket not found.</p>
-			<a class="link" href="/home/support">Back to support</a>
+			<Icon name="alert" size={34} stroke={1.4} />
+			<span class="state-title">Ticket not found</span>
+			<a class="back" href="/home/support">← All tickets</a>
 		</div>
 	{:else}
-		<header class="t-header">
-			<div class="t-head-main">
-				<div class="t-head-top">
-					<span class="t-cat">{catLabel(ticket.category)}</span>
-					<span class="t-status {ticket.status === 'open' ? 'open' : 'done'}">
+		<a class="back" href="/home/support">← All tickets</a>
+
+		<header class="head">
+			<div class="head-text">
+				<div class="head-top">
+					<span class="cat">{catLabel(ticket.category)}</span>
+					<span class="status {ticket.status === 'open' ? 'open' : 'done'}">
 						{ticket.status === 'open' ? 'Open' : 'Resolved'}
 					</span>
 				</div>
 				<h1>{ticket.subject}</h1>
-				<p class="t-meta">Opened {fmt(ticket.created_at)}</p>
+				<span class="opened">Opened {fmt(ticket.created_at)}</span>
 			</div>
 			<button
+				type="button"
 				class="status-btn"
 				disabled={statusBusy}
 				onclick={() => setStatus(ticket.status === 'open' ? 'closed' : 'open')}
 			>
-				<Icon icon={ticket.status === 'open' ? 'ri:check-line' : 'ri:refresh-line'} width="16" />
 				{ticket.status === 'open' ? 'Close ticket' : 'Reopen'}
 			</button>
 		</header>
 
 		<div class="conversation">
-			<!-- Opening message -->
-			<div class="msg user">
-				<div class="msg-head"><span class="who">You</span><span class="at">{fmt(ticket.created_at)}</span></div>
-				<div class="bubble">{ticket.message}</div>
-			</div>
-
-			{#each replies as r (r.id)}
-				<div class="msg {r.author_role === 'admin' ? 'admin' : 'user'}">
+			{#each messages as m (m.id)}
+				<div class="msg">
 					<div class="msg-head">
-						<span class="who">
-							{#if r.author_role === 'admin'}
-								<span class="admin-badge"><Icon icon="ri:shield-star-line" width="13" /> SiloCat Team</span>
-							{:else}
-								You
-							{/if}
-						</span>
-						<span class="at">{fmt(r.created_at)}</span>
+						{#if m.role === 'admin'}
+							<span class="who team">
+								<Icon name="shield-check" size={13} stroke={1.8} />
+								Silocat Team
+							</span>
+						{:else}
+							<span class="who">You</span>
+						{/if}
+						<span class="at">{fmtShort(m.at)}</span>
 					</div>
-					<div class="bubble">{r.body}</div>
+					<div class="bubble" class:team={m.role === 'admin'}>{m.body}</div>
 				</div>
 			{/each}
 		</div>
 
-		<form class="reply-box" onsubmit={sendReply}>
+		<form class="reply" onsubmit={sendReply}>
 			<textarea
 				rows="3"
 				placeholder={ticket.status === 'closed' ? 'Reply to reopen this ticket…' : 'Write a reply…'}
 				bind:value={body}
 			></textarea>
-			<div class="reply-actions">
+			<div class="reply-foot">
 				{#if ticket.status === 'closed'}
-					<span class="hint">Sending a reply will reopen this ticket.</span>
+					<span class="hint">Sending a reply reopens this ticket.</span>
 				{/if}
 				<button type="submit" class="send" disabled={body.trim().length < 2 || sending}>
-					<Icon icon={sending ? 'svg-spinners:ring-resize' : 'ri:send-plane-2-line'} width="18" />
-					{sending ? 'Sending…' : 'Send reply'}
+					{sending ? 'Sending…' : 'Send'}
+					<Icon name={sending ? 'spinner' : 'send'} size={14} stroke={1.8} />
 				</button>
 			</div>
 		</form>
@@ -184,222 +205,250 @@
 </div>
 
 <style lang="scss">
-	.thread-page {
-		width: 100%;
-		max-width: 760px;
-		color: var(--text-primary);
+	.thread {
+		max-width: 720px;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
+		gap: 1.25rem;
+		padding-bottom: var(--space-6);
 	}
+
 	.back {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--text-muted);
+		align-self: flex-start;
 		font-size: var(--fs-sm);
-		width: fit-content;
+		color: var(--ink-mute);
+		text-decoration: none;
+		padding-top: var(--space-2);
+		transition: color var(--dur-fast) var(--ease);
+
 		&:hover {
-			color: var(--text-primary);
+			color: var(--ink);
 		}
 	}
-	.state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-9) 0;
-		color: var(--text-muted);
-		.link {
-			color: var(--primary);
-			font-weight: var(--fw-medium);
-			font-size: var(--fs-sm);
-		}
-	}
-	.t-header {
+
+	.head {
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: var(--space-4);
-		flex-wrap: wrap;
-		.t-head-top {
-			display: flex;
-			align-items: center;
-			gap: var(--space-2);
-			margin-bottom: var(--space-2);
-		}
-		.t-cat {
-			color: var(--text-muted);
-			text-transform: uppercase;
-			letter-spacing: 0.04em;
-			font-family: var(--font-mono);
-			font-size: var(--fs-xs);
-		}
-		.t-status {
-			font-size: 0.62rem;
-			font-weight: var(--fw-semibold);
-			text-transform: uppercase;
-			letter-spacing: 0.04em;
-			padding: 2px 8px;
-			border-radius: 999px;
-			&.open {
-				background: color-mix(in srgb, var(--success, #3ddc97) 16%, transparent);
-				color: var(--success, #3ddc97);
-			}
-			&.done {
-				background: var(--tint-soft);
-				color: var(--text-muted);
-			}
-		}
+		padding-inline: 0.125rem;
+	}
+
+	.head-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		min-width: 0;
+
 		h1 {
-			font-size: var(--fs-h3);
-			font-weight: var(--fw-semibold);
-			margin: 0 0 var(--space-1);
-		}
-		.t-meta {
 			margin: 0;
-			color: var(--text-muted);
-			font-size: var(--fs-xs);
-			font-family: var(--font-mono);
+			font-size: 1.25rem;
+			font-weight: var(--fw-black);
+			letter-spacing: var(--tracking-tight);
+			line-height: 1.2;
 		}
 	}
-	.status-btn {
+
+	.head-top {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.cat {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	.status {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
-		flex-shrink: 0;
-		background: var(--tint-soft);
-		border: 1px solid var(--border-default);
-		color: var(--text-secondary);
-		border-radius: var(--radius-pill, 999px);
-		padding: var(--space-2) var(--space-4);
-		font-family: inherit;
+		height: 18px;
+		padding-inline: 0.375rem;
+		border-radius: var(--radius-sm);
+		font-size: 0.6875rem;
+		font-weight: var(--fw-medium);
+
+		&.open {
+			background: var(--ok-soft);
+			color: var(--ok);
+		}
+		&.done {
+			background: var(--tint-softer);
+			color: var(--ink-mute);
+		}
+	}
+
+	.opened {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.status-btn {
+		flex: 0 0 auto;
+		height: 32px;
+		padding-inline: 0.75rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--edge);
+		background: none;
+		font: inherit;
 		font-size: var(--fs-sm);
 		font-weight: var(--fw-medium);
+		color: var(--ink-mute);
 		cursor: pointer;
-		transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
 		&:hover:not(:disabled) {
-			color: var(--text-primary);
-			border-color: var(--border-active, var(--primary));
-		}
-		&:disabled {
-			opacity: 0.6;
-			cursor: default;
-		}
-	}
-	.conversation {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-	}
-	.msg {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		max-width: 86%;
-		&.user {
-			align-self: flex-end;
-			align-items: flex-end;
-		}
-		&.admin {
-			align-self: flex-start;
-			align-items: flex-start;
-		}
-	}
-	.msg-head {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--fs-xs);
-		color: var(--text-muted);
-		.who {
-			font-weight: var(--fw-semibold);
-			color: var(--text-secondary);
-		}
-		.admin-badge {
-			display: inline-flex;
-			align-items: center;
-			gap: 3px;
-			color: var(--primary);
-		}
-		.at {
-			font-family: var(--font-mono);
-			color: var(--text-dim);
-		}
-	}
-	.bubble {
-		padding: var(--space-3) var(--space-4);
-		border-radius: var(--radius-md);
-		font-size: var(--fs-sm);
-		line-height: var(--lh-normal, 1.55);
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-	.msg.user .bubble {
-		background: color-mix(in srgb, var(--primary) 14%, var(--bg-card));
-		border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
-		border-bottom-right-radius: 4px;
-	}
-	.msg.admin .bubble {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-bottom-left-radius: 4px;
-	}
-	.reply-box {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		border-top: 1px solid var(--hairline);
-		padding-top: var(--space-4);
-		textarea {
-			width: 100%;
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			padding: 0.75rem 0.95rem;
-			color: var(--text-primary);
-			font-family: inherit;
-			font-size: var(--fs-body);
-			outline: none;
-			resize: vertical;
-			min-height: 80px;
-			&:focus {
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
-		}
-	}
-	.reply-actions {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-3);
-		.hint {
-			font-size: var(--fs-xs);
-			color: var(--text-muted);
-			margin-right: auto;
-		}
-	}
-	.send {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		background: var(--accent-gradient);
-		color: #fff;
-		border: none;
-		border-radius: var(--radius-pill, 999px);
-		padding: var(--space-2) var(--space-5);
-		font-family: inherit;
-		font-weight: var(--fw-semibold);
-		font-size: var(--fs-sm);
-		cursor: pointer;
-		box-shadow: 0 6px 20px -6px var(--primary-glow);
-		&:hover:not(:disabled) {
-			filter: brightness(1.06);
+			background: var(--tint-soft);
+			color: var(--ink);
 		}
 		&:disabled {
 			opacity: 0.55;
 			cursor: not-allowed;
 		}
+	}
+
+	.conversation {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.msg {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.msg-head {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+	}
+
+	.who {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
+
+		/* The team badge is the one place accent appears in the thread, so a
+		   reply from support is unmistakable at a glance. */
+		&.team {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.3125rem;
+			color: var(--ink);
+
+			:global(svg) {
+				color: var(--accent);
+			}
+		}
+	}
+
+	.at {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		color: var(--ink-faint);
+	}
+
+	.bubble {
+		padding: 0.75rem 0.875rem;
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		border: 1px solid var(--edge);
+		font-size: 0.875rem;
+		color: var(--ink);
+		line-height: var(--lh-normal);
+		white-space: pre-wrap;
+		word-break: break-word;
+
+		&.team {
+			background: var(--accent-soft);
+		}
+	}
+
+	.reply {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: 1rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+
+		textarea {
+			padding: 0.25rem 0;
+			border: 0;
+			background: none;
+			color: var(--ink);
+			font-family: var(--font-sans);
+			font-size: 0.875rem;
+			outline: none;
+			resize: vertical;
+			min-height: 60px;
+			line-height: var(--lh-normal);
+
+			&::placeholder {
+				color: var(--ink-faint);
+			}
+		}
+	}
+
+	.reply-foot {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-3);
+	}
+
+	.hint {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		margin-right: auto;
+	}
+
+	.send {
+		display: flex;
+		align-items: center;
+		gap: 0.4375rem;
+		height: 34px;
+		padding-inline: 0.875rem;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			background: var(--accent-hover);
+		}
+		&:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+	}
+
+	.state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.875rem;
+		padding: var(--space-10) 0;
+		color: var(--ink-faint);
+	}
+
+	.state-title {
+		font-size: var(--fs-lg);
+		font-weight: var(--fw-medium);
+		color: var(--ink);
 	}
 </style>

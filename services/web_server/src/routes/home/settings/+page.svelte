@@ -1,12 +1,12 @@
 <script>
 	import { onMount } from 'svelte';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { countries, getCountryName } from '$lib/countries';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import CountrySelect from '$lib/components/CountrySelect.svelte';
 	import { browser } from '$app/environment';
-	import { toast } from 'svelte-sonner';
+	import { toast } from '$lib/toast.js';
 	import { theme as themeStore, setTheme as applyTheme } from '$lib/theme.js';
 
 	let { data } = $props();
@@ -225,6 +225,43 @@
 	};
 
 	// Password: "set" for Google accounts without one, "change" otherwise.
+	// ---- API key ----------------------------------------------------------
+	// One key per account, and it is the credential for the whole programmatic
+	// surface. Hidden by default so it is not shoulder-surfed or captured in a
+	// screen share while someone is looking at unrelated settings.
+	let apiKey = $state(data.user?.api_key || '');
+	let apiKeyVisible = $state(false);
+	let rotating = $state(false);
+	let confirmRotate = $state(false);
+
+	let maskedKey = $derived(
+		apiKey ? `${apiKey.slice(0, 8)}${'•'.repeat(Math.max(0, apiKey.length - 12))}${apiKey.slice(-4)}` : ''
+	);
+
+	function copyApiKey() {
+		if (!apiKey) return;
+		navigator.clipboard.writeText(apiKey);
+		toast.success('API key copied', 'Treat it like a password.');
+	}
+
+	async function rotateApiKey() {
+		if (rotating) return;
+		rotating = true;
+		try {
+			const res = await fetch('/api/v1/user/rotate-api-key', { method: 'POST' });
+			const body = await res.json();
+			if (!res.ok || !body?.success?.api_key) throw new Error(body?.message || 'Failed');
+			apiKey = body.success.api_key;
+			apiKeyVisible = true;
+			confirmRotate = false;
+			toast.success('API key rotated', 'The old key stopped working immediately.');
+		} catch (e) {
+			toast.error('Could not rotate the key', e.message || 'Try again in a moment.');
+		} finally {
+			rotating = false;
+		}
+	}
+
 	let hasPassword = $state(data.user?.password_set ?? true);
 	let pwForm = $state({ current: '', next: '', confirm: '' });
 	let pwBusy = $state(false);
@@ -263,104 +300,125 @@
 			pwBusy = false;
 		}
 	}
+
+	let otpDigits = $derived(otpInput.padEnd(6, ' ').slice(0, 6).split(''));
+
+	function onOtpInput(index, event) {
+		const raw = event.target.value.replace(/\D/g, '');
+		const chars = otpInput.padEnd(6, ' ').split('');
+		if (!raw) {
+			chars[index] = ' ';
+			otpInput = chars.join('').trimEnd();
+			return;
+		}
+		// Paste of a full code lands in one box; spread it across all six.
+		if (raw.length > 1) {
+			otpInput = raw.slice(0, 6);
+			const last = Math.min(raw.length, 6) - 1;
+			document.getElementById(`otp-${last}`)?.focus();
+			return;
+		}
+		chars[index] = raw;
+		otpInput = chars.join('').trimEnd();
+		if (index < 5) document.getElementById(`otp-${index + 1}`)?.focus();
+	}
+
+	function onOtpKeydown(index, event) {
+		if (event.key === 'Backspace' && !event.target.value && index > 0) {
+			document.getElementById(`otp-${index - 1}`)?.focus();
+		}
+	}
 </script>
 
-<div class="settings-page">
-	<header>
-		<h1>Settings</h1>
-		<p class="subtitle">Manage your account preferences and profile.</p>
-	</header>
+<div class="settings">
+	<div class="col">
+		<header class="head">
+			<h1>Settings</h1>
+			<span class="sub">Your account, in plain sections.</span>
+		</header>
 
-	<div class="settings-grid">
-		<!-- Section: Platform Settings -->
-		<section class="card platform-settings">
-			<div class="card-header">
-				<div class="header-icon">
-					<Icon icon="ri:macbook-line" width="24" />
-				</div>
-				<h2>Platform Settings</h2>
+		<!-- Platform -->
+		<section class="row-section">
+			<div class="row-text">
+				<span class="row-title">Theme</span>
+				<span class="row-note">Dark by default. Light if you insist.</span>
 			</div>
-
-			<div class="setting-item">
-				<div class="label">
-					<span class="title">Theme</span>
-					<span class="desc">Dark by default. Light if you insist.</span>
-				</div>
-				<div class="controls">
-					<button
-						class="toggle-btn {theme === 'dark' ? 'active' : ''}"
-						onclick={() => setTheme('dark')}
-					>
-						<Icon icon="ri:moon-line" /> Dark
-					</button>
-					<button
-						class="toggle-btn {theme === 'light' ? 'active' : ''}"
-						onclick={() => setTheme('light')}
-					>
-						<Icon icon="ri:sun-line" /> Light
-					</button>
-				</div>
+			<div class="seg">
+				<button
+					type="button"
+					class:on={theme === 'dark'}
+					onclick={() => setTheme('dark')}
+					aria-pressed={theme === 'dark'}
+				>
+					Dark
+				</button>
+				<button
+					type="button"
+					class:on={theme === 'light'}
+					onclick={() => setTheme('light')}
+					aria-pressed={theme === 'light'}
+				>
+					Light
+				</button>
 			</div>
-
 		</section>
 
-		<!-- Section: Profile Settings -->
-		<section class="card profile-settings">
-			<div class="card-header">
-				<div class="header-icon">
-					<Icon icon="ri:user-settings-line" width="24" />
-				</div>
-				<h2>Profile Settings</h2>
-			</div>
+		<!-- Profile -->
+		<section class="section">
+			<span class="section-label">Profile</span>
 
-			<div class="profile-header">
-				<div class="avatar-wrapper">
+			<div class="identity">
+				<div class="avatar-wrap">
 					{#if currentAvatar}
-						<img src={currentAvatar} alt="avatar" referrerpolicy="no-referrer" />
+						<img class="avatar" src={currentAvatar} alt="" referrerpolicy="no-referrer" />
 					{:else}
-						<div class="avatar-placeholder">
-							<Icon icon="ri:user-smile-line" width="40" />
+						<div class="avatar fallback">
+							{(user.username || '?').charAt(0).toUpperCase()}
 						</div>
 					{/if}
 					<button
-						class="edit-avatar"
-						title="Change display picture"
-						onclick={() => fileInput?.click()}
+						type="button"
+						class="avatar-btn"
+						aria-label="Change picture"
 						disabled={avatarBusy}
+						onclick={() => fileInput?.click()}
 					>
-						<Icon icon={avatarBusy ? 'svg-spinners:ring-resize' : 'ri:camera-line'} />
+						<Icon name={avatarBusy ? 'spinner' : 'camera'} size={14} />
 					</button>
 					<input
 						bind:this={fileInput}
 						type="file"
 						accept="image/png,image/jpeg,image/webp,image/gif"
-						class="avatar-input"
+						hidden
 						onchange={onAvatarPick}
 					/>
 				</div>
-				<div class="user-meta">
-					<h3>{user.username}</h3>
-					<span class="role" class:pro={isPro}>{isPro ? 'Pro' : 'Free'}</span>
-					<span class="country-badge" title="Country">
-						{getCountryName(user.country)}
-					</span>
-					{#if currentAvatar}
-						<button class="remove-avatar" onclick={removeAvatar} disabled={avatarBusy}>
-							Remove picture
-						</button>
-					{/if}
+
+				<div class="identity-text">
+					<span class="identity-name">{user.username}</span>
+					<div class="chips">
+						<span class="chip">{isPro ? 'Pro' : 'Free'}</span>
+						{#if user.country}
+							<span class="chip">{getCountryName(user.country)}</span>
+						{/if}
+						{#if currentAvatar}
+							<button type="button" class="link-btn" disabled={avatarBusy} onclick={removeAvatar}>
+								Remove picture
+							</button>
+						{/if}
+					</div>
 				</div>
 			</div>
 
-			<form class="profile-form" method="POST" action="?/saveProfile" use:enhance={handleSubmit}>
-				<div class="form-group">
+			<form class="fields" method="POST" action="?/saveProfile" use:enhance={handleSubmit}>
+				<div class="f-field">
 					<label for="username">Username</label>
 					<input
 						type="text"
 						id="username"
 						name="username"
 						bind:value={profileForm.username}
-						placeholder="Enter username"
+						placeholder="username"
 						minlength="3"
 						maxlength="30"
 						autocomplete="off"
@@ -373,7 +431,7 @@
 						</span>
 					{:else if usernameLocked}
 						<span class="note warn">
-							You've used both username changes for this month.{usernameStatus.next_change_at
+							You've used both username changes for this month.{usernameStatus?.next_change_at
 								? ` You can change it again on ${fmtDate(usernameStatus.next_change_at)}.`
 								: ''}
 						</span>
@@ -382,147 +440,220 @@
 					{/if}
 				</div>
 
-				<div class="form-group">
+				<div class="f-field">
 					<label for="country">Country</label>
 					<input type="hidden" name="country" value={profileForm.country} />
 					<CountrySelect bind:value={profileForm.country} />
 				</div>
 
-				<div class="form-group">
+				<div class="f-field">
 					<label for="bio">Bio</label>
 					<textarea
 						id="bio"
 						name="bio"
-						bind:value={profileForm.bio}
-						placeholder="Tell us about yourself"
 						rows="3"
+						placeholder="A line about you, optional."
+						bind:value={profileForm.bio}
 					></textarea>
 				</div>
 
-				<div class="form-actions">
-					<button type="submit" class="btn primary" disabled={saving}>
-						{saving ? 'Saving...' : 'Save Changes'}
+				<div>
+					<button type="submit" class="primary" disabled={saving}>
+						{saving ? 'Saving…' : 'Save changes'}
 					</button>
 				</div>
 			</form>
+		</section>
 
-			<!-- Email change (inline verify) -->
-			<div class="email-change">
-				<label for="email">Email Address</label>
-				<div class="email-row">
-					<input
-						type="email"
-						id="email"
-						bind:value={emailInput}
-						placeholder="you@example.com"
-						autocomplete="email"
-						disabled={emailStage === 'sent'}
-					/>
-					{#if emailChanged && emailStage === 'idle'}
-						<button
-							type="button"
-							class="btn primary sm"
-							onclick={requestEmailChange}
-							disabled={emailBusy || !emailValid}
-						>
-							{emailBusy ? 'Sending…' : 'Verify'}
-						</button>
-					{/if}
-				</div>
+		<!-- Email -->
+		<section class="section">
+			<span class="section-label">Email</span>
 
-				{#if emailStage === 'idle'}
+			{#if emailStage === 'idle'}
+				<div class="f-field">
+					<label for="email">Email address</label>
+					<div class="inline">
+						<input
+							type="email"
+							id="email"
+							bind:value={emailInput}
+							placeholder="you@example.com"
+							autocomplete="email"
+						/>
+						{#if emailChanged}
+							<button
+								type="button"
+								class="ghost"
+								disabled={emailBusy || !emailValid}
+								onclick={requestEmailChange}
+							>
+								{emailBusy ? 'Sending…' : 'Verify'}
+							</button>
+						{/if}
+					</div>
 					{#if user.email_verified === false}
 						<span class="note warn">Your email is not verified.</span>
 					{:else}
 						<span class="note">Change your email and click Verify to confirm it with a code.</span>
 					{/if}
-				{:else}
-					<div class="otp-box">
-						<p class="otp-info">
-							Enter the 6-digit code we sent to <strong>{emailInput}</strong>.
-						</p>
-						<div class="otp-row">
+				</div>
+			{:else}
+				<div class="otp-stage">
+					<div class="f-field">
+						<label for="email-locked">Email address</label>
+						<input id="email-locked" type="email" value={emailInput} disabled />
+					</div>
+
+					<span class="otp-line">
+						Enter the 6-digit code we sent to <strong>{emailInput}</strong>
+					</span>
+
+					<div class="otp-boxes">
+						{#each otpDigits as digit, i (i)}
 							<input
+								id={`otp-${i}`}
 								type="text"
 								inputmode="numeric"
 								maxlength="6"
-								placeholder="000000"
-								class="otp-input"
-								bind:value={otpInput}
+								value={digit.trim()}
+								class:filled={digit.trim() !== ''}
+								oninput={(e) => onOtpInput(i, e)}
+								onkeydown={(e) => onOtpKeydown(i, e)}
+								aria-label={`Digit ${i + 1}`}
 							/>
-							<button
-								type="button"
-								class="btn primary sm"
-								onclick={confirmEmailChange}
-								disabled={otpBusy || otpInput.trim().length < 4}
-							>
-								{otpBusy ? 'Verifying…' : 'Confirm'}
-							</button>
-						</div>
-						<div class="otp-actions">
-							<button type="button" class="link-btn" onclick={resendEmailCode} disabled={resendBusy}>
-								{resendBusy ? 'Resending…' : 'Resend code'}
-							</button>
-							<button type="button" class="link-btn" onclick={cancelEmailChange}>Cancel</button>
-						</div>
+						{/each}
 					</div>
-				{/if}
-			</div>
+
+					<div class="otp-actions">
+						<button
+							type="button"
+							class="primary sm"
+							disabled={otpBusy || otpInput.trim().length < 6}
+							onclick={confirmEmailChange}
+						>
+							{otpBusy ? 'Verifying…' : 'Confirm'}
+						</button>
+						<button type="button" class="link-btn" disabled={resendBusy} onclick={resendEmailCode}>
+							{resendBusy ? 'Resending…' : 'Resend code'}
+						</button>
+						<button type="button" class="link-btn faint" onclick={cancelEmailChange}>Cancel</button>
+					</div>
+				</div>
+			{/if}
 		</section>
 
-		<!-- Section: Security -->
-		<section class="card security-settings">
-			<div class="card-header">
-				<div class="header-icon">
-					<Icon icon="ri:lock-2-line" width="24" />
+		<!-- API access -->
+		<section class="section">
+			<span class="section-label">API</span>
+
+			<div class="f-field">
+				<label for="api-key">Your API key</label>
+				<div class="key-row">
+					<input
+						id="api-key"
+						class="mono"
+						type="text"
+						readonly
+						value={apiKeyVisible ? apiKey : maskedKey}
+						onclick={(e) => e.target.select()}
+					/>
+					<button
+						type="button"
+						class="ghost icon"
+						aria-label={apiKeyVisible ? 'Hide API key' : 'Show API key'}
+						title={apiKeyVisible ? 'Hide' : 'Show'}
+						onclick={() => (apiKeyVisible = !apiKeyVisible)}
+					>
+						<Icon name="eye" size={15} />
+					</button>
+					<button type="button" class="ghost icon" aria-label="Copy API key" title="Copy" onclick={copyApiKey}>
+						<Icon name="copy" size={15} />
+					</button>
 				</div>
-				<h2>Security</h2>
+				<span class="note">
+					Send it as the <code>X-Api-Key</code> header to authenticate against
+					<a href="/api">the API</a>. It identifies your account, so treat it like a
+					password: anything holding it can read, share and delete your files.
+				</span>
 			</div>
 
-			<form class="profile-form" onsubmit={submitPassword}>
+			{#if confirmRotate}
+				<div class="danger-box">
+					<span class="danger-title">Rotate this key?</span>
+					<span class="danger-line">
+						The current key stops working immediately and there is no overlap window.
+						Anything using it, scripts, integrations, another device, breaks until you
+						paste the new one in.
+					</span>
+					<div class="danger-actions">
+						<button type="button" class="link-btn" onclick={() => (confirmRotate = false)}>
+							Cancel
+						</button>
+						<button type="button" class="danger-btn" disabled={rotating} onclick={rotateApiKey}>
+							{rotating ? 'Rotating…' : 'Rotate key'}
+						</button>
+					</div>
+				</div>
+			{:else}
+				<div>
+					<button type="button" class="ghost" onclick={() => (confirmRotate = true)}>
+						Rotate key
+					</button>
+				</div>
+			{/if}
+		</section>
+
+		<!-- Security -->
+		<section class="section last">
+			<span class="section-label">Security</span>
+
+			{#if !hasPassword}
+				<p class="note block">
+					You signed up with Google and don't have a password yet. Set one to also sign in with
+					email and password.
+				</p>
+			{/if}
+
+			<form class="fields" onsubmit={submitPassword}>
 				{#if hasPassword}
-					<div class="form-group">
+					<div class="f-field">
 						<label for="current-password">Current password</label>
 						<input
 							type="password"
 							id="current-password"
+							class="mono"
 							bind:value={pwForm.current}
-							placeholder="••••••••"
 							autocomplete="current-password"
 						/>
 					</div>
-				{:else}
-					<p class="note">
-						You signed up with Google and don't have a password yet. Set one to also sign in with
-						email and password.
-					</p>
 				{/if}
 
-				<div class="form-group">
-					<label for="new-password">{hasPassword ? 'New password' : 'Password'}</label>
-					<input
-						type="password"
-						id="new-password"
-						bind:value={pwForm.next}
-						placeholder="••••••••"
-						autocomplete="new-password"
-					/>
+				<div class="pair">
+					<div class="f-field">
+						<label for="new-password">{hasPassword ? 'New password' : 'Password'}</label>
+						<input
+							type="password"
+							id="new-password"
+							class="mono"
+							bind:value={pwForm.next}
+							autocomplete="new-password"
+						/>
+					</div>
+					<div class="f-field">
+						<label for="confirm-password">Confirm password</label>
+						<input
+							type="password"
+							id="confirm-password"
+							class="mono"
+							bind:value={pwForm.confirm}
+							autocomplete="new-password"
+						/>
+					</div>
 				</div>
 
-				<div class="form-group">
-					<label for="confirm-password">Confirm password</label>
-					<input
-						type="password"
-						id="confirm-password"
-						bind:value={pwForm.confirm}
-						placeholder="••••••••"
-						autocomplete="new-password"
-					/>
-				</div>
-
-				<div class="form-actions">
-					<button type="submit" class="btn primary" disabled={pwBusy}>
-						{pwBusy ? 'Saving...' : hasPassword ? 'Update password' : 'Set password'}
+				<div>
+					<button type="submit" class="primary" disabled={pwBusy}>
+						{pwBusy ? 'Saving…' : hasPassword ? 'Update password' : 'Set password'}
 					</button>
 				</div>
 			</form>
@@ -531,469 +662,515 @@
 </div>
 
 <style lang="scss">
-	.settings-page {
+	.settings {
+		padding-bottom: var(--space-6);
+	}
+
+	/* Sparse, hairline-separated sections. No cards inside cards.
+	   The section label sits in its own left column so the page reads as
+	   label/content pairs and fills the pane, instead of a narrow strip of
+	   fields against a wide void. Form controls keep a readable measure. */
+	.col {
+		/* Full width of the content pane, like every other app screen. The label
+		   rail plus a capped control column keeps fields at a readable measure
+		   without leaving a void on the right. */
 		width: 100%;
-		padding-bottom: var(--space-10);
-
-		header {
-			margin-bottom: var(--space-6);
-			h1 {
-				font-size: var(--fs-h3);
-				font-weight: var(--fw-semibold);
-				margin-bottom: var(--space-1);
-				color: var(--text-primary);
-			}
-			.subtitle {
-				color: var(--text-muted);
-				font-size: var(--fs-sm);
-			}
-		}
-	}
-
-	.settings-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-		gap: var(--space-6);
-	}
-
-	.card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-card);
-		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
-
-		.card-header {
-			display: flex;
-			align-items: center;
-			gap: var(--space-3);
-			padding-bottom: var(--space-4);
-			border-bottom: 1px solid var(--hairline);
-
-			.header-icon {
-				width: 40px;
-				height: 40px;
-				border-radius: var(--radius-sm);
-				background: var(--tint-soft);
-				color: var(--primary);
-				display: flex;
-				align-items: center;
-				justify-content: center;
-			}
-			h2 {
-				font-size: var(--fs-lg);
-				font-weight: var(--fw-semibold);
-				margin: 0;
-				color: var(--text-primary);
-			}
-		}
 	}
 
-	/* Platform Settings Styles */
-	.setting-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: var(--space-4);
-		padding: var(--space-2) 0;
-
-		.label {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-1);
-			.title {
-				font-weight: var(--fw-medium);
-				color: var(--text-primary);
-			}
-			.desc {
-				font-size: var(--fs-sm);
-				color: var(--text-muted);
-			}
-		}
-
-		.controls {
-			display: flex;
-			gap: var(--space-2);
-			background: var(--bg-input);
-			padding: var(--space-1);
-			border-radius: var(--radius-sm);
-			flex-shrink: 0;
-
-			.toggle-btn {
-				background: transparent;
-				border: none;
-				color: var(--text-secondary);
-				padding: var(--space-2) var(--space-3);
-				border-radius: var(--radius-sm);
-				cursor: pointer;
-				display: flex;
-				align-items: center;
-				gap: var(--space-2);
-				font-size: var(--fs-sm);
-				transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-
-				&.active {
-					background: var(--bg-card);
-					color: var(--text-primary);
-					box-shadow: var(--shadow-card);
-				}
-			}
-		}
-	}
-
-	/* Switch Styles */
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 44px;
-		height: 24px;
-		flex-shrink: 0;
-
-		input {
-			opacity: 0;
-			width: 0;
-			height: 0;
-		}
-
-		.slider {
-			position: absolute;
-			cursor: pointer;
-			top: 0;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			background-color: var(--bg-input);
-			transition: background 0.3s var(--ease);
-			border: 1px solid var(--border-default);
-
-			&.round {
-				border-radius: var(--radius-pill);
-			}
-			&.round:before {
-				border-radius: 50%;
-			}
-
-			&:before {
-				position: absolute;
-				content: '';
-				height: 16px;
-				width: 16px;
-				left: 3px;
-				bottom: 3px;
-				background-color: #fff;
-				transition: transform 0.3s var(--ease);
-			}
-		}
-
-		input:checked + .slider {
-			background-color: var(--primary);
-			border-color: var(--primary);
-		}
-
-		input:checked + .slider:before {
-			transform: translateX(20px);
-		}
-	}
-
-	/* Profile Settings Styles */
-	.profile-header {
-		display: flex;
-		align-items: center;
-		gap: var(--space-5);
-		margin-bottom: var(--space-2);
-
-		.avatar-wrapper {
-			position: relative;
-			width: 80px;
-			height: 80px;
-			flex-shrink: 0;
-
-			img,
-			.avatar-placeholder {
-				width: 100%;
-				height: 100%;
-				border-radius: 50%;
-				object-fit: cover;
-			}
-			.avatar-placeholder {
-				background: var(--bg-input);
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				color: var(--text-muted);
-			}
-
-			.edit-avatar {
-				position: absolute;
-				bottom: 0;
-				right: 0;
-				background: var(--primary);
-				border: 2px solid var(--bg-card);
-				color: #fff;
-				border-radius: 50%;
-				width: 28px;
-				height: 28px;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				cursor: pointer;
-				&:hover {
-					transform: scale(1.1);
-				}
-			}
-		}
-
-		.user-meta {
-			h3 {
-				margin: 0 0 var(--space-1) 0;
-				font-size: var(--fs-h3);
-			}
-			.role {
-				background: var(--tint-soft);
-				color: var(--ink-mute);
-				border: 1px solid var(--edge);
-				padding: 2px 8px;
-				border-radius: var(--radius-full);
-				font-size: var(--fs-xs);
-				font-weight: var(--fw-medium);
-
-				&.pro {
-					background: var(--accent-soft);
-					color: var(--accent);
-					border-color: transparent;
-				}
-			}
-			.country-badge {
-				color: var(--text-muted);
-				font-size: var(--fs-sm);
-				margin-left: var(--space-2);
-			}
-		}
-	}
-
-	.profile-form {
+	.head {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
+		gap: var(--space-1);
+		padding: var(--space-2) 0.125rem var(--space-5);
 
-		.form-group {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-2);
-
-			label {
-				font-size: var(--fs-sm);
-				font-weight: var(--fw-medium);
-				color: var(--text-secondary);
-			}
-
-			input,
-			textarea {
-				background: var(--bg-input);
-				border: 1px solid var(--border-default);
-				border-radius: var(--radius-sm);
-				padding: 0.75rem 0.95rem;
-				color: var(--text-primary);
-				font-family: inherit;
-				font-size: var(--fs-body);
-				transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-
-				&:focus {
-					outline: none;
-					border-color: var(--primary);
-					box-shadow: 0 0 0 3px var(--primary-glow);
-				}
-
-				&:disabled {
-					opacity: 0.6;
-					cursor: not-allowed;
-				}
-			}
-
-			.note {
-				font-size: var(--fs-xs);
-				color: var(--text-muted);
-				font-style: italic;
-
-				&.warn {
-					color: var(--warning, #e0a800);
-					font-style: normal;
-				}
-			}
-		}
-
-		.form-actions {
-			display: flex;
-			justify-content: flex-end;
-			gap: var(--space-3);
-			margin-top: var(--space-2);
+		h1 {
+			margin: 0;
+			font-size: var(--fs-h2);
+			font-weight: var(--fw-black);
+			letter-spacing: var(--tracking-tight);
+			line-height: var(--lh-tight);
 		}
 	}
 
-	.btn {
-		padding: 0.7rem 1.25rem;
-		border-radius: var(--radius-pill);
-		font-weight: var(--fw-semibold);
-		cursor: pointer;
-		border: 1px solid transparent;
+	.sub {
 		font-size: var(--fs-sm);
-		transition: filter var(--dur) var(--ease), background var(--dur) var(--ease),
-			border-color var(--dur) var(--ease);
-
-		&.primary {
-			background: var(--accent-gradient);
-			color: #fff;
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
-			&:hover:not(:disabled) {
-				filter: brightness(1.06);
-			}
-			&:disabled {
-				opacity: 0.55;
-				cursor: not-allowed;
-			}
-		}
-		&.secondary {
-			background: var(--tint-soft);
-			border-color: var(--border-default);
-			color: var(--text-primary);
-			&:hover {
-				background: var(--tint-softer);
-				border-color: var(--border-strong);
-			}
-		}
+		color: var(--ink-faint);
 	}
 
-	/* Email change (inline verify) */
-	.email-change {
+	.row-section {
+		display: grid;
+		grid-template-columns: 220px minmax(0, 720px);
+		column-gap: 3.5rem;
+		align-items: center;
+		padding: 1.5rem 0.125rem;
+		border-top: 1px solid var(--edge);
+	}
+
+	.row-text {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
-		margin-top: var(--space-4);
-		padding-top: var(--space-4);
-		border-top: 1px solid var(--hairline);
+		gap: 0.125rem;
+	}
 
-		> label {
+	.row-title {
+		font-size: 0.875rem;
+		font-weight: var(--fw-medium);
+	}
+
+	.row-note {
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+	}
+
+	.seg {
+		display: flex;
+		padding: 2px;
+		border-radius: 8px;
+		background: var(--tint-soft);
+		border: 1px solid var(--edge);
+
+		button {
+			height: 28px;
+			padding-inline: 0.875rem;
+			border-radius: var(--radius-sm);
+			border: 1px solid transparent;
+			background: transparent;
+			font: inherit;
 			font-size: var(--fs-sm);
 			font-weight: var(--fw-medium);
-			color: var(--text-secondary);
+			color: var(--ink-faint);
+			cursor: pointer;
+			transition:
+				background var(--dur-fast) var(--ease),
+				color var(--dur-fast) var(--ease);
+
+			&.on {
+				background: var(--raised);
+				border-color: var(--edge);
+				color: var(--ink);
+			}
 		}
-		.email-row,
-		.otp-row {
-			display: flex;
-			gap: var(--space-2);
+	}
+
+	.section {
+		display: grid;
+		grid-template-columns: 220px minmax(0, 720px);
+		column-gap: 3.5rem;
+		row-gap: 1.25rem;
+		align-items: start;
+		padding: 1.5rem 0.125rem;
+		border-top: 1px solid var(--edge);
+
+		/* The label owns column one; everything else stacks in column two. */
+		> :not(.section-label) {
+			grid-column: 2;
 		}
+
+		&.last {
+			padding-bottom: var(--space-6);
+		}
+	}
+
+	.section-label {
+		padding-top: 0.375rem;
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+
+	/* ---- identity ---- */
+	.identity {
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+	}
+
+	.avatar-wrap {
+		position: relative;
+		flex: 0 0 88px;
+	}
+
+	.avatar {
+		width: 88px;
+		height: 88px;
+		border-radius: var(--radius-full);
+		object-fit: cover;
+		display: block;
+
+		&.fallback {
+			background: var(--tint-softer);
+			border: 1px solid var(--edge);
+			display: grid;
+			place-items: center;
+			font-size: 1.75rem;
+			font-weight: var(--fw-semibold);
+			color: var(--ink-mute);
+		}
+	}
+
+	.avatar-btn {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-full);
+		background: var(--raised);
+		border: 1px solid var(--edge-strong);
+		display: grid;
+		place-items: center;
+		color: var(--ink-mute);
+		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			color: var(--ink);
+		}
+	}
+
+	.identity-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4375rem;
+		min-width: 0;
+	}
+
+	.identity-name {
+		font-size: 1.25rem;
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.chips {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+	}
+
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		height: 20px;
+		padding-inline: 0.4375rem;
+		border-radius: var(--radius-sm);
+		background: var(--tint-softer);
+		font-size: var(--fs-xs);
+		font-weight: var(--fw-medium);
+		color: var(--ink-mute);
+	}
+
+	/* ---- fields ---- */
+	.fields {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	.f-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+
+		label {
+			font-size: var(--fs-xs);
+			color: var(--ink-mute);
+		}
+
+		input,
+		textarea {
+			height: 36px;
+			padding: 0 0.625rem;
+			border-radius: var(--radius-sm);
+			background: var(--surface);
+			border: 1px solid var(--edge);
+			color: var(--ink);
+			font-family: var(--font-sans);
+			font-size: 0.875rem;
+			outline: none;
+			transition:
+				border-color var(--dur-fast) var(--ease),
+				box-shadow var(--dur-fast) var(--ease);
+
+			&::placeholder {
+				color: var(--ink-faint);
+			}
+			&:focus {
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
+			}
+			&:disabled {
+				background: var(--tint-soft);
+				color: var(--ink-faint);
+			}
+			&.mono {
+				font-family: var(--font-mono);
+			}
+		}
+
+		textarea {
+			height: auto;
+			min-height: 72px;
+			padding: 0.5rem 0.625rem;
+			resize: vertical;
+			line-height: var(--lh-normal);
+		}
+	}
+
+	.pair {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+	}
+
+	.inline {
+		display: flex;
+		gap: 0.375rem;
+
 		input {
 			flex: 1;
 			min-width: 0;
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			padding: 0.75rem 0.95rem;
-			color: var(--text-primary);
-			font-family: inherit;
-			font-size: var(--fs-body);
-			transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-			&:focus {
-				outline: none;
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
-			&:disabled {
-				opacity: 0.6;
-			}
 		}
-		.otp-input {
-			font-family: var(--font-mono);
-			letter-spacing: 0.3em;
-			text-align: center;
-			max-width: 160px;
-		}
-		.note {
-			font-size: var(--fs-xs);
-			color: var(--text-muted);
-			font-style: italic;
-			&.warn {
-				color: var(--warning, #e0a800);
-				font-style: normal;
-			}
-		}
-		.otp-box {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-3);
-			background: var(--tint-soft);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			padding: var(--space-4);
-			margin-top: var(--space-1);
-			.otp-info {
-				margin: 0;
-				font-size: var(--fs-sm);
-				color: var(--text-secondary);
-				strong {
-					color: var(--text-primary);
-				}
-			}
-			.otp-actions {
-				display: flex;
-				gap: var(--space-4);
-			}
-			.link-btn {
-				background: none;
-				border: none;
-				padding: 0;
-				color: var(--primary);
-				font-size: var(--fs-sm);
-				font-weight: var(--fw-medium);
-				cursor: pointer;
-				&:hover {
-					text-decoration: underline;
-				}
-				&:disabled {
-					opacity: 0.6;
-					cursor: default;
-				}
-			}
-		}
-	}
-	.btn.sm {
-		padding: 0.6rem 1.1rem;
-		flex-shrink: 0;
 	}
 
-	@media (max-width: 600px) {
-		.settings-grid {
+	.note {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+
+		&.warn {
+			color: var(--warn);
+		}
+		&.block {
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+			line-height: var(--lh-normal);
+			margin: 0;
+		}
+	}
+
+	/* ---- otp ---- */
+	.otp-stage {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.otp-line {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+
+		strong {
+			color: var(--ink);
+			font-weight: var(--fw-semibold);
+		}
+	}
+
+	.otp-boxes {
+		display: flex;
+		gap: 0.375rem;
+
+		input {
+			width: 40px;
+			height: 44px;
+			text-align: center;
+			border-radius: var(--radius-sm);
+			background: var(--surface);
+			border: 1px solid var(--edge);
+			color: var(--ink);
+			font-family: var(--font-mono);
+			font-size: 1.125rem;
+			outline: none;
+			transition:
+				border-color var(--dur-fast) var(--ease),
+				box-shadow var(--dur-fast) var(--ease);
+
+			&.filled {
+				border-color: var(--edge-strong);
+			}
+			&:focus {
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
+			}
+		}
+	}
+
+	.otp-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	/* ---- api key ---- */
+	.key-row {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+
+		input {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+
+	.ghost.icon {
+		width: 36px;
+		padding: 0;
+		display: grid;
+		place-items: center;
+		flex: 0 0 auto;
+	}
+
+	code {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
+		color: var(--ink);
+	}
+
+	.danger-box {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: 0.875rem 1rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--danger-soft);
+	}
+
+	.danger-title {
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-semibold);
+		color: var(--ink);
+	}
+
+	.danger-line {
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		line-height: var(--lh-normal);
+	}
+
+	.danger-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-3);
+	}
+
+	.danger-btn {
+		height: 32px;
+		padding-inline: 0.875rem;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: var(--danger);
+		color: #fff;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+
+		&:hover:not(:disabled) {
+			filter: brightness(1.08);
+		}
+		&:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
+		}
+	}
+
+	/* ---- buttons ---- */
+	.primary {
+		height: 36px;
+		padding-inline: 1rem;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&.sm {
+			height: 34px;
+			padding-inline: 0.875rem;
+		}
+		&:hover:not(:disabled) {
+			background: var(--accent-hover);
+		}
+		&:disabled {
+			opacity: 0.55;
+			cursor: not-allowed;
+		}
+	}
+
+	.ghost {
+		height: 36px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--edge);
+		background: none;
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			background: var(--tint-soft);
+		}
+		&:disabled {
+			opacity: 0.55;
+			cursor: not-allowed;
+		}
+	}
+
+	.link-btn {
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		cursor: pointer;
+		padding: 0;
+		transition: color var(--dur-fast) var(--ease);
+
+		&.faint {
+			color: var(--ink-faint);
+		}
+		&:hover:not(:disabled) {
+			color: var(--ink);
+		}
+		&:disabled {
+			opacity: 0.55;
+			cursor: not-allowed;
+		}
+	}
+
+	@media (max-width: 900px) {
+		.section,
+		.row-section {
+			grid-template-columns: 1fr;
+			row-gap: 1rem;
+		}
+		.section > :not(.section-label) {
+			grid-column: 1;
+		}
+		.section-label {
+			padding-top: 0;
+		}
+	}
+
+	@media (max-width: 620px) {
+		.pair {
 			grid-template-columns: 1fr;
 		}
-	}
-
-	/* Display-picture controls */
-	.avatar-input {
-		display: none;
-	}
-	.edit-avatar:disabled {
-		opacity: 0.7;
-		cursor: default;
-	}
-	.remove-avatar {
-		display: block;
-		margin-top: var(--space-2);
-		background: none;
-		border: none;
-		padding: 0;
-		color: var(--text-muted);
-		font-size: var(--fs-xs);
-		cursor: pointer;
-		text-decoration: underline;
-	}
-	.remove-avatar:hover {
-		color: var(--primary);
-	}
-	.remove-avatar:disabled {
-		opacity: 0.6;
-		cursor: default;
+		.identity {
+			gap: 1rem;
+		}
 	}
 </style>

@@ -1,5 +1,5 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from './Icon.svelte';
 
 	let {
 		tone = 'neutral', // neutral | accent | ok | warn | danger

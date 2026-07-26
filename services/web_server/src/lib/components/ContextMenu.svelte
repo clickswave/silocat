@@ -1,5 +1,5 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { tick } from 'svelte';
 
 	// items: array of { label, icon, danger?, divider?, disabled? , action }

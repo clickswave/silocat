@@ -1,7 +1,7 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { onMount } from 'svelte';
-	import { Button, Badge, EmptyState, Spinner } from '$lib/ui';
+	
 
 	const categories = {
 		help: 'Need help',
@@ -36,45 +36,51 @@
 		}
 	}
 
-	onMount(load);
-</script>
+	onMount(load);</script>
 
-<div class="view support-page">
-	<header class="page-head">
-		<div>
-			<h1 class="page-title">Support</h1>
-			<p class="page-subtitle">Your conversations with the Silocat team.</p>
+<div class="support">
+	<header class="head">
+		<div class="head-text">
+			<h1>Support</h1>
+			<span class="sub">Your conversations with the Silocat team.</span>
 		</div>
-		<Button href="/home/support/new"><Icon icon="ri:add-line" width="16" /> New ticket</Button>
+		<a href="/home/support/new" class="new-btn">
+			<Icon name="plus" size={15} />
+			New ticket
+		</a>
 	</header>
 
 	{#if loading}
-		<div class="state"><Spinner size={26} /></div>
+		<div class="state"><Icon name="spinner" size={26} /></div>
 	{:else if tickets.length === 0}
-		<EmptyState
-			icon="ri:customer-service-2-line"
-			title="No tickets yet"
-			line="Questions, bugs, or account help, we're one message away."
-		>
-			<Button href="/home/support/new"><Icon icon="ri:add-line" width="16" /> Create your first ticket</Button>
-		</EmptyState>
+		<div class="empty">
+			<Icon name="support" size={34} stroke={1.2} />
+			<div class="empty-text">
+				<span class="empty-title">No tickets yet</span>
+				<span class="empty-line">Questions, bugs, or account help, we're one message away.</span>
+			</div>
+			<a href="/home/support/new" class="new-btn">
+				<Icon name="plus" size={15} />
+				Create your first ticket
+			</a>
+		</div>
 	{:else}
-		<div class="ticket-list">
+		<div class="list">
 			{#each tickets as t (t.id)}
-				<a class="ticket" class:closed={t.status === 'closed'} href="/home/support/{t.id}">
+				<a class="ticket" class:closed={t.status !== 'open'} href="/home/support/{t.id}">
 					<div class="t-main">
 						<div class="t-top">
 							<span class="t-cat">{catLabel(t.category)}</span>
-							<Badge tone={t.status === 'open' ? 'ok' : 'neutral'}>
+							<span class="t-status {t.status === 'open' ? 'open' : 'done'}">
 								{t.status === 'open' ? 'Open' : 'Resolved'}
-							</Badge>
+							</span>
 						</div>
-						<h3 class="t-subject">{t.subject}</h3>
-						<p class="t-snippet">{t.message}</p>
+						<span class="t-subject">{t.subject}</span>
+						<span class="t-snippet">{t.message}</span>
 					</div>
 					<div class="t-side">
 						<span class="t-date">{fmtDate(t.created_at)}</span>
-						<Icon icon="ri:arrow-right-s-line" width="18" />
+						<Icon name="chevron-right" size={16} />
 					</div>
 				</a>
 			{/each}
@@ -83,28 +89,78 @@
 </div>
 
 <style lang="scss">
-	.state {
+	.support {
 		display: flex;
-		justify-content: center;
-		padding: var(--space-10) 0;
+		flex-direction: column;
+		gap: var(--space-4);
+		padding-bottom: var(--space-6);
+	}
+
+	.head {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding: var(--space-2) 0.125rem 0;
+	}
+
+	.head-text {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+
+		h1 {
+			margin: 0;
+			font-size: var(--fs-h2);
+			font-weight: var(--fw-black);
+			letter-spacing: var(--tracking-tight);
+			line-height: var(--lh-tight);
+		}
+	}
+
+	.sub {
+		font-size: var(--fs-sm);
 		color: var(--ink-faint);
 	}
-	.ticket-list {
+
+	.new-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4375rem;
+		height: 34px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+		flex: 0 0 auto;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--accent-hover);
+			color: #fff;
+		}
+	}
+
+	.list {
 		display: flex;
 		flex-direction: column;
 		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
+		background: var(--surface);
 		overflow: hidden;
 	}
+
 	.ticket {
 		display: flex;
 		align-items: center;
 		gap: var(--space-4);
-		background: var(--surface);
-		padding: var(--space-4) var(--space-5);
+		padding: 0.875rem 1rem;
 		color: inherit;
 		text-decoration: none;
-		transition: background var(--dur) var(--ease);
+		transition: background var(--dur-fast) var(--ease);
 
 		& + .ticket {
 			border-top: 1px solid var(--edge);
@@ -116,48 +172,114 @@
 			opacity: 0.6;
 		}
 	}
+
 	.t-main {
 		flex: 1;
 		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
 	}
+
 	.t-top {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		margin-bottom: var(--space-1);
 	}
+
 	.t-cat {
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
 		color: var(--ink-faint);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		font-family: var(--font-mono);
-		font-size: var(--fs-xs);
+		letter-spacing: 0.08em;
 	}
+
+	.t-status {
+		display: inline-flex;
+		align-items: center;
+		height: 18px;
+		padding-inline: 0.375rem;
+		border-radius: var(--radius-sm);
+		font-size: 0.6875rem;
+		font-weight: var(--fw-medium);
+
+		&.open {
+			background: var(--ok-soft);
+			color: var(--ok);
+		}
+		&.done {
+			background: var(--tint-softer);
+			color: var(--ink-mute);
+		}
+	}
+
 	.t-subject {
 		font-size: var(--fs-sm);
 		font-weight: var(--fw-semibold);
-		margin: 0 0 2px;
-		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
+
 	.t-snippet {
-		margin: 0;
 		font-size: var(--fs-sm);
 		color: var(--ink-faint);
-		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
+
 	.t-side {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
 		color: var(--ink-faint);
 		flex-shrink: 0;
-		.t-date {
-			font-size: var(--fs-xs);
-			font-family: var(--font-mono);
-		}
+	}
+
+	.t-date {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+	}
+
+	.state {
+		display: flex;
+		justify-content: center;
+		padding: var(--space-10) 0;
+		color: var(--ink-faint);
+	}
+
+	.empty {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.875rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		padding: 4rem 1rem;
+		text-align: center;
+		color: var(--ink-faint);
+	}
+
+	.empty-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		max-width: 38ch;
+	}
+
+	.empty-title {
+		font-size: var(--fs-lg);
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-tight);
+		color: var(--ink);
+	}
+
+	.empty-line {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
 	}
 </style>

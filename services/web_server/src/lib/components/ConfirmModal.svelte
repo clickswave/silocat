@@ -1,90 +1,122 @@
 <script>
-	import Modal from './Modal.svelte';
-	import Icon from '@iconify/svelte';
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+	import Icon from '$lib/ui/Icon.svelte';
 
-	export let show = false; // Add show prop for bind:show
-	export let title = 'Are you sure?';
-	export let message = 'This action cannot be undone.';
-	export let confirmLabel = 'Delete';
-	export let cancelLabel = 'Cancel';
-	export let danger = false;
-	export let isDanger = false; // Add alias to match +page.svelte usage if any
-	export let icon = 'ri:delete-bin-5-fill';
+	let {
+		show = $bindable(false),
+		title = 'Are you sure?',
+		message = 'This action cannot be undone.',
+		confirmLabel = 'Delete',
+		cancelLabel = 'Cancel',
+		/** `isDanger` kept as an alias: both spellings are in use across pages. */
+		danger = false,
+		isDanger = false,
+		icon = 'trash',
+		busy = false,
+		onconfirm = () => {},
+		onclose = () => {}
+	} = $props();
 
-	// Callback props
-	export let onconfirm = () => {};
-	export let onclose = () => {};
+	let dangerMode = $derived(danger || isDanger);
 
-	$: isDangerMode = danger || isDanger;
-
-	function handleConfirm() {
-		if (onconfirm) onconfirm();
-		// show = false; // Let parent control visibility or onconfirm handle it?
-		// Logic in parent usually sets show=false, but let's ensure we close or respect the flow.
-		// Actually, ConfirmModal usually closes itself on action unless async?
-		// Parent implementation: confirmDeleteFolder() sets showDeleteFolderModal = false.
-		// So we don't strictly need to set show=false here if parent does.
-		// But for safety, we can. However, if onconfirm is async and we want to show loading, we shouldn't close immediately.
-		// Existing code: show = false inside handleConfirm. Let's keep it consistent.
-		// Wait, original code had:
-		/*
-        function handleConfirm() {
-            if (onconfirm) onconfirm();
-            show = false;
-        }
-        */
-		// I will keep it.
+	function close() {
 		show = false;
+		onclose?.();
 	}
 
-	function handleClose() {
-		show = false;
-		if (onclose) onclose();
+	function confirm() {
+		onconfirm?.();
+	}
+
+	function onkeydown(e) {
+		if (e.key === 'Escape' && show) close();
 	}
 </script>
 
+<svelte:window {onkeydown} />
+
 {#if show}
-	<Modal {title} onclose={handleClose} hideHeader={true}>
-		<div class="confirm-content">
-			<div class="icon-wrapper {isDangerMode ? 'danger' : ''}">
-				<Icon {icon} width="32" />
+	<div
+		class="scrim"
+		transition:fade={{ duration: 150 }}
+		onclick={close}
+		role="presentation"
+	></div>
+	<div class="holder" role="alertdialog" aria-modal="true" aria-label={title}>
+		<div class="dialog" transition:scale={{ duration: 190, start: 0.96, easing: cubicOut }}>
+			<div class="body">
+				<span class="glyph" class:danger={dangerMode}>
+					<Icon name={icon} size={20} />
+				</span>
+				<span class="title">{title}</span>
+				<span class="message">{message}</span>
 			</div>
-
-			<div class="text-content">
-				<h3>{title}</h3>
-				<p class="message">{message}</p>
-			</div>
-
-			<div class="actions">
-				<button class="btn-cancel" onclick={handleClose}>{cancelLabel}</button>
-				<button class="btn-confirm {isDangerMode ? 'danger' : ''}" onclick={handleConfirm}
-					>{confirmLabel}</button
+			<div class="foot">
+				<button type="button" class="cancel" onclick={close}>{cancelLabel}</button>
+				<button
+					type="button"
+					class="confirm"
+					class:danger={dangerMode}
+					disabled={busy}
+					onclick={confirm}
 				>
+					{confirmLabel}
+				</button>
 			</div>
 		</div>
-	</Modal>
+	</div>
 {/if}
 
 <style lang="scss">
-	.confirm-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		text-align: center;
-		gap: var(--space-5);
-		padding: var(--space-2);
+	.scrim {
+		position: fixed;
+		inset: 0;
+		background: var(--scrim);
+		z-index: 1000;
 	}
 
-	.icon-wrapper {
-		width: 64px;
-		height: 64px;
-		border-radius: var(--radius-pill);
-		background: var(--tint-softer);
-		color: var(--text-secondary);
+	.holder {
+		position: fixed;
+		inset: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin-bottom: calc(-1 * var(--space-2));
+		padding: var(--space-5);
+		z-index: 1001;
+		pointer-events: none;
+	}
+
+	.dialog {
+		width: 100%;
+		max-width: 400px;
+		display: flex;
+		flex-direction: column;
+		background: var(--raised);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		overflow: hidden;
+		pointer-events: auto;
+	}
+
+	.body {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.875rem;
+		padding: 1.5rem 1.25rem 1rem;
+		text-align: center;
+	}
+
+	.glyph {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		border-radius: var(--radius-full);
+		background: var(--tint-softer);
+		color: var(--ink-mute);
 
 		&.danger {
 			background: var(--danger-soft);
@@ -92,86 +124,66 @@
 		}
 	}
 
-	.text-content {
+	.title {
+		font-size: var(--fs-lg);
+		font-weight: var(--fw-semibold);
+		letter-spacing: var(--tracking-tight);
+	}
+
+	.message {
+		font-size: 0.875rem;
+		color: var(--ink-mute);
+		line-height: var(--lh-normal);
+		max-width: 40ch;
+	}
+
+	.foot {
 		display: flex;
-		flex-direction: column;
+		justify-content: flex-end;
 		gap: var(--space-2);
-
-		h3 {
-			font-size: var(--fs-h3);
-			font-weight: var(--fw-semibold);
-			color: var(--text-primary);
-			margin: 0;
-		}
-
-		.message {
-			color: var(--text-secondary);
-			font-size: var(--fs-sm);
-			line-height: var(--lh-normal);
-			margin: 0;
-			max-width: 320px;
-		}
+		padding: 0.875rem 1rem;
+		border-top: 1px solid var(--edge);
 	}
 
-	.actions {
-		display: flex;
-		width: 100%;
-		justify-content: center;
-		gap: var(--space-3);
-		margin-top: var(--space-2);
+	.cancel,
+	.confirm {
+		height: 34px;
+		padding-inline: 0.875rem;
+		border-radius: var(--radius-md);
+		border: 0;
+		font: inherit;
+		font-size: var(--fs-sm);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease),
+			filter var(--dur-fast) var(--ease);
+	}
 
-		button {
-			padding: 0.7rem 1.25rem;
-			border-radius: var(--radius-pill);
-			font-family: inherit;
-			font-size: var(--fs-body);
-			font-weight: var(--fw-semibold);
-			cursor: pointer;
-			transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
-				filter var(--dur) var(--ease), transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-			border: 1px solid transparent;
-			min-width: 110px;
-		}
+	.cancel {
+		background: none;
+		color: var(--ink-mute);
 
-		.btn-cancel {
+		&:hover {
 			background: var(--tint-soft);
-			color: var(--text-primary);
-			border-color: var(--border-default);
-
-			&:hover {
-				background: var(--tint-softer);
-				border-color: var(--border-strong);
-			}
-		}
-
-		.btn-confirm {
-			background: var(--accent-gradient);
-			color: #fff;
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
-
-			&:hover {
-				filter: brightness(1.06);
-				box-shadow: 0 10px 28px -6px var(--primary-glow);
-			}
-
-			&.danger {
-				background: var(--danger);
-				box-shadow: none;
-
-				&:hover {
-					filter: brightness(1.08);
-					box-shadow: none;
-				}
-			}
+			color: var(--ink);
 		}
 	}
 
-	@media (max-width: 600px) {
-		.confirm-content .actions {
-			flex-direction: column-reverse;
-			button {
-				width: 100%;
-			}
+	.confirm {
+		background: var(--accent);
+		color: #fff;
+		font-weight: var(--fw-medium);
+
+		&.danger {
+			background: var(--danger);
+		}
+		&:hover:not(:disabled) {
+			filter: brightness(1.08);
+		}
+		&:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
 		}
 	}
 </style>

@@ -1,5 +1,5 @@
 <script>
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { fly } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
 	import { downloads, cancelDownload, dismissDownload } from '$lib/download.js';
