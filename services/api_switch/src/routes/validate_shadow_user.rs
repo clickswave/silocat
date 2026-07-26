@@ -4,7 +4,7 @@ use serde_json::json;
 use crate::libs;
 use crate::routes::respond;
 
-// Client may still send extra fields (ip/geo); they're ignored — the server is
+// Client may still send extra fields (ip/geo); they're ignored: the server is
 // authoritative for IP + geolocation (client-reported values are spoofable).
 #[derive(Deserialize, Debug)]
 pub struct Payload {

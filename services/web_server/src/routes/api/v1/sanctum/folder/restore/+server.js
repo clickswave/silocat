@@ -22,16 +22,12 @@ export async function POST({ request, locals }) {
         // Note: Using the route we registered in folder/mod.rs: /folder/restore
         // ApiServerClient base URL is likely correct, we append path.
         // Assuming ApiServerRoutes.listFolders maps to /folder/list, we can guess.
-        // Actually ApiServerClient uses direct connection? Let's assume standard axios or fetch.
-        // Wait, ApiServerClient is a helper. I should use relative path if it supports it or absolute.
         // Based on file restore proxy: ApiServerClient.post('/file/restore-files', payload);
         // My folder routes are under /folder/* in mod.rs?
         // No, folder/mod.rs routes are like "/restore", "/permanent-delete".
         // AND folder/mod.rs is likely mounted under "/folder"?
         // Typically api_switch mounts file router under /file and folder router under /folder ??
-        // Let's check api_switch/src/main.rs or similar if I could.
         // But referencing file/list_files, it was mounted at /list-files inside file/mod.rs?
-        // Wait, file/mod.rs mounted `/list-files`.
         // AND file/mod.rs likely mounted at root or `/file`?
         // In `file/list_files.rs`, the route was `/list-files`. 
         // If file/mod.rs is mounted at `/`, then it is `/list-files`.
@@ -44,7 +40,6 @@ export async function POST({ request, locals }) {
         // `folder/mod.rs` registers `/restore`.
         // If `folder/mod.rs` is mounted under `/folder`, then path is `/folder/restore`.
         // Just like `file/mod.rs` registered `/restore-files` and mounted under `/file`.
-        // Wait, `file/mod.rs` registered `/restore-files`. So path is `/file/restore-files`.
 
         // `folder/mod.rs` registered `/restore`.
         // So path is likely `/folder/restore`.

@@ -1,387 +1,363 @@
 <script>
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { breadcrumbSchema } from '$lib/seo.js';
 	import { slide } from 'svelte/transition';
+	import { toast } from '$lib/toast.js';
 
-	let expandedEndpoint = $state(null);
+	const QUICK_START = `import { Silocat } from '@silocat/client';
 
-	function toggleEndpoint(path) {
-		if (expandedEndpoint === path) {
-			expandedEndpoint = null;
-		} else {
-			expandedEndpoint = path;
-		}
-	}
+const silo = new Silocat({ apiKey: process.env.SILOCAT_API_KEY });
 
-	const apiGroups = [
+// Encrypted in your process. Ciphertext is all that leaves it.
+const file = await silo.upload(bytes, {
+  name: 'contract.pdf',
+  password: 'correct-horse-battery-staple'
+});
+
+// A link anyone can open. It carries no key.
+const { url } = await silo.share(file.id, { type: 'public' });
+
+// Read it back.
+const plaintext = await silo.download(file.id, {
+  password: 'correct-horse-battery-staple'
+});`;
+
+	const METHODS = [
+		{ sig: 'storage()', desc: 'Bytes used, total and free.' },
+		{ sig: 'listFiles({ folderId, starred, shared })', desc: 'Omit folderId for the root.' },
+		{ sig: 'listFolders({ parentId })', desc: 'Folders at one level.' },
+		{ sig: 'createFolder(name, { parentId })', desc: 'Returns the new folder.' },
 		{
-			title: 'Public APIs',
-			description: 'Open endpoints for file sharing and general access.',
-			icon: 'ri:earth-line',
+			sig: 'upload(data, { name, password, mime, folderId, onProgress })',
+			desc: 'Uint8Array, ArrayBuffer or Blob. Omit password to upload unencrypted, readable by us.'
+		},
+		{ sig: 'download(id, { password, onProgress })', desc: 'Returns plaintext bytes.' },
+		{ sig: "share(id, { type })", desc: "'public', 'once' or 'off'." },
+		{ sig: 'trash(id) / restore(id)', desc: 'Recoverable until the retention window expires.' },
+		{ sig: 'deleteForever(id)', desc: 'Irreversible.' }
+	];
+
+	// Only endpoints an API key can actually call. Everything the browser-only
+	// or admin surfaces expose is deliberately absent: documenting a route
+	// nobody outside the app can reach is worse than not documenting it.
+	const GROUPS = [
+		{
+			title: 'Account',
+			desc: 'Who you are and how much room you have.',
 			endpoints: [
 				{
-					method: 'POST',
-					path: '/api/v1/public/share/authorize',
-					desc: 'Authorize access to a shared file via password.',
-					body: {
-						token: 'share-token-uuid',
-						password: 'secret-password'
-					}
-				},
-				{
 					method: 'GET',
-					path: '/api/v1/public/share/info/[token]',
-					desc: 'Get metadata for a shared file using its token.'
-				},
-				{
-					method: 'GET',
-					path: '/api/v1/public/share/fetch-chunks',
-					desc: 'Download file chunks for public shared files.'
+					path: '/api/v1/sanctum/user/storage',
+					desc: 'Storage used, total and free, in bytes.',
+					sample: { success: { used: 2206833100, total: 10737418240, free: 8530585140 } }
 				}
 			]
 		},
 		{
-			title: 'Sanctum APIs',
-			description: 'Authenticated endpoints for user file management. Requires Session Cookie.',
-			icon: 'ri:shield-user-line',
+			title: 'Browsing',
+			desc: 'Listing what you already have.',
 			endpoints: [
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file',
-					desc: 'Upload a new file.',
-					body: {
-						file_name: 'example.txt',
-						file_size: 1024,
-						file_type: 'text/plain',
-						total_chunks: 1,
-						folder_id: 'optional-uuid'
-					}
-				},
 				{
 					method: 'GET',
 					path: '/api/v1/sanctum/file/list',
-					desc: 'List files (supports folder_id, starred, shared filters).'
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/delete',
-					desc: 'Move files to trash.',
-					body: {
-						file_ids: ['uuid-1', 'uuid-2']
+					desc: 'Files, optionally filtered by folder_id, starred or shared.',
+					sample: {
+						data: {
+							files: [
+								{
+									id: 'f_01H…',
+									name: 'contract.pdf',
+									size: 1887436,
+									mime: 'application/pdf',
+									encrypted: true,
+									starred: false,
+									share_type: 'off'
+								}
+							]
+						}
 					}
 				},
 				{
 					method: 'POST',
-					path: '/api/v1/sanctum/file/permanent-delete',
-					desc: 'Permanently delete files from trash.',
-					body: {
-						file_ids: ['uuid-1', 'uuid-2']
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/restore',
-					desc: 'Restore files from trash.',
-					body: {
-						file_ids: ['uuid-1', 'uuid-2']
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/star',
-					desc: 'Toggle star status for a file.',
-					body: {
-						file_id: 'uuid',
-						starred: true
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/update',
-					desc: 'Rename or update file metadata.',
-					body: {
-						file_id: 'uuid',
-						file_name: 'new-name.txt'
-					}
-				},
-				{
-					method: 'GET',
-					path: '/api/v1/sanctum/file/fetch-chunks',
-					desc: 'Download authenticated file chunks.'
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/mark-chunk-complete',
-					desc: 'Mark a file chunk as uploaded.',
-					body: {
-						file_id: 'uuid',
-						chunk_index: 0
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/share/toggle',
-					desc: 'Enable or disable file sharing.',
-					body: {
-						file_id: 'uuid',
-						shared: true
-					}
-				},
-				{
-					method: 'GET',
-					path: '/api/v1/sanctum/file/share/info/[id]',
-					desc: 'Get sharing details for a file.'
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/file/share/regenerate',
-					desc: 'Regenerate public share token.',
-					body: {
-						file_id: 'uuid'
-					}
+					path: '/api/v1/sanctum/folder/list',
+					desc: 'Folders under parent_id, or the root when null.',
+					body: { parent_id: null }
 				},
 				{
 					method: 'POST',
 					path: '/api/v1/sanctum/folder/create',
-					desc: 'Create a new folder.',
-					body: {
-						folder_name: 'My Documents',
-						parent_folder_id: 'optional-uuid'
-					}
-				},
-				{ method: 'GET', path: '/api/v1/sanctum/folder/list', desc: 'List folders.' },
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/folder/delete',
-					desc: 'Move folder to trash.',
-					body: {
-						folder_id: 'uuid'
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/folder/permanent-delete',
-					desc: 'Permanently delete folder.',
-					body: {
-						folder_id: 'uuid'
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/folder/restore',
-					desc: 'Restore folder from trash.',
-					body: {
-						folder_id: 'uuid'
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/folder/star',
-					desc: 'Toggle star status for a folder.',
-					body: {
-						folder_id: 'uuid',
-						starred: true
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/folder/update',
-					desc: 'Rename folder.',
-					body: {
-						folder_id: 'uuid',
-						folder_name: 'New Name'
-					}
-				},
-				{
-					method: 'GET',
-					path: '/api/v1/sanctum/user/storage',
-					desc: 'Get user storage usage stats.'
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/sanctum/user/update-profile',
-					desc: 'Update user profile settings.',
-					body: {
-						username: 'new_handle',
-						avatar_url: 'https://...'
-					}
+					desc: 'Create a folder.',
+					body: { name: 'Contracts', parent_id: null }
 				}
 			]
 		},
 		{
-			title: 'Shadow APIs',
-			description: 'Anonymous operations using Browser/Shadow Key identity.',
-			icon: 'ri:spy-line',
+			title: 'Upload',
+			desc: 'Three calls per file. The library does all of this for you.',
 			endpoints: [
 				{
 					method: 'POST',
-					path: '/api/v1/shadow/file',
-					desc: 'Upload file as anonymous user.',
+					path: '/api/v1/sanctum/file',
+					desc: 'Register a file and receive one presigned PUT per chunk.',
 					body: {
-						file_name: 'secret.txt',
-						file_size: 512,
-						file_type: 'text/plain',
-						total_chunks: 1
+						storage_type: 'sanctum',
+						file_encrypted: true,
+						file_name: 'contract.pdf',
+						file_mime: 'application/pdf',
+						file_size: 1887436,
+						sha256_checksum: 'e3b0c442…',
+						public_access: false,
+						folder_id: null,
+						chunks: [
+							{ start: 0, end: 1887436, size: 1887436, checksum: 'pending', salt: 'base64…', nonce: 'base64…' }
+						]
 					}
+				},
+				{
+					method: 'PUT',
+					path: '{presigned_url}',
+					desc: 'PUT the ciphertext for one chunk directly to storage.',
+					sample: '(request body is raw ciphertext; the response is empty)'
 				},
 				{
 					method: 'POST',
-					path: '/api/v1/shadow/file/fetch-files',
-					desc: 'List anonymous files by API key.',
-					body: {
-						api_key: 'shadow-key-uuid'
-					}
+					path: '/api/v1/sanctum/file/mark-chunk-complete',
+					desc: 'Confirm a chunk landed. Unconfirmed uploads are reaped.',
+					body: { chunk_id: 'c_01H…' }
+				}
+			]
+		},
+		{
+			title: 'Download',
+			desc: 'Fetch ciphertext, then decrypt locally.',
+			endpoints: [
+				{
+					method: 'POST',
+					path: '/api/v1/sanctum/file/fetch-chunks',
+					desc: 'Presigned GETs plus the salt and per-chunk nonces you need to decrypt.',
+					body: { file_id: 'f_01H…' }
+				}
+			]
+		},
+		{
+			title: 'Sharing',
+			desc: 'Links never carry the decryption password.',
+			endpoints: [
+				{
+					method: 'POST',
+					path: '/api/v1/sanctum/file/share/toggle',
+					desc: "Set share_type to 'public', 'once' or 'off'.",
+					body: { file_id: 'f_01H…', share_type: 'public' }
 				},
 				{
 					method: 'POST',
-					path: '/api/v1/shadow/file/delete',
-					desc: 'Delete anonymous file.',
-					body: {
-						file_id: 'uuid',
-						api_key: 'shadow-key-uuid'
-					}
-				},
-				{
-					method: 'GET',
-					path: '/api/v1/shadow/file/fetch-chunks',
-					desc: 'Download anonymous file chunks.'
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/shadow/file/mark-chunk-complete',
-					desc: 'Mark anonymous chunk complete.',
-					body: {
-						file_id: 'uuid',
-						chunk_index: 0,
-						api_key: 'shadow-key-uuid'
-					}
-				},
+					path: '/api/v1/sanctum/file/share/regenerate',
+					desc: 'Issue a new token. The old link stops working immediately.',
+					body: { file_id: 'f_01H…' }
+				}
+			]
+		},
+		{
+			title: 'Lifecycle',
+			desc: 'Trash is recoverable. Permanent delete is not.',
+			endpoints: [
+				{ method: 'POST', path: '/api/v1/sanctum/file/delete', desc: 'Move to trash.', body: { file_id: 'f_01H…' } },
+				{ method: 'POST', path: '/api/v1/sanctum/file/restore', desc: 'Restore from trash.', body: { file_id: 'f_01H…' } },
 				{
 					method: 'POST',
-					path: '/api/v1/shadow/folder',
-					desc: 'Create anonymous folder.',
-					body: {
-						folder_name: 'Anon Folder',
-						api_key: 'shadow-key-uuid'
-					}
+					path: '/api/v1/sanctum/file/permanent-delete',
+					desc: 'Delete forever. Ciphertext is scrubbed from storage.',
+					body: { file_id: 'f_01H…' }
 				},
-				{
-					method: 'POST',
-					path: '/api/v1/shadow/folder/fetch',
-					desc: 'List anonymous folders.',
-					body: {
-						api_key: 'shadow-key-uuid'
-					}
-				},
-				{
-					method: 'POST',
-					path: '/api/v1/shadow/folder/delete',
-					desc: 'Delete anonymous folder.',
-					body: {
-						folder_id: 'uuid',
-						api_key: 'shadow-key-uuid'
-					}
-				},
-				{ method: 'GET', path: '/api/v1/shadow/resource/fetch', desc: 'Fetch resource metadata.' }
+				{ method: 'POST', path: '/api/v1/sanctum/file/star', desc: 'Star or unstar.', body: { file_id: 'f_01H…', starred: true } },
+				{ method: 'POST', path: '/api/v1/sanctum/file/update', desc: 'Rename or move.', body: { file_id: 'f_01H…', name: 'renamed.pdf' } }
 			]
 		}
 	];
+
+	const METHOD_TONE = { GET: 'ok', POST: 'warn', PUT: 'warn', DELETE: 'danger' };
+
+	let openPath = $state(GROUPS[0].endpoints[0].path);
+	const toggle = (p) => (openPath = openPath === p ? null : p);
+
+	function sampleFor(e) {
+		if (e.body) return JSON.stringify(e.body, null, 2);
+		if (typeof e.sample === 'string') return e.sample;
+		if (e.sample) return JSON.stringify(e.sample, null, 2);
+		return '{\n  "status": 200,\n  "message": "OK",\n  "data": { }\n}';
+	}
+
+	function copyQuickStart() {
+		navigator.clipboard.writeText(QUICK_START);
+		toast.success('Copied', 'Paste it into a file and add your API key.');
+	}
 </script>
 
 <Seo
-	title="API documentation | SiloCat"
-	description="Integrate SiloCat's encrypted storage into your apps. Programmatic, zero-knowledge file upload, sharing, and download via the SiloCat API."
+	title="API documentation | Silocat"
+	description="Integrate Silocat's zero-knowledge encrypted storage. The official client does the end-to-end encryption for you, so ciphertext is all that ever leaves your process."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'API', path: '/api' }
 	])}
 />
 
-<div class="api-page">
+<div class="page">
 	<Navbar />
 
-	<main class="content">
-		<section class="section">
-			<div class="container wide">
-		<div class="header">
+	<main class="main">
+		<section class="head">
 			<span class="eyebrow">developers</span>
-			<h1>API Documentation</h1>
-			<p>Complete reference for SiloCat v1 REST API endpoints.</p>
-		</div>
+			<h1>API</h1>
+			<p class="sub">
+				Everything the web app does, your code can do too. Encryption always happens on your side;
+				the API only ever sees ciphertext.
+			</p>
+			<div class="base">
+				<span class="base-label">base</span>
+				<span class="base-url">https://silo.cat</span>
+			</div>
+		</section>
 
-		<div class="grid">
-			{#each apiGroups as group}
-				<div class="group-card">
-					<div class="group-header">
-						<div class="icon-wrapper">
-							<Icon icon={group.icon} width="24" />
-						</div>
-						<div class="text">
-							<h2>{group.title}</h2>
-							<p>{group.description}</p>
-						</div>
+		<!-- Quick start -->
+		<section class="block">
+			<div class="block-head">
+				<h2>Quick start</h2>
+				<span class="block-sub">
+					The official client handles the crypto. Start here unless you have a reason not to.
+				</span>
+			</div>
+
+			<div class="install">
+				<code>npm install @silocat/client</code>
+			</div>
+
+			<div class="code">
+				<div class="code-head">
+					<span class="code-label">index.js</span>
+					<button type="button" class="code-copy" onclick={copyQuickStart}>
+						<Icon name="copy" size={13} /> Copy
+					</button>
+				</div>
+				<pre>{QUICK_START}</pre>
+			</div>
+		</section>
+
+		<!-- Auth -->
+		<section class="block">
+			<div class="block-head">
+				<h2>Authentication</h2>
+				<span class="block-sub">
+					One key per account, sent as <code class="inline">X-Api-Key</code>.
+				</span>
+			</div>
+
+			<div class="note-card">
+				<p>
+					Find your key in <a href="/home/settings">Settings → API</a>. It identifies your account
+					outright: anything holding it can read, share and delete your files, so keep it in the
+					same place you keep other secrets and never ship it to a browser.
+				</p>
+				<p>
+					You can rotate it from the same screen. Rotation is immediate and total, with no overlap
+					window, so anything still using the old key breaks until you paste the new one in.
+				</p>
+			</div>
+		</section>
+
+		<!-- Client reference -->
+		<section class="block">
+			<div class="block-head">
+				<h2>Client reference</h2>
+				<span class="block-sub">
+					Errors throw <code class="inline">SilocatError</code> with <code class="inline">.status</code>
+					and <code class="inline">.body</code>.
+				</span>
+			</div>
+
+			<div class="methods">
+				{#each METHODS as m (m.sig)}
+					<div class="method">
+						<code class="method-sig">{m.sig}</code>
+						<span class="method-desc">{m.desc}</span>
+					</div>
+				{/each}
+			</div>
+		</section>
+
+		<!-- Why the library -->
+		<section class="block">
+			<div class="block-head">
+				<h2>Why there is a library</h2>
+			</div>
+			<div class="note-card">
+				<p>
+					Silocat is zero-knowledge, so the API cannot accept a file. It accepts ciphertext. Doing
+					that by hand means deriving a key with Argon2id at libsodium's MODERATE limits, splitting
+					the file into 100&nbsp;MB chunks, and encrypting each one with XChaCha20-Poly1305 under a
+					fresh 24-byte nonce, with a single salt per file.
+				</p>
+				<p>
+					Every one of those has to match exactly. Get a parameter wrong and the upload still
+					succeeds, but the file can never be decrypted again, by you or by us. The library is the
+					reference implementation, which is why the raw endpoints below are documented as a
+					fallback rather than the recommended path.
+				</p>
+				<p class="note-foot">
+					Two things no client can change: lose the password and the file is gone, and a share link
+					never carries the key. Send the password through a different channel or the link alone is
+					enough to read the file.
+				</p>
+			</div>
+		</section>
+
+		<!-- Raw HTTP -->
+		<section class="block">
+			<div class="block-head">
+				<h2>Raw HTTP</h2>
+				<span class="block-sub">
+					Every route below is callable with your API key. Send it as
+					<code class="inline">X-Api-Key</code>; responses are <code class="inline">application/json</code>.
+				</span>
+			</div>
+
+			{#each GROUPS as group (group.title)}
+				<div class="group">
+					<div class="group-head">
+						<h3>{group.title}</h3>
+						<span class="group-desc">{group.desc}</span>
 					</div>
 
-					<div class="endpoint-list">
-						{#each group.endpoints as endpoint}
-							<button
-								class="endpoint-row"
-								class:expanded={expandedEndpoint === endpoint.path}
-								onclick={() => toggleEndpoint(endpoint.path)}
-							>
-								<div class="row-content">
-									<span class="method {endpoint.method.toLowerCase()}">{endpoint.method}</span>
-									<div class="details">
-										<code class="path">{endpoint.path}</code>
-										<span class="desc">{endpoint.desc}</span>
-									</div>
-								</div>
-								<Icon
-									icon="ri:arrow-down-s-line"
-									width="20"
-									class="chevron"
-									style="transform: {expandedEndpoint === endpoint.path
-										? 'rotate(180deg)'
-										: 'rotate(0deg)'}; transition: transform 0.2s;"
-								/>
-							</button>
+					<div class="endpoints">
+						{#each group.endpoints as e (e.path + e.method)}
+							<div class="endpoint">
+								<button
+									type="button"
+									class="row"
+									aria-expanded={openPath === e.path}
+									onclick={() => toggle(e.path)}
+								>
+									<span class="method {METHOD_TONE[e.method] || 'ok'}">{e.method}</span>
+									<span class="path">{e.path}</span>
+									<span class="desc">{e.desc}</span>
+									<span class="chev" class:open={openPath === e.path}>
+										<Icon name="chevron-down" size={15} />
+									</span>
+								</button>
 
-							{#if expandedEndpoint === endpoint.path}
-								<div class="endpoint-details" transition:slide={{ duration: 200 }}>
-									<div class="detail-block">
-										<span class="label">Authentication</span>
-										<span class="value">
-											{#if group.title === 'Public APIs'}
-												None (or Token verified)
-											{:else if group.title === 'Shadow APIs'}
-												Shadow Key (Header: X-Shadow-Key)
-											{:else}
-												Session Cookie (Authenticated)
-											{/if}
-										</span>
+								{#if openPath === e.path}
+									<div class="detail" transition:slide={{ duration: 150 }}>
+										<pre>{sampleFor(e)}</pre>
 									</div>
-									<div class="detail-block">
-										<span class="label">Response Format</span>
-										<code class="value">application/json</code>
-									</div>
-
-									{#if endpoint.body}
-										<div class="detail-block">
-											<span class="label">Sample Request Body</span>
-											<pre class="json-block">{JSON.stringify(endpoint.body, null, 2)}</pre>
-										</div>
-									{/if}
-								</div>
-							{/if}
+								{/if}
+							</div>
 						{/each}
 					</div>
 				</div>
 			{/each}
-		</div>
-			</div>
 		</section>
 	</main>
 
@@ -389,256 +365,369 @@
 </div>
 
 <style lang="scss">
-	.api-page {
+	.page {
 		min-height: 100vh;
-		background: var(--bg-app);
 		display: flex;
 		flex-direction: column;
+		background: var(--bg);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+		line-height: var(--lh-normal);
 	}
 
-	.content {
+	.main {
 		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-8);
+		width: 100%;
+		max-width: 860px;
+		margin: 0 auto;
+		padding-inline: var(--gutter);
 	}
 
-	.header {
-		text-align: center;
+	.head {
+		padding: clamp(2.5rem, 7vw, 4rem) 0 var(--space-6);
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		gap: var(--space-4);
-		margin-bottom: var(--space-6);
+		gap: var(--space-3);
 
 		h1 {
+			margin: 0;
 			font-size: var(--fs-h1);
 			font-weight: var(--fw-black);
-			margin: 0;
+			letter-spacing: var(--tracking-tight);
+			line-height: var(--lh-tight);
 		}
+	}
+
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--accent);
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+	}
+
+	.sub {
+		margin: 0;
+		max-width: 60ch;
+		font-size: 1rem;
+		color: var(--ink-mute);
+	}
+
+	.base {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-1);
+		padding: 0.625rem 0.75rem;
+		border: 1px solid var(--edge);
+		border-radius: 8px;
+		background: var(--surface);
+		max-width: fit-content;
+	}
+
+	.base-label,
+	.base-url {
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+	}
+	.base-label {
+		color: var(--ink-faint);
+	}
+
+	/* ---- blocks ---- */
+	.block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		padding-bottom: 2.5rem;
+	}
+
+	.block-head {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+
+		h2 {
+			margin: 0;
+			font-size: 1.25rem;
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+		}
+	}
+
+	.block-sub {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.install {
+		padding: 0.75rem 0.875rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+
+		code {
+			font-family: var(--font-mono);
+			font-size: var(--fs-sm);
+			color: var(--ink);
+		}
+	}
+
+	/* ---- code block ---- */
+	.code {
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		overflow: hidden;
+	}
+
+	.code-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.875rem;
+		border-bottom: 1px solid var(--edge);
+	}
+
+	.code-label {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.code-copy {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--fs-xs);
+		color: var(--ink-mute);
+		cursor: pointer;
+		padding: 0.25rem 0.375rem;
+		border-radius: var(--radius-sm);
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	pre {
+		margin: 0;
+		padding: 0.875rem;
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		line-height: 1.7;
+		color: var(--ink-mute);
+		overflow-x: auto;
+	}
+
+	.code pre {
+		background: var(--bg);
+	}
+
+	/* ---- note card ---- */
+	.note-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		padding: 1.125rem 1.25rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
 
 		p {
-			color: var(--text-secondary);
-			font-size: var(--fs-lg);
-			max-width: 600px;
-			margin: 0 auto;
+			margin: 0;
+			font-size: var(--fs-sm);
+			color: var(--ink-mute);
+			line-height: var(--lh-normal);
 		}
 	}
 
-	.grid {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: var(--space-6);
+	.note-foot {
+		padding-top: 0.875rem;
+		border-top: 1px solid var(--edge);
 	}
 
-	.group-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
+	code.inline {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
+		color: var(--ink);
+	}
+
+	/* ---- client reference ---- */
+	.methods {
+		border: 1px solid var(--edge);
 		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-card);
-		padding: 0;
+		background: var(--surface);
 		overflow: hidden;
+	}
 
-		.group-header {
-			padding: var(--space-5) var(--space-6);
-			border-bottom: 1px solid var(--border-default);
-			display: flex;
-			align-items: center;
-			gap: var(--space-5);
-			background: var(--tint-soft);
+	.method {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--edge);
 
-			.icon-wrapper {
-				width: 48px;
-				height: 48px;
-				background: var(--bg-input);
-				border-radius: var(--radius-sm);
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				color: var(--primary);
-				border: 1px solid var(--border-default);
-			}
-
-			.text {
-				h2 {
-					margin: 0;
-					font-size: var(--fs-h3);
-					color: var(--text-primary);
-					font-weight: var(--fw-semibold);
-				}
-
-				p {
-					margin: var(--space-1) 0 0 0;
-					color: var(--text-muted);
-					font-size: var(--fs-sm);
-				}
-			}
-		}
-
-		.endpoint-list {
-			display: flex;
-			flex-direction: column;
-		}
-
-		.endpoint-row {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: var(--space-5);
-			padding: var(--space-4) var(--space-6);
-			border: none;
-			border-bottom: 1px solid var(--hairline);
-			transition: background var(--dur) var(--ease);
-			background: transparent;
-			width: 100%;
-			text-align: left;
-			cursor: pointer;
-			font-family: inherit;
-
-			&:last-child {
-				border-bottom: none;
-			}
-
-			&:hover {
-				background: var(--bg-card-hover);
-			}
-
-			&.expanded {
-				background: var(--tint-soft);
-			}
-
-			.row-content {
-				display: flex;
-				align-items: flex-start;
-				gap: var(--space-5);
-				flex: 1;
-				min-width: 0;
-			}
-
-			.chevron {
-				color: var(--text-muted);
-				flex-shrink: 0;
-			}
-
-			.method {
-				font-size: var(--fs-xs);
-				font-weight: var(--fw-bold);
-				font-family: var(--font-mono);
-				padding: 0.25rem 0.5rem;
-				border-radius: var(--radius-sm);
-				min-width: 60px;
-				text-align: center;
-				text-transform: uppercase;
-				letter-spacing: 0.05em;
-				margin-top: 2px;
-				flex-shrink: 0;
-
-				&.get {
-					background: var(--ok-soft);
-					color: var(--ok);
-				}
-				&.post {
-					background: var(--warn-soft);
-					color: var(--warn);
-				}
-				&.put,
-				&.patch {
-					background: var(--tint-softer);
-					color: var(--ink-mute);
-				}
-				&.delete {
-					background: var(--danger-soft);
-					color: var(--danger);
-				}
-			}
-
-			.details {
-				display: flex;
-				flex-direction: column;
-				gap: var(--space-1);
-				flex: 1;
-				min-width: 0;
-
-				.path {
-					color: var(--text-primary);
-					font-family: var(--font-mono);
-					font-size: var(--fs-sm);
-					overflow-x: auto;
-				}
-
-				.desc {
-					color: var(--text-muted);
-					font-size: var(--fs-sm);
-				}
-			}
-		}
-
-		.endpoint-details {
-			background: var(--bg-input);
-			padding: var(--space-5) var(--space-6);
-			border-bottom: 1px solid var(--hairline);
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-4);
-
-			.detail-block {
-				display: flex;
-				flex-direction: column;
-				gap: var(--space-2);
-
-				.label {
-					font-size: var(--fs-xs);
-					font-weight: var(--fw-semibold);
-					color: var(--text-muted);
-					text-transform: uppercase;
-					letter-spacing: 0.05em;
-				}
-
-				.value {
-					font-size: var(--fs-sm);
-					color: var(--text-primary);
-					font-family: inherit;
-				}
-
-				code.value {
-					font-family: var(--font-mono);
-					color: var(--primary);
-				}
-
-				.json-block {
-					background: var(--bg-app);
-					padding: var(--space-4);
-					border-radius: var(--radius-sm);
-					border: 1px solid var(--border-default);
-					margin: 0;
-					font-family: var(--font-mono);
-					font-size: var(--fs-sm);
-					color: var(--text-secondary);
-					overflow-x: auto;
-				}
-			}
+		&:last-child {
+			border-bottom: 0;
 		}
 	}
 
-	@media (max-width: 768px) {
-		.group-header {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: var(--space-4);
+	.method-sig {
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+		color: var(--ink);
+	}
 
-			.icon-wrapper {
-				width: 40px;
-				height: 40px;
-			}
+	.method-desc {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	/* ---- raw http ---- */
+	.group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+		padding-bottom: var(--space-5);
+	}
+
+	.group-head {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+
+		h3 {
+			margin: 0;
+			font-size: 0.9375rem;
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
 		}
+	}
 
-		.endpoint-row {
-			flex-direction: column;
-			gap: var(--space-3);
+	.group-desc {
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
 
-			.method {
-				align-self: flex-start;
-			}
+	.endpoints {
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		overflow: hidden;
+	}
+
+	.endpoint {
+		border-bottom: 1px solid var(--edge);
+
+		&:last-child {
+			border-bottom: 0;
+		}
+	}
+
+	.row {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 0.875rem;
+		padding: 0.75rem 1rem;
+		border: 0;
+		background: none;
+		text-align: left;
+		font: inherit;
+		color: inherit;
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--surface-hover);
+		}
+	}
+
+	.method {
+		&.ok,
+		&.warn,
+		&.danger {
+			flex: 0 0 52px;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			height: 22px;
+			padding: 0;
+			border: 0;
+			border-radius: var(--radius-sm);
+			font-family: var(--font-mono);
+			font-size: 0.6875rem;
+			font-weight: var(--fw-semibold);
+		}
+		&.ok {
+			background: var(--ok-soft);
+			color: var(--ok);
+		}
+		&.warn {
+			background: var(--warn-soft);
+			color: var(--warn);
+		}
+		&.danger {
+			background: var(--danger-soft);
+			color: var(--danger);
+		}
+	}
+
+	.path {
+		flex: 0 0 auto;
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+	}
+
+	.desc {
+		flex: 1;
+		min-width: 0;
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chev {
+		flex: 0 0 auto;
+		color: var(--ink-faint);
+		display: grid;
+		place-items: center;
+		transition: transform var(--dur) var(--ease);
+
+		&.open {
+			transform: rotate(180deg);
+		}
+	}
+
+	.detail {
+		padding: 0 1rem 1rem;
+
+		pre {
+			border-radius: 8px;
+			background: var(--bg);
+			border: 1px solid var(--edge);
+		}
+	}
+
+	@media (max-width: 720px) {
+		.row {
+			flex-wrap: wrap;
+			gap: var(--space-2);
+		}
+		.desc {
+			flex: 1 0 100%;
+			white-space: normal;
 		}
 	}
 </style>

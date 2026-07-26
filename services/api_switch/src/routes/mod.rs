@@ -84,12 +84,12 @@ pub async fn all(state: crate::AppState) -> Router<crate::AppState> {
         .layer(from_fn(middlewares::authority_sign_check));
 
     // Public webhooks are called by third parties (Razorpay) directly, so they
-    // are NOT behind the shared sign — they authenticate themselves by their own
+    // are NOT behind the shared sign: they authenticate themselves by their own
     // signed payloads.
     let webhooks = Router::new()
         .route("/webhooks/razorpay", post(billing::razorpay_webhook::handle));
 
     // A panic in any handler becomes a 500 for that one request instead of
-    // dropping the connection — one bad input can't take the worker down.
+    // dropping the connection: one bad input can't take the worker down.
     signed.merge(webhooks).layer(cors).layer(CatchPanicLayer::new())
 }

@@ -18,7 +18,7 @@ let createSession = (sessionData) => {
 			httpOnly: true,
 			sameSite: 'lax',
 			// Secure everywhere except local dev (http://localhost). The cookie
-			// carries the session JWT (incl. the api_key) — never send it cleartext.
+			// carries the session JWT (incl. the api_key): never send it cleartext.
 			secure: !dev,
 			maxAge: SESSION_COOKIE.age
 		}

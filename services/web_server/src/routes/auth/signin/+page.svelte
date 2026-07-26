@@ -2,9 +2,9 @@
 	import { enhance } from '$app/forms';
 	import Seo from '$lib/components/Seo.svelte';
 	import { toast } from 'svelte-sonner';
-	import SiloCatLogo from '$lib/assets/silo-cat.png';
+	
 	import { Turnstile } from 'svelte-turnstile';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -124,7 +124,7 @@
 
 <section class="auth-card">
 	<div class="card-header">
-		<img class="mark" src={SiloCatLogo} alt="" />
+		<img class="mark" src="/silocat-logo.png" alt="" />
 		{#if mode === 'login'}
 			<h1>Sign in</h1>
 		{:else if mode === 'forgot'}

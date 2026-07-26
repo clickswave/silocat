@@ -15,7 +15,7 @@ pub async fn handle(
     Extension(caller): Extension<Option<Caller>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
-    // Owner is the authenticated caller (user or shadow) — never a body field.
+    // Owner is the authenticated caller (user or shadow): never a body field.
     let caller = match caller.as_ref() {
         Some(c) => c,
         None => {

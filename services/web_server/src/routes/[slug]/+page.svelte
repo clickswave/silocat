@@ -5,7 +5,7 @@
 	import sodium from 'libsodium-wrappers-sumo';
 	import { decryptChunk, deriveKeyFromPassword } from '$lib/chacha.js';
 	import { toast } from 'svelte-sonner';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import { shadowKey } from '$lib/stores/shadow.js';
@@ -174,7 +174,6 @@
 		currentDownloadId = file.id;
 		fileMeta = file; // Set context for download logic (or refactor to pass file)
 		// But startDownload uses fileId global, we need to fix that.
-		// Let's refactor startDownload to take an ID.
 		await startDownload(file);
 		currentDownloadId = null;
 	}
@@ -200,7 +199,6 @@
 
 		while (downloadedBytes < fileTarget.size) {
 			// Check for cancellation signal if needed, but for now rely on caller handling?
-			// Actually we need to respect isDownloading global... but that's shared.
 			// Ideally passed in signal. For now, check global.
 			if (!isDownloading) throw new Error('Download cancelled');
 

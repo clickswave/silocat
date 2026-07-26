@@ -110,7 +110,7 @@ pub async fn handle(
         Err(_e) => return respond(500, "Failed to parse Google profile", vec![], json!({})),
     };
 
-    // Only trust a Google-verified email — otherwise an unverified Google email
+    // Only trust a Google-verified email: otherwise an unverified Google email
     // could be used to log into / claim an existing account with that address.
     if !google_user.verified_email {
         return respond(
@@ -140,9 +140,6 @@ pub async fn handle(
             
             // Return token data
             let token_data = crate::models::token_data(user, None); // TODO: fetch subscription? 
-            // Better to re-fetch user with subscription but let's assume token_data logic handles logic or we just return basic.
-            // Wait, models::token_data takes user and subscription.
-            // Let's fetch subscription if needed or just pass None for now (might break things if sub is needed).
             // login.rs usually fetches sub.
             return respond(200, "Login successful", vec![], json!(token_data));
         },

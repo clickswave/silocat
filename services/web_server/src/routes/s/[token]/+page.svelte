@@ -1,10 +1,13 @@
 <script>
+	import { glyphForMime } from '$lib/ui/icons.js';
+	import Footer from '$lib/components/Footer.svelte';
+	import Navbar from '$lib/components/Navbar.svelte';
 	import { page } from '$app/stores';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 	import axios from 'axios';
 	import { onMount } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
-	import { toast } from 'svelte-sonner';
+	import { toast } from '$lib/toast.js';
 	import { deriveKeyFromPassword, decryptChunk } from '$lib/chacha.js';
 	import Prompt from '$lib/ui/Prompt.svelte';
 	import sodium from 'libsodium-wrappers-sumo';
@@ -71,7 +74,7 @@
 
 				if (data.type === 'folder') {
 					// Update files from authorized response just in case, though authorize mostly just authorizes.
-					// Actually, our authorize response now returns 'files' too.
+					// The authorize response carries the folder's files as well.
 					await handleFolderDownload(data.files || file.files, file.name);
 					return;
 				}
@@ -306,122 +309,130 @@
 </script>
 
 <svelte:head>
-	<title>Secure download - Silocat</title>
+	<title>Secure download · Silocat</title>
 	<!-- Private share link: never index or follow. -->
 	<meta name="robots" content="noindex, nofollow" />
 </svelte:head>
 
-<div class="page-container">
-	<div class="center-card">
-		{#if loading}
-			<div class="loading">
-				<Icon icon="ri:loader-4-line" class="spinner" width="48" />
-				<p>Verifying Link...</p>
-			</div>
-		{:else if error}
-			<div class="error" in:scale>
-				<div class="icon-circle error">
-					<Icon icon="ri:error-warning-fill" width="32" />
-				</div>
-				<h2>Link Unavailable</h2>
-				<p>{error}</p>
-			</div>
-		{:else}
-			<div class="file-preview" in:fade>
-				<div class="icon-circle primary">
-					{#if file.type === 'folder'}
-						<Icon icon="ri:folder-5-fill" width="32" />
-					{:else}
-						<Icon icon="ri:file-text-fill" width="32" />
-					{/if}
-				</div>
-				<h1>{file.name}</h1>
-				{#if file.type === 'file'}
-					<p class="meta">{formatSize(file.size)}</p>
-					{#if file.encrypted}
-						<div class="encrypted-badge">
-							<Icon icon="ri:lock-fill" width="14" />
-							Encrypted
-						</div>
-					{/if}
-				{:else if file.type === 'folder'}
-					<p class="meta">{file.files ? file.files.length : 0} items</p>
+<div class="page">
+	<Navbar />
 
-					{#if file.files && file.files.length > 0}
-						<div class="scroll-area">
-							{#each file.files as f}
-								<div class="file-item">
-									<div class="file-icon">
-										<Icon
-											icon={f.mime && f.mime.includes('image')
-												? 'ri:image-fill'
-												: 'ri:file-text-fill'}
-											width="20"
-										/>
-									</div>
-									<div class="file-info">
-										<div class="file-name">{f.name}</div>
-										<div class="file-meta">
-											{formatSize(f.size)}
-											{#if f.encrypted}
-												<Icon icon="ri:lock-fill" width="12" style="color: var(--warn);" />
-											{/if}
-										</div>
-									</div>
-									<button
-										class="file-action-btn"
-										on:click={() => downloadSingleFile(f)}
-										title="Download File"
-									>
-										<Icon icon="ri:download-line" width="18" />
-									</button>
+	<main class="main">
+		<div class="card">
+			{#if loading}
+				<div class="state">
+					<Icon name="spinner" size={24} />
+					<span class="state-line">Verifying link…</span>
+				</div>
+			{:else if error}
+				<div class="state">
+					<span class="glyph danger"><Icon name="alert" size={22} /></span>
+					<h1>Link unavailable</h1>
+					<p class="state-line">{error}</p>
+					<a class="ghost-btn" href="/">Go to Silocat</a>
+				</div>
+			{:else}
+				<div class="head">
+					<span class="glyph">
+						<Icon name={file.type === 'folder' ? 'folder-wide' : glyphForMime(file.mime, file.name)} size={22} />
+					</span>
+					<div class="head-text">
+						<h1 title={file.name}>{file.name}</h1>
+						<p class="sub">
+							{#if file.type === 'folder'}
+								{file.files ? file.files.length : 0} item{(file.files?.length ?? 0) === 1 ? '' : 's'}
+							{:else}
+								{formatSize(file.size)}
+							{/if}
+							{#if file.encrypted}
+								<span class="dot">·</span>
+								<span class="enc"><Icon name="lock" size={12} stroke={1.9} /> Encrypted</span>
+							{/if}
+						</p>
+					</div>
+				</div>
+
+				{#if file.type === 'folder' && file.files && file.files.length > 0}
+					<div class="file-list">
+						{#each file.files as f (f.id ?? f.name)}
+							<div class="frow">
+								<span class="fglyph"><Icon name={glyphForMime(f.mime, f.name)} size={16} /></span>
+								<div class="fmeta">
+									<span class="fname" title={f.name}>{f.name}</span>
+									<span class="fsize">{formatSize(f.size)}</span>
 								</div>
-							{/each}
-						</div>
-					{/if}
+								{#if f.encrypted}
+									<span class="flock"><Icon name="lock" size={13} stroke={1.9} /></span>
+								{/if}
+								<button
+									type="button"
+									class="fdl"
+									aria-label="Download {f.name}"
+									title="Download"
+									onclick={() => downloadSingleFile(f)}
+								>
+									<Icon name="download" size={15} />
+								</button>
+							</div>
+						{/each}
+					</div>
 				{/if}
 
-				<div class="actions">
-					{#if showPasswordInput || needsPassword}
-						<div class="password-group" transition:fade>
-							<input
-								type="password"
-								bind:value={password}
-								placeholder="Enter decryption password"
-								on:keydown={(e) => e.key === 'Enter' && handleDownload()}
-							/>
-							<!-- Small download button next to password if space permits, or mainly rely on big button below -->
-						</div>
-					{/if}
+				{#if showPasswordInput || needsPassword}
+					<div class="pw-field">
+						<label for="share-pw">Password</label>
+						<input
+							id="share-pw"
+							type="password"
+							bind:value={password}
+							placeholder="Decryption password"
+							onkeydown={(e) => e.key === 'Enter' && handleDownload()}
+						/>
+						<span class="pw-hint">
+							The sender shared this separately. Without it the file cannot be decrypted.
+						</span>
+					</div>
+				{/if}
 
+				{#if downloading}
+					<div class="progress">
+						<div class="progress-head">
+							<span>{file.encrypted ? 'Decrypting' : 'Downloading'}</span>
+							<span class="mono">{downloadProgress}%</span>
+						</div>
+						<div class="track"><div class="fill" style="width:{downloadProgress}%"></div></div>
+					</div>
+				{:else}
 					<button
-						class="download-btn"
-						on:click={handleDownload}
-						disabled={downloading || (needsPassword && !password)}
+						type="button"
+						class="primary"
+						disabled={needsPassword && !password}
+						onclick={handleDownload}
 					>
-						{#if downloading}
-							<Icon icon="ri:loader-4-line" class="spinner" width="20" />
-							{downloadProgress}%
-						{:else}
-							<Icon
-								icon={needsPassword && !password && false ? 'ri:lock-fill' : 'ri:download-2-fill'}
-								width="20"
-							/>
-							{file.type === 'folder' ? 'Download All as Zip' : 'Download'}
-						{/if}
+						<Icon name={file.encrypted ? 'unlock' : 'download'} size={16} />
+						{file.type === 'folder' ? 'Download all as zip' : file.encrypted ? 'Decrypt & download' : 'Download'}
 					</button>
-				</div>
-				<div class="secure-note">
-					<Icon icon="ri:shield-check-line" width="14" />
-					<span>Securely shared via Silocat</span>
-				</div>
-				<button class="report-link" type="button" on:click={() => (showReportModal = true)} disabled={reporting}>
-					<Icon icon="ri:flag-line" width="12" />
+				{/if}
+
+				<p class="secure-note">
+					<Icon name="shield-check" size={13} />
+					{file.encrypted ? 'Encrypted end to end · shared via Silocat' : 'Shared via Silocat'}
+				</p>
+
+				<button
+					type="button"
+					class="report"
+					disabled={reporting}
+					onclick={() => (showReportModal = true)}
+				>
+					<Icon name="flag" size={12} />
 					{reporting ? 'Reporting…' : 'Report this link'}
 				</button>
-			</div>
-		{/if}
-	</div>
+			{/if}
+		</div>
+	</main>
+
+	<Footer />
 </div>
 
 <Prompt
@@ -435,273 +446,337 @@
 />
 
 <style lang="scss">
-	.page-container {
+	.page {
 		min-height: 100vh;
-		width: 100%;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: var(--fs-body);
+		line-height: var(--lh-normal);
+	}
+
+	.main {
+		flex: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: var(--gutter);
-		background:
-			radial-gradient(circle at 50% 0%, rgba(255, 70, 85, 0.12) 0%, transparent 55%),
-			var(--bg-app);
-		color: var(--text-primary);
-		font-family: var(--font-sans);
+		padding: clamp(2rem, 6vw, 4rem) var(--gutter);
 	}
 
-	.center-card {
-		background: var(--bg-card);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		padding: clamp(1.5rem, 5vw, 2.5rem);
+	.card {
 		width: 100%;
-		max-width: 500px;
-		text-align: center;
-		box-shadow: var(--shadow-lg);
+		max-width: 440px;
 		display: flex;
 		flex-direction: column;
-		max-height: 90vh;
+		gap: 0.875rem;
+		padding: 1.25rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-lg);
+		background: var(--surface);
 	}
 
-	.scroll-area {
-		overflow-y: auto;
-		flex: 1;
-		margin: var(--space-5) 0;
-		text-align: left;
-		background: var(--tint-soft);
-		border: 1px solid var(--hairline);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2);
-	}
-
-	.file-item {
+	.head {
 		display: flex;
 		align-items: center;
-		padding: var(--space-2);
-		border-bottom: 1px solid var(--hairline);
-		gap: var(--space-3);
-
-		&:last-child {
-			border-bottom: none;
-		}
-	}
-
-	.file-icon {
-		color: var(--text-secondary);
-	}
-
-	.file-info {
-		flex: 1;
+		gap: 0.75rem;
 		min-width: 0;
 	}
 
-	.file-name {
-		font-size: var(--fs-sm);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		color: var(--text-primary);
-	}
+	.glyph {
+		display: grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		flex: 0 0 auto;
+		border-radius: var(--radius-md);
+		background: var(--tint-soft);
+		color: var(--ink-mute);
 
-	.file-meta {
-		font-size: var(--fs-xs);
-		color: var(--text-muted);
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.icon-circle {
-		width: 64px;
-		height: 64px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin: 0 auto var(--space-5);
-		flex-shrink: 0;
-
-		&.primary {
-			background: rgba(255, 70, 85, 0.1);
-			color: var(--primary);
-			box-shadow: var(--shadow-glow);
-		}
-		&.error {
-			background: rgba(255, 70, 85, 0.1);
+		&.danger {
+			background: var(--danger-soft);
 			color: var(--danger);
 		}
 	}
 
-	h1,
-	h2 {
-		font-weight: var(--fw-semibold);
-		margin: 0 0 var(--space-2);
-		color: var(--text-primary);
+	.head-text {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+
+		h1 {
+			margin: 0;
+			font-size: 1.0625rem;
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
 	}
 
-	h1 {
-		font-size: var(--fs-h3);
-		word-break: break-word;
-	}
-	h2 {
-		font-size: var(--fs-h2);
-	}
-
-	p {
-		color: var(--text-secondary);
-		font-size: var(--fs-sm);
+	.sub {
 		margin: 0;
-
-		&.meta {
-			margin-bottom: var(--space-2);
-			font-family: var(--font-mono);
-			background: var(--tint-soft);
-			border: 1px solid var(--hairline);
-			display: inline-block;
-			padding: 4px 8px;
-			border-radius: var(--radius-sm);
-		}
-	}
-
-	.encrypted-badge {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		color: var(--warning);
+		gap: 0.375rem;
+		font-family: var(--font-mono);
 		font-size: var(--fs-xs);
-		margin-top: var(--space-1);
+		color: var(--ink-faint);
 	}
 
-	.actions {
-		margin-top: var(--space-3);
-		min-height: 50px;
-		flex-shrink: 0;
-	}
-
-	.password-group {
-		display: flex;
-		gap: var(--space-2);
-		margin-bottom: var(--space-3);
-
-		input {
-			flex: 1;
-			background: var(--bg-input);
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-sm);
-			padding: 0.75rem 0.95rem;
-			color: var(--text-primary);
-			font-size: var(--fs-sm);
-			font-family: var(--font-mono);
-			min-width: 0;
-			outline: none;
-			transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-
-			&::placeholder {
-				color: var(--text-muted);
-			}
-
-			&:focus {
-				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
-			}
-		}
-	}
-
-	.file-action-btn {
-		background: var(--tint-softer);
-		border: 1px solid var(--border-default);
-		color: var(--text-primary);
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		flex-shrink: 0;
-		transition: background var(--dur) var(--ease);
-
-		&:hover {
-			background: var(--bg-card-hover);
-		}
-	}
-
-	.download-btn {
-		background: var(--accent-gradient);
-		color: #fff;
-		border: none;
-		width: 100%;
-		padding: 0.85rem;
-		border-radius: var(--radius-pill);
-		font-size: var(--fs-body);
-		font-weight: var(--fw-semibold);
-		font-family: inherit;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		box-shadow: 0 6px 20px -6px var(--primary-glow);
-		transition: filter var(--dur) var(--ease), transform var(--dur) var(--ease);
-
-		&:hover {
-			filter: brightness(1.06);
-			transform: translateY(-1px);
-		}
-
-		&:disabled {
-			opacity: 0.6;
-			cursor: not-allowed;
-			transform: none;
-		}
-
-		&.small {
-			width: auto;
-			padding: 0.7rem 1rem;
-		}
-	}
-
-	.spinner {
-		animation: spin 1s linear infinite;
-	}
-
-	.secure-note {
-		margin-top: var(--space-6);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		font-size: var(--fs-xs);
-		color: var(--text-muted);
-		flex-shrink: 0;
-	}
-
-	.report-link {
-		margin-top: var(--space-3);
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: none;
-		border: none;
-		cursor: pointer;
-		font-size: var(--fs-xs);
-		color: var(--text-muted);
-		opacity: 0.7;
-		transition: opacity 0.15s ease;
-	}
-	.report-link:hover:not(:disabled) {
-		opacity: 1;
-		color: var(--text-secondary, var(--text-muted));
-	}
-	.report-link:disabled {
-		cursor: default;
+	.dot {
 		opacity: 0.5;
 	}
 
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
+	.enc {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.file-list {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+		max-height: 240px;
+		overflow-y: auto;
+	}
+
+	.frow {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid var(--edge);
+
+		&:last-child {
+			border-bottom: 0;
 		}
+	}
+
+	.fglyph,
+	.flock {
+		flex: 0 0 auto;
+		display: grid;
+		place-items: center;
+		color: var(--ink-mute);
+	}
+	.flock {
+		color: var(--ink-faint);
+	}
+
+	.fmeta {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.fname {
+		font-size: var(--fs-sm);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.fsize {
+		font-family: var(--font-mono);
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.fdl {
+		flex: 0 0 auto;
+		width: 28px;
+		height: 28px;
+		border: 0;
+		background: none;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease),
+			color var(--dur-fast) var(--ease);
+
+		&:hover {
+			background: var(--tint-softer);
+			color: var(--ink);
+		}
+	}
+
+	.pw-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+
+		label {
+			font-size: var(--fs-xs);
+			color: var(--ink-mute);
+		}
+
+		input {
+			height: 36px;
+			padding: 0 0.625rem;
+			border-radius: var(--radius-sm);
+			background: var(--bg);
+			border: 1px solid var(--edge);
+			color: var(--ink);
+			font-family: var(--font-mono);
+			font-size: 0.875rem;
+			outline: none;
+			transition:
+				border-color var(--dur-fast) var(--ease),
+				box-shadow var(--dur-fast) var(--ease);
+
+			&::placeholder {
+				color: var(--ink-faint);
+			}
+			&:focus {
+				border-color: var(--accent);
+				box-shadow: 0 0 0 3px var(--focus-ring);
+			}
+		}
+	}
+
+	.pw-hint {
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.progress {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.progress-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+	}
+
+	.mono {
+		font-family: var(--font-mono);
+		font-size: var(--fs-sm);
+		color: var(--ink-faint);
+	}
+
+	.track {
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--tint-softer);
+		overflow: hidden;
+	}
+
+	.fill {
+		height: 100%;
+		border-radius: var(--radius-full);
+		background: var(--accent);
+		transition: width var(--dur) var(--ease);
+	}
+
+	.primary {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4375rem;
+		height: 42px;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: var(--accent);
+		color: #fff;
+		font: inherit;
+		font-size: var(--fs-body);
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			background: var(--accent-hover);
+		}
+		&:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+	}
+
+	.ghost-btn {
+		display: inline-flex;
+		align-items: center;
+		height: 36px;
+		padding-inline: 1rem;
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font-size: var(--fs-sm);
+		font-weight: var(--fw-medium);
+		text-decoration: none;
+
+		&:hover {
+			background: var(--tint-soft);
+			color: var(--ink);
+		}
+	}
+
+	.secure-note {
+		margin: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+	}
+
+	.report {
+		align-self: center;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--fs-xs);
+		color: var(--ink-faint);
+		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease);
+
+		&:hover:not(:disabled) {
+			color: var(--ink-mute);
+		}
+	}
+
+	.state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 2rem 0.5rem;
+		text-align: center;
+		color: var(--ink-faint);
+
+		h1 {
+			margin: 0;
+			font-size: var(--fs-lg);
+			font-weight: var(--fw-semibold);
+			letter-spacing: var(--tracking-tight);
+			color: var(--ink);
+		}
+	}
+
+	.state-line {
+		margin: 0;
+		font-size: var(--fs-sm);
+		color: var(--ink-mute);
+		max-width: 34ch;
 	}
 </style>

@@ -16,19 +16,13 @@ export async function POST({ request, locals }) {
 
     // Ensure we capture shared flag from body if present
     // The previous code spreads ...body so it should already be included if passed.
-    // However, let's be explicit if we want validation, but ...body is fine for now as payload matches.
-    // Actually, let's just leave it as spread ...body, assuming frontend sends { shared: true }
-    // But wait, I need to check if I need to do anything special. 
     // The previous implementation of this file just spreads body.
     // So if I send { shared: true } from frontend client, it goes into payload.
     // So actually NO CHANGE needed here if I just send it in body?
-    // Let's verify.
     // `body = await request.json()` -> `payload = { ...body, user_id }`
     // Backend expects `shared: Option<bool>`.
     // So `payload` having `shared: true` works.
 
-    // I will just add a comment to confirm clarity or logic if needed.
-    // Actually, I'll essentially do nothing but since I am here, maybe I should just explicitly log or ensuring it works?
     // No, cleaner code is better. I can skip this file edit if it already supports generic body forwarding.
     // Looking at line 19: `...body`. Yes.
 
@@ -39,7 +33,6 @@ export async function POST({ request, locals }) {
 
     // So for file list (GET), I added query param handling.
     // For folder list (POST), it's already generic.
-    // I'll skip editing this file.
 
     try {
         let payload = {

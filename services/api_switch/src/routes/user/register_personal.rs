@@ -104,8 +104,7 @@ pub async fn handle(
     };
 
     // Signup gate. Invite-only by default; set SILOCAT_INVITE_ONLY=false to open
-    // public registration. Invites still grant their benefits when supplied —
-    // they just stop being mandatory once signup is public.
+    // public registration. Invites still grant their benefits when supplied: // they just stop being mandatory once signup is public.
     // Public signup by default now (promo codes replaced the invite requirement).
     // Set SILOCAT_INVITE_ONLY=true to re-gate signup behind an invite code.
     let invite_only = std::env::var("SILOCAT_INVITE_ONLY")
@@ -142,7 +141,7 @@ pub async fn handle(
 
 
     // Determine initial storage. Free tier is 10 GB (existing users keep whatever
-    // their row already holds — this default only applies to new signups).
+    // their row already holds: this default only applies to new signups).
     let mut initial_storage_bytes: i64 = 10 * 1024 * 1024 * 1024; // 10 GB default
 
     if let Some(ref invite) = valid_invite_code {
@@ -224,7 +223,7 @@ pub async fn handle(
                                 days
                             );
                             // Only bump uses_count if the subscription row was actually
-                            // created — otherwise the admin panel shows a redemption that
+                            // created: otherwise the admin panel shows a redemption that
                             // never granted any space (the bug we are fixing).
                             match sqlx::query(&insert_sub)
                                 .bind(bonus)
@@ -280,9 +279,7 @@ pub async fn handle(
 
                    if let Ok(Some(row)) = sub_res {
                         // We fetch as dynamic row then map manually or use query_as if struct allows. 
-                        // Since we used raw query string, let's just get the fields we need. 
                         // Ideally we cast to Subscription model if possible, but Row is fine for ID.
-                        // Actually, we need the full subscription object for the token.
                         
                         let sub_id: String = row.get("id");
                         

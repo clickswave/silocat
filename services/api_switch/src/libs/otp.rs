@@ -19,8 +19,7 @@ pub enum Outcome {
 }
 
 /// Atomically verify and consume the account OTP for `user_id`. Succeeds only
-/// when the code matches, is present, unexpired, and under the attempt limit —
-/// then clears it. On any failure the attempt counter is incremented (best
+/// when the code matches, is present, unexpired, and under the attempt limit: /// then clears it. On any failure the attempt counter is incremented (best
 /// effort) so repeated guessing locks the code.
 pub async fn consume(pool: &Pool<Postgres>, user_id: &str, provided: &str) -> Outcome {
     let consumed = sqlx::query_scalar::<_, String>(

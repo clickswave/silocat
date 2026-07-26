@@ -3,8 +3,7 @@
 //! A defense-in-depth throttle for auth/abuse endpoints on top of Cloudflare's
 //! edge rate limiting. Keys are `"<bucket>:<client-ip>"`, where the IP is the
 //! Cloudflare-set `cf-connecting-ip` (clients can't spoof it behind CF), so one
-//! IP can't brute-force login / password-reset / spam OTPs. Not distributed —
-//! per-process — which is sufficient as a second layer.
+//! IP can't brute-force login / password-reset / spam OTPs. Not distributed: //! per-process: which is sufficient as a second layer.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

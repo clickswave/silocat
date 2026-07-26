@@ -108,7 +108,7 @@ pub async fn handle(
 }
 
 /// Grant an order's benefits if it is still pending (idempotent, atomic). Same
-/// grant shape as /billing/verify — the conditional claim serialises with it.
+/// grant shape as /billing/verify: the conditional claim serialises with it.
 async fn reconcile_and_grant(state: &crate::AppState, order_id: &str) -> anyhow::Result<()> {
     let order = sqlx::query!(
         "SELECT user_id, additional_space, subscription_name, subscription_cycle, status FROM orders WHERE reference_id = $1",
@@ -118,7 +118,7 @@ async fn reconcile_and_grant(state: &crate::AppState, order_id: &str) -> anyhow:
     .await?;
     let order = match order {
         Some(o) if o.status == "pending" => o,
-        _ => return Ok(()), // already completed/failed/unknown — nothing to do
+        _ => return Ok(()), // already completed/failed/unknown: nothing to do
     };
 
     let mut tx = state.pg_pool.begin().await?;

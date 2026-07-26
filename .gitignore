@@ -2,3 +2,12 @@ services/postgres/data
 .vscode
 .idea
 services/api_switch/GeoLite2-City.mmdb
+
+# Local build artefacts. `.svelte-kit` / `node_modules/.vite` are regenerated as
+# root by the dev container, so local builds use *-local variants instead
+# (see svelte.config.js and vite.config.js).
+services/web_server/.svelte-kit-local
+services/web_server/node_modules/.vite-local
+
+# Design handoff bundle: a working artefact, not product source.
+silocat-redesign/

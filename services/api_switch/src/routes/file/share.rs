@@ -483,9 +483,7 @@ pub async fn public_fetch_file_chunks(
         }
 
         // Check if file is in this folder (direct child for now, recursive logic if needed later)
-        // Actually, we should probably allow any descendant if we had fully recursive 'files in folder' query.
         // For simple structure (parent_id), we check if file.folder_id == folder.id
-        // BUT wait, users might have nested folders.
         // Doing a recursive check is expensive.
         // Simplification: We check if the file belongs to the same user as the folder.
         // AND ensuring the file is not deleted.

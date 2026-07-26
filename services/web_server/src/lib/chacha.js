@@ -64,7 +64,7 @@ export async function deriveKeyFromPassword(password, salt) {
 	await sodium.ready;
 
 	if (!(salt instanceof Uint8Array) || salt.length !== 16) {
-		throw new Error("Invalid salt — must be 16 bytes");
+		throw new Error("Invalid salt: must be 16 bytes");
 	}
 
 	const keyLength = sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES;

@@ -16,7 +16,7 @@ pub struct ReportInput {
     pub details: Option<String>,
 }
 
-/// POST /report (public) — anyone can report an abusive share link. Reports are
+/// POST /report (public): anyone can report an abusive share link. Reports are
 /// stored for admin review + takedown; we do not auto-disable (that would let
 /// anyone censor a link), the admin actions it.
 pub async fn handle(

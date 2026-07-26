@@ -46,7 +46,6 @@ pub async fn handle(
     // but for now, summing file sizes is a good start. 
     // Better accuracy: Sum of all chunks marked 'uploaded' for files owned by user?
     // Current 'files' table 'size' is the logical size. 'chunks' table has 'size'.
-    // Let's sum 'files.size' for simplicity as the primary metric.
     
     // Only count COMPLETED uploads (uploaded_chunks >= total_chunks) so an
     // abandoned, half-uploaded file does not inflate the user's used quota.

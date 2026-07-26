@@ -93,8 +93,8 @@ pub async fn handle(
     }
 
     // 4. Claim the order and apply benefits atomically. The conditional UPDATE
-    //    (status = 'pending') serialises concurrent verifies — only the first
-    //    claims it, so benefits are never granted twice — and the transaction
+    //    (status = 'pending') serialises concurrent verifies: only the first
+    //    claims it, so benefits are never granted twice: and the transaction
     //    means any failed grant rolls the claim back (status stays 'pending',
     //    retryable) instead of leaving a paid-but-unfulfilled order.
     let mut tx = match state.pg_pool.begin().await {

@@ -39,7 +39,7 @@ pub async fn handle(
     headers: HeaderMap,
     Json(payload): Json<PayloadBody>,
 ) -> impl IntoResponse {
-    // Owner is the authenticated caller (user or shadow) — never a body field.
+    // Owner is the authenticated caller (user or shadow): never a body field.
     let caller = match caller.as_ref() {
         Some(c) => c,
         None => {
@@ -85,7 +85,7 @@ pub async fn handle(
         }
     }
 
-    // A destination folder, if given, must belong to the caller — no planting
+    // A destination folder, if given, must belong to the caller: no planting
     // files into another user's folder.
     if let Some(folder_id) = &payload.folder_id {
         let parent = sqlx::query!(

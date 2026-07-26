@@ -56,7 +56,7 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 		const chunks = chunksRes.data?.data?.chunks;
 		if (!chunks || chunks.length === 0) throw new Error('No chunks found');
 
-		// Total = sum of (server) chunk sizes — that's what we actually pull down.
+		// Total = sum of (server) chunk sizes: that's what we actually pull down.
 		const total = chunks.reduce((s, c) => s + (Number(c.size) || 0), 0) || Number(file.size) || 0;
 		patch(id, { total });
 

@@ -34,8 +34,8 @@ export const load = async ({ params }) => {
 			const size = formatSize(Number(d.file.size) || 0);
 			return {
 				og: {
-					title: `${name} — shared on SiloCat`,
-					description: `${name} (${size}). Encrypted file stored on silo.cat — download it securely.`
+					title: `${name}: shared on SiloCat`,
+					description: `${name} (${size}). Encrypted file stored on silo.cat: download it securely.`
 				}
 			};
 		}
@@ -48,8 +48,8 @@ export const load = async ({ params }) => {
 			const label = count === 1 ? '1 file' : `${count} files`;
 			return {
 				og: {
-					title: `${name} — shared on SiloCat`,
-					description: `${label} (${totalSize}) stored on silo.cat — download them securely from this encrypted vault.`
+					title: `${name}: shared on SiloCat`,
+					description: `${label} (${totalSize}) stored on silo.cat: download them securely from this encrypted vault.`
 				}
 			};
 		}

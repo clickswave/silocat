@@ -45,7 +45,7 @@ pub async fn handle(
         .map(|s| s.name == "Pro")
         .unwrap_or(false);
 
-    // Persist the ticket — this is the source of truth (admin panel reads these).
+    // Persist the ticket: this is the source of truth (admin panel reads these).
     if let Err(_e) = sqlx::query(
         "INSERT INTO support_tickets (user_id, username, email, category, subject, message, is_pro) \
          VALUES ($1, $2, $3, $4, $5, $6, $7)",

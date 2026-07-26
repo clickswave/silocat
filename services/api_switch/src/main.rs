@@ -7,7 +7,7 @@ pub mod watchcat;
 use anyhow::Error;
 
 /// Fail-fast config gate. If any required environment variable is *unset*, print
-/// the full list and exit(1) before doing any work — never fall back to a silent
+/// the full list and exit(1) before doing any work: never fall back to a silent
 /// default for required config. Checks presence (unset), not emptiness, so a
 /// feature can be intentionally left off (blank value) without blocking startup.
 fn require_env(keys: &[&str]) {
@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
     ];
     if !watchcat_mode {
         required.extend([
-            "AUTHORITY_SIGN", "OAUTH_ID_GOOGLE", "OAUTH_SECRET_GOOGLE",
+            "INFRA_COMMUNICATION_SECRET", "OAUTH_ID_GOOGLE", "OAUTH_SECRET_GOOGLE",
             "SMTP_ADDRESS", "SMTP_USERNAME", "SMTP_PASSWORD",
             "RAZORPAY_ID", "RAZORPAY_SECRET",
         ]);
@@ -80,10 +80,10 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&pg_pool).await?;
 
     // source authority sign from env
-    let authority_sign = match std::env::var("AUTHORITY_SIGN"){
+    let authority_sign = match std::env::var("INFRA_COMMUNICATION_SECRET"){
         Ok(var) => var,
         Err(_) => {
-            return Err(Error::msg("AUTHORITY_SIGN is missing from the environment"))
+            return Err(Error::msg("INFRA_COMMUNICATION_SECRET is missing from the environment"))
         }
     };
 
@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
     let app_env = std::env::var("APP_ENV").unwrap_or_else(|_| "(unset)".to_string());
     let is_prod_pricing = matches!(app_env.trim().to_ascii_lowercase().as_str(), "prod" | "production" | "(unset)");
     println!(
-        "[startup] APP_ENV={} — pricing: {}",
+        "[startup] APP_ENV={}: pricing: {}",
         app_env,
         if is_prod_pricing { "PRODUCTION (real prices)" } else { "TEST (nominal prices)" }
     );

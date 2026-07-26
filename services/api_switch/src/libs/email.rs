@@ -35,7 +35,7 @@ pub async fn send(
     let mail_from = format!("{} <{}>", &email_data.from_name, &email_data.from_email);
     let mail_reply_to = format!("{} <{}>", &email_data.reply_to_name, &email_data.reply_to_email);
     // construct email: HTML + inline logo (multipart/related, cid:silocat-logo)
-    // Never panic on address/content parsing — a bad address returns an error
+    // Never panic on address/content parsing: a bad address returns an error
     // the caller handles (log + continue), it doesn't take the worker down.
     let logo_ct = "image/png".parse().map_err(|e| format!("content type: {e}"))?;
     let logo_part = Attachment::new_inline(LOGO_CID.to_string())

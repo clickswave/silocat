@@ -44,12 +44,10 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/share/info/{id}", axum::routing::get(share::get_share_info))
         
         // Public routes (no auth middleware check if placed outside? No, router() is wrapped in auth check in main.rs!)
-        // WAIT. `routes::all` wraps EVERYTHING in `authority_sign_check`.
         // `authority_sign_check` validates the `X-Authority-Sign` header from the web server.
         // The web server (SvelteKit) HAS the authority sign.
         // So anonymous users hitting SvelteKit -> SvelteKit hits Backend WITH Sign.
         // So backend is technically "authenticated" by the web server service, but "UserTokenData" extension won't be present if we don't extract it.
-        // So we just need endpoints that DO NOT expect `Extension<UserTokenData>`.
         // My `public_get_info` and `public_authorize_download` do NOT take `Extension<UserTokenData>`, so they are fine!
         
         .route("/public/share/info/{token}", axum::routing::get(share::public_get_info))

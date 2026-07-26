@@ -56,11 +56,7 @@ pub async fn handle(
 
     // 2. Try to find as Folder
     // We need to fetch folder metadata + contents to be useful
-    // But let's just return the folder metadata first, knowing the frontend might need another call 
     // OR we can reuse the logic from fetch_folder.rs to return everything.
-    // For now, let's just return the folder object and let the frontend decide if it needs children.
-    // Actually, fetch_folder.rs returns { folder, files, folders }. The frontend likely expects this structure.
-    // So let's duplicate that logic or reuse it? Duplication is safer for now to avoid borrowing issues or refactoring.
     
     let folder_query = sqlx::query_as!(
         models::Folder,

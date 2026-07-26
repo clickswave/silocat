@@ -14,6 +14,7 @@ mod avatar;
 mod forgot_password;
 mod reset_password;
 mod username_status;
+mod rotate_api_key;
 
 use axum::routing::post;
 use axum::routing::get;
@@ -38,6 +39,7 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/update-profile", post(update_profile::handle))
         .route("/info", get(fetch_info::handle))
         .route("/username-status", get(username_status::handle))
+        .route("/rotate-api-key", post(rotate_api_key::handle))
         .route("/verify-email", post(verify_email::handle))
         .route("/resend-verification", post(resend_verification::handle))
         .route("/request-email-change", post(request_email_change::handle))

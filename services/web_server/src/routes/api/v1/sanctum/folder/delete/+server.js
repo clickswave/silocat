@@ -20,13 +20,10 @@ export async function POST({ request, locals }) {
         };
 
         // Need to add deleteFolder to ApiServerRoutes network.js if not exists
-        // Wait, network.js had createFolder twice but no deleteFolder in snippet?
         // Checked network.js content in previous steps, it had:
         // createFolder: '/folder/create',
         // fetchFolder: '/folder/fetch',
         // But no delete endpoint mapped? Backend has /delete-folders.
-        // I will use direct string or add to network.js later.
-        // Let's assume I check/add it.
 
         // Correct endpoint is /folder/delete (registered in folder/mod.rs)
         let response = await ApiServerClient.post('/folder/delete', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });

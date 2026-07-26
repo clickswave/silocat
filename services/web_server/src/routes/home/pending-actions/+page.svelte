@@ -2,7 +2,7 @@
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
-	import Icon from '@iconify/svelte';
+	import Icon from '$lib/ui/Icon.svelte';
 
 	let { data } = $props();
 	let otp = $state('');
@@ -167,12 +167,12 @@
 
 			&:focus {
 				border-color: var(--primary);
-				box-shadow: 0 0 0 3px var(--primary-glow);
+				box-shadow: 0 0 0 3px var(--focus-ring);
 			}
 		}
 
 		.verify-btn {
-			background: var(--accent-gradient);
+			background: var(--accent);
 			color: #fff;
 			border: none;
 			padding: 0.95rem;
@@ -180,7 +180,6 @@
 			font-weight: var(--fw-semibold);
 			cursor: pointer;
 			font-size: var(--fs-body);
-			box-shadow: 0 6px 20px -6px var(--primary-glow);
 			transition: filter var(--dur) var(--ease);
 
 			&:hover:not(:disabled) {

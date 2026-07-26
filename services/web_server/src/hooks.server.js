@@ -20,9 +20,45 @@ export const handle = async ({ event, resolve }) => {
 		}
 	};
 
+	// Programmatic callers authenticate with `X-Api-Key` instead of the session
+	// cookie. Resolving it here rather than in each route means every existing
+	// /api/v1 handler accepts both mechanisms with no change: they all ask for
+	// `locals.session.user.get()`, which now means "the authenticated caller",
+	// however they proved who they are.
+	//
+	// Scoped to /api/v1 on purpose. Page loads and form actions stay
+	// cookie-only, so a stolen key can never be replayed against an HTML route
+	// to render someone's dashboard.
+	let apiKeyUser;
+	let apiKeyResolved = false;
+
+	const resolveApiKeyUser = async () => {
+		// Cache per request: a handler may ask for the caller several times and
+		// each miss would be another round trip to api_switch.
+		if (apiKeyResolved) return apiKeyUser;
+		apiKeyResolved = true;
+
+		const key = event.request.headers.get('x-api-key');
+		if (!key || !event.url.pathname.startsWith('/api/v1/')) return undefined;
+
+		try {
+			const { ApiServerClient } = await import('$lib/network.js');
+			const res = await ApiServerClient.get('/user/info', {
+				headers: { 'X-Api-Key': key }
+			});
+			apiKeyUser = res?.data?.data?.user ?? res?.data?.data ?? undefined;
+		} catch {
+			// A bad key is simply not authenticated; routes return their own 401.
+			apiKeyUser = undefined;
+		}
+		return apiKeyUser;
+	};
+
 	let sessionUser = {
-		// get user data from session
+		// The authenticated caller: API key first, then the session cookie.
 		get: async () => {
+			const viaKey = await resolveApiKeyUser();
+			if (viaKey) return viaKey;
 			let sess = await session.get();
 			return sess?.user;
 		}, // set user data in session

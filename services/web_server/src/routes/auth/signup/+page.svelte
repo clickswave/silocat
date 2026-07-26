@@ -3,8 +3,8 @@
 	import Seo from '$lib/components/Seo.svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
-	import SiloCatLogo from '$lib/assets/silo-cat.png';
-	import Icon from '@iconify/svelte';
+	
+	import Icon from '$lib/ui/Icon.svelte';
 	import { Turnstile } from 'svelte-turnstile';
 	import { browser } from '$app/environment';
 	import { slide } from 'svelte/transition';
@@ -54,7 +54,7 @@
 
 <section class="auth-card">
 	<div class="card-header">
-		<img class="mark" src={SiloCatLogo} alt="" />
+		<img class="mark" src="/silocat-logo.png" alt="" />
 		<h1>Create account</h1>
 		<p>10 GB free, encrypted end to end.</p>
 	</div>

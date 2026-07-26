@@ -84,7 +84,7 @@ pub async fn handle(
 
     // 1.5 Apply Promo Code. Atomically reserve one use: the conditional UPDATE
     // succeeds only when the code is active, unexpired, and under its max-uses
-    // cap, and it increments the counter in the same statement — so a code can
+    // cap, and it increments the counter in the same statement: so a code can
     // never be redeemed beyond its limit, even under concurrent requests.
     if let Some(ref code) = payload.promo_code {
         let promo_res = sqlx::query!(

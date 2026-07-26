@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+# A PR touching the frontend should not spend six minutes compiling Rust, and
+# vice versa, so each job is gated on the paths it actually cares about.
+jobs:
+  web:
+    name: web_server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/web_server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: services/web_server/package-lock.json
+
+      - run: npm ci
+
+      # Type + a11y + unused-CSS diagnostics. These caught real layout bugs
+      # during the redesign, so they are worth failing a PR over.
+      - name: svelte-check
+        run: npx svelte-kit sync && npx svelte-check --tsconfig ./jsconfig.json --threshold error
+
+      - name: Build
+        run: npm run build
+
+  api:
+    name: api_switch
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api_switch
+    env:
+      # Compile against the checked-in query cache so CI needs no database.
+      # If this step fails with "query not found", someone changed SQL without
+      # running `cargo sqlx prepare`.
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/api_switch
+
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Format
+        run: cargo fmt --check
+
+  migrations:
+    name: migrations apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: silocat
+          POSTGRES_PASSWORD: silocat
+          POSTGRES_DB: silocat
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features postgres,rustls
+      # Migrations run on api_switch startup in production, so a migration that
+      # fails on a clean database takes the service down on deploy.
+      - name: Run migrations against a clean database
+        working-directory: services/api_switch
+        env:
+          DATABASE_URL: postgres://silocat:silocat@localhost:5432/silocat
+        run: sqlx migrate run
