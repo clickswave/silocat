@@ -1600,16 +1600,26 @@
 	// ---- additions for the redesigned shell --------------------------------
 	import { glyphForMime } from '$lib/ui/icons.js';
 	import { page as pageStore } from '$app/stores';
+	import { afterNavigate, replaceState } from '$app/navigation';
 
 	// The sidebar's Upload button links to /home/files?upload=1, so arriving with
 	// that flag opens the upload overlay straight away.
-	$effect(() => {
-		if ($pageStore.url.searchParams.get('upload') === '1' && !showUploadModal) {
-			showUploadModal = true;
-			const url = new URL(window.location.href);
-			url.searchParams.delete('upload');
-			history.replaceState({}, '', url);
-		}
+	//
+	// afterNavigate rather than $effect, for two reasons. An effect runs during
+	// hydration, before the router exists, and replaceState throws there. And an
+	// effect that reads the flag re-runs when the overlay closes, sees the flag
+	// still set, and reopens it, which makes Cancel and the close button look
+	// broken. afterNavigate fires once per navigation, including the first, so it
+	// also still works when the sidebar link is clicked from this same page.
+	//
+	// The flag is cleared through SvelteKit's replaceState, not the History API's:
+	// the native one leaves $page.url untouched, so a later read would still see it.
+	afterNavigate(() => {
+		const url = new URL(window.location.href);
+		if (url.searchParams.get('upload') !== '1') return;
+		showUploadModal = true;
+		url.searchParams.delete('upload');
+		replaceState(url, {});
 	});
 
 	// Offline banner: the grid is useless without the API, and a silent empty

@@ -4,6 +4,7 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { formatMinor } from '$lib/pricing.js';
+	import { isSettled } from '$lib/billing.js';
 
 	let { data } = $props();
 
@@ -15,7 +16,11 @@
 		try {
 			const res = await FrontendClient.get('/api/v1/billing/history');
 			const orders = res.data?.success?.orders || res.data?.data?.orders || [];
-			order = orders.find((o) => o.reference_id === $page.params.id) || null;
+			const match = orders.find((o) => o.reference_id === $page.params.id) || null;
+			// An unsettled order has no receipt. Treat it as missing rather than
+			// rendering an invoice for money that was never taken, which would be
+			// reachable by typing the reference straight into the URL.
+			order = match && isSettled(match.status) ? match : null;
 			notFound = !order;
 		} catch (e) {
 			console.error('invoice load', e);

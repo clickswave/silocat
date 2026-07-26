@@ -1,5 +1,6 @@
 <script>
 	import Icon from '$lib/ui/Icon.svelte';
+	import { isSettled } from '$lib/billing.js';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
@@ -253,7 +254,7 @@
 
 	function statusTone(status) {
 		const s = (status || '').toLowerCase();
-		if (s === 'paid' || s === 'success' || s === 'completed') return 'ok';
+		if (isSettled(s)) return 'ok';
 		if (s === 'failed' || s === 'refunded') return 'danger';
 		return 'warn';
 	}
@@ -404,14 +405,20 @@
 						<span>
 							<span class="badge {statusTone(o.status)}">{o.status}</span>
 						</span>
-						<a
-							class="odl"
-							href={`/home/billing/invoice/${o.reference_id}`}
-							aria-label="View invoice"
-							title="View invoice"
-						>
-							<Icon name="download" size={15} />
-						</a>
+						<!-- No receipt exists until the payment settles, so an unpaid
+						     order gets a placeholder rather than a link to a blank invoice. -->
+						{#if isSettled(o.status)}
+							<a
+								class="odl"
+								href={`/home/billing/invoice/${o.reference_id}`}
+								aria-label="View invoice"
+								title="View invoice"
+							>
+								<Icon name="download" size={15} />
+							</a>
+						{:else}
+							<span class="odl-none" aria-hidden="true"></span>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -963,6 +970,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.odl-none {
+		width: 28px;
+		height: 28px;
+		justify-self: end;
 	}
 
 	.odl {
