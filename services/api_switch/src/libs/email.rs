@@ -192,6 +192,74 @@ fn render_otp_email(
         .replace("{{SECURITY_NOTE}}", &esc(security_note))
 }
 
+// ---------------------------------------------------------------------------
+// Outbound email throttle
+// ---------------------------------------------------------------------------
+//
+// Every transactional email costs sending quota, and the endpoints that trigger
+// them are mostly things an anonymous or barely-authenticated caller can hit in
+// a loop: resend verification, forgot password, open a ticket, change email.
+// Exhausting the quota is a denial of service against every other user's
+// signup and password reset, so the limit lives here rather than on each route:
+// a new caller inherits it instead of having to remember it.
+//
+// Four ceilings, cheapest check first:
+//   * cooldown  - one email of a given kind per recipient per COOLDOWN_SECS
+//   * hourly    - all kinds, per recipient
+//   * daily     - all kinds, per recipient
+//   * global    - the whole process, the backstop that protects the quota
+//     itself when an attacker rotates recipients
+//
+// In-process and per-instance, which is the right shape for a single-box
+// deployment and still a meaningful second layer behind the edge.
+
+static EMAIL_LIMITER: std::sync::OnceLock<crate::libs::ratelimit::RateLimiter> =
+    std::sync::OnceLock::new();
+
+fn email_limiter() -> &'static crate::libs::ratelimit::RateLimiter {
+    EMAIL_LIMITER.get_or_init(crate::libs::ratelimit::RateLimiter::new)
+}
+
+fn env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Reject a send that would exceed any ceiling. `kind` is the template key, so
+/// a password reset and a ticket reply have separate cooldowns but share the
+/// per-recipient hourly and daily budgets.
+fn email_allowed(to_email: &str, kind: &str) -> Result<(), String> {
+    let to = to_email.trim().to_lowercase();
+    let l = email_limiter();
+
+    let cooldown = env_u32("EMAIL_COOLDOWN_SECS", 60).max(1);
+    let per_hour = env_u32("EMAIL_MAX_PER_HOUR", 5).max(1);
+    let per_day = env_u32("EMAIL_MAX_PER_DAY", 20).max(1);
+    let global_day = env_u32("EMAIL_GLOBAL_MAX_PER_DAY", 2000).max(1);
+
+    if !l.check(
+        &format!("mail:cd:{}:{}", kind, to),
+        1,
+        std::time::Duration::from_secs(cooldown as u64),
+    ) {
+        return Err(format!(
+            "Please wait {}s before requesting another {} email.",
+            cooldown, kind
+        ));
+    }
+    if !l.check(&format!("mail:h:{}", to), per_hour, std::time::Duration::from_secs(3600)) {
+        return Err("Too many emails requested for this address. Try again later.".to_string());
+    }
+    if !l.check(&format!("mail:d:{}", to), per_day, std::time::Duration::from_secs(86_400)) {
+        return Err("Daily email limit reached for this address.".to_string());
+    }
+    // Rotating recipients defeats the per-address limits but not this one.
+    if !l.check("mail:global", global_day, std::time::Duration::from_secs(86_400)) {
+        eprintln!("[email] global daily cap hit; dropping mail to {}", to);
+        return Err("Email is temporarily unavailable. Please try again later.".to_string());
+    }
+    Ok(())
+}
+
 /// Send a transactional email through the SES v2 API using a stored template.
 ///
 /// `template_key` is suffixed onto the configured prefix, so "verify-email"
@@ -252,6 +320,8 @@ pub async fn send_verification_email(
     to_email: &str,
     otp: &str,
 ) -> anyhow::Result<(), String> {
+    email_allowed(to_email, "verify-email")?;
+
     if ses_enabled(smtp_config) {
         return send_ses_templated(
             smtp_config,
@@ -297,6 +367,10 @@ pub async fn send_support_email(
     subject: &str,
     message: &str,
 ) -> anyhow::Result<Response, String> {
+    // Fixed recipient (the support inbox), so throttle on the sender instead
+    // or one user could flood it and burn the quota for everyone.
+    email_allowed(user_email, "support")?;
+
     let body = format!(
         r##"<!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0c;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0a0a0c;">
@@ -354,6 +428,8 @@ pub async fn send_ticket_update_email(
     kind: &str,
     excerpt: &str,
 ) -> anyhow::Result<(), String> {
+    email_allowed(to_email, "ticket-update")?;
+
     if ses_enabled(smtp_config) {
         return send_ses_templated(
             smtp_config,
@@ -447,6 +523,8 @@ pub async fn send_password_reset_email(
     to_email: &str,
     otp: &str,
 ) -> anyhow::Result<(), String> {
+    email_allowed(to_email, "password-reset")?;
+
     if ses_enabled(smtp_config) {
         return send_ses_templated(
             smtp_config,
@@ -480,4 +558,38 @@ pub async fn send_password_reset_email(
     };
 
     send(smtp_config, &email_data).await.map(|_| ())
+}
+#[cfg(test)]
+mod email_throttle_tests {
+    use super::*;
+
+    #[test]
+    fn cooldown_blocks_the_second_send_of_a_kind() {
+        let to = "cooldown@example.com";
+        assert!(email_allowed(to, "verify-email").is_ok());
+        assert!(email_allowed(to, "verify-email").is_err(), "second inside cooldown must fail");
+    }
+
+    #[test]
+    fn a_different_kind_is_not_blocked_by_another_kinds_cooldown() {
+        let to = "kinds@example.com";
+        assert!(email_allowed(to, "verify-email").is_ok());
+        // a password reset is a different budget: a pending verification must
+        // not lock someone out of recovering their account
+        assert!(email_allowed(to, "password-reset").is_ok());
+    }
+
+    #[test]
+    fn hourly_cap_stops_a_recipient_cycling_kinds() {
+        let to = "flood@example.com";
+        let kinds = ["verify-email", "password-reset", "ticket-update", "support", "k5", "k6", "k7"];
+        let ok = kinds.iter().filter(|k| email_allowed(to, k).is_ok()).count();
+        assert!(ok <= 5, "hourly cap should stop this at 5, allowed {}", ok);
+    }
+
+    #[test]
+    fn recipients_are_normalised_so_case_cannot_reset_the_budget() {
+        assert!(email_allowed("Case@Example.com", "verify-email").is_ok());
+        assert!(email_allowed("case@example.com", "verify-email").is_err());
+    }
 }
