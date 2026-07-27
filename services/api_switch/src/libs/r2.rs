@@ -129,18 +129,21 @@ impl R2 {
         key: &str
     ) -> anyhow::Result<String> {
 
-        // Shorter download-URL lifetime bounds the window in which an
-        // already-issued URL keeps working after a share is revoked / a "once"
-        // link is spent. 2h is ample for chunked downloads (clients can request
-        // fresh URLs). Avatars ("dp") can live longer.
-        let (client, bucket, time) = match storage {
-            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str(), 2),
-            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str(), 2),
-            "dp" => (&self.dp_client, self.dp_bucket.as_str(), 24),
+        // The download-URL lifetime is the real revocation lag: a "once" link
+        // stops authorising further downloads immediately, but any URL already
+        // handed out keeps working until it expires, and can be forwarded to
+        // anyone. 2h made "once" and "revoked" advisory for two hours. 10
+        // minutes is still ample for a chunked download that starts right away,
+        // and clients can request fresh URLs. Avatars ("dp") are not secret and
+        // are cached aggressively, so they keep a long expiry.
+        let (client, bucket, expiry) = match storage {
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str(), Duration::from_secs(600)),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str(), Duration::from_secs(600)),
+            "dp" => (&self.dp_client, self.dp_bucket.as_str(), Duration::from_secs(60 * 60 * 24)),
             _ => return Err(anyhow::anyhow!("Invalid storage option")),
         };
 
-        let link_expiry = Duration::from_secs(60 * 60 * time);
+        let link_expiry = expiry;
 
         let presigned_req = client
             .get_object()

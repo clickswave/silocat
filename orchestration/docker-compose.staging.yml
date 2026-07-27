@@ -153,7 +153,12 @@ services:
       RUST_LOG: info
     volumes:
       - ../services/health_monitor:/root/codebase
-      - /:/host:ro
+      # Disk stats only. This used to be `/:/host:ro`, which exposed every
+      # host secret (env files, SSH keys, other containers' mounts) to any
+      # code execution in this container. /usr is on the same filesystem as
+      # / on the Ubuntu cloud image, so statvfs returns the same numbers
+      # while carrying nothing sensitive.
+      - /usr:/host:ro
     working_dir: /root/codebase
     networks:
       - clickswave_network
@@ -172,6 +177,13 @@ services:
 
     ports:
       - "80:80"
+      - "443:443"
+
+    # TLS material + the Cloudflare IP allow-list are placed on the box at
+    # deploy time (secrets / generated), not baked into the image.
+    volumes:
+      - ../services/nginx/tls:/etc/nginx/tls:ro
+      - ../services/nginx/cloudflare-ips.conf:/etc/nginx/cloudflare-ips.conf:ro
 
     depends_on:
       - sc_api_switch

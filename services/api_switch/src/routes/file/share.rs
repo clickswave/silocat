@@ -430,6 +430,17 @@ pub async fn public_get_info(
                 }
             }
 
+            // A password-protected link discloses nothing before the password is
+            // supplied. Filenames and sizes are frequently the sensitive part of
+            // a share, so reporting `password_required` alongside the metadata
+            // (as this used to) defeated the point of setting a password.
+            if r.share_password_hash.is_some() {
+                return respond(200, "Password required", vec![], json!({
+                    "type": "file",
+                    "password_required": true
+                }));
+            }
+
             return respond(200, "File found", vec![], json!({
                 "type": "file",
                 "id": r.id,
@@ -437,7 +448,7 @@ pub async fn public_get_info(
                 "size": r.size,
                 "mime": r.mime,
                 "encrypted": r.encrypted, // Expose encrypted status
-                "password_required": r.share_password_hash.is_some(),
+                "password_required": false,
                 "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },
@@ -468,6 +479,16 @@ pub async fn public_get_info(
                 }
             }
 
+            // As above: a protected folder listing is withheld entirely until the
+            // password is verified. This was the more serious of the two leaks,
+            // since it exposed every filename in the folder.
+            if r.share_password_hash.is_some() {
+                return respond(200, "Password required", vec![], json!({
+                    "type": "folder",
+                    "password_required": true
+                }));
+            }
+
             // Fetch files in folder to display
             let files = sqlx::query!(
                 "SELECT id, name, size, mime, encrypted FROM files WHERE folder_id = $1 AND deleted = false",
@@ -492,7 +513,7 @@ pub async fn public_get_info(
                 "id": r.id,
                 "name": r.name,
                 "files": files_data,
-                "password_required": r.share_password_hash.is_some(),
+                "password_required": false,
                 "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },

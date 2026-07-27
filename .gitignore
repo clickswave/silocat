@@ -11,3 +11,10 @@ services/web_server/node_modules/.vite-local
 
 # Design handoff bundle: a working artefact, not product source.
 silocat-redesign/
+
+# Origin TLS material (Cloudflare Origin CA cert + private key, origin-pull CA).
+# NEVER commit: origin.key is the private key for the zone's origin certificate.
+# Placed on the box at deploy time; see services/nginx/README.md.
+services/nginx/tls/
+*.key
+*.pem

@@ -35,7 +35,7 @@
 	},
 	"dependencies": {
 		"@tanstack/svelte-query": "^6.0.14",
-		"axios": "^1.13.2",
+		"axios": "^1.18.1",
 		"jsonwebtoken": "^9.0.3",
 		"jszip": "^3.10.1",
 		"libsodium-wrappers-sumo": "^0.8.0",
