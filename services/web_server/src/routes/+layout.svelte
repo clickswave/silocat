@@ -33,6 +33,9 @@
 		// Optional analytics: only injected when a GA id is configured
 		// (PUBLIC_GA_ID) and only on the configured production host, so
 		// self-hosters and dev/staging traffic stay untracked by default.
+		// Build-time gate: false under `vite dev`, so a dev server cannot report
+		// even if it is reached on a matching hostname.
+		if (!import.meta.env.PROD) return;
 		const gaId = env.PUBLIC_GA_ID;
 		if (gaId && location.hostname === (env.PUBLIC_GA_HOSTNAME || 'silo.cat')) {
 			const gaScript = document.createElement('script');
