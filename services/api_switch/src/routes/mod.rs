@@ -12,7 +12,7 @@ use axum::{Json, Router};
 use axum::http::{StatusCode};
 use axum::middleware::{from_fn};
 use axum::response::{IntoResponse};
-use axum::routing::post;
+use axum::routing::{get, post};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value};
 use crate::middlewares;
@@ -70,8 +70,8 @@ pub async fn all(state: crate::AppState) -> Router<crate::AppState> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Everything behind the shared X-Authority-Sign gate (only our own frontends
-    // can reach it).
+    // Everything behind the per-caller auth gate (only our own backends, holding
+    // a valid caller secret, can reach it).
     let signed = Router::new()
         .route("/validate-shadow-user", post(validate_shadow_user::handle))
         .route("/report", post(report::handle))
@@ -89,7 +89,24 @@ pub async fn all(state: crate::AppState) -> Router<crate::AppState> {
     let webhooks = Router::new()
         .route("/webhooks/razorpay", post(billing::razorpay_webhook::handle));
 
+    // Unauthenticated liveness at a stable, cross-product path (same route and
+    // shape as crossfyre's /health), so the deploy smoke test and any uptime
+    // check hit an identical endpoint on both products.
+    let health = Router::new().route("/health", get(health_check));
+
     // A panic in any handler becomes a 500 for that one request instead of
     // dropping the connection: one bad input can't take the worker down.
-    signed.merge(webhooks).layer(cors).layer(CatchPanicLayer::new())
+    signed.merge(webhooks).merge(health).layer(cors).layer(CatchPanicLayer::new())
+}
+
+/// Unauthenticated liveness. Answering at all means api_switch is serving, which
+/// is exactly what the deploy smoke test needs before flipping DNS. Kept simple
+/// (no DB dependency) so a slow database never makes a live box look down.
+async fn health_check() -> impl IntoResponse {
+    respond(
+        200,
+        "All systems operational",
+        vec![],
+        serde_json::json!({ "ok": true, "services": { "api": "up" } }),
+    )
 }

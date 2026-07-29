@@ -22,10 +22,11 @@ pub mod ip_bans;
 pub mod support_tickets;
 
 pub fn router() -> Router<crate::AppState> {
-    // Every admin route requires `X-Admin-Secret`, checked against ADMIN_COMMUNICATION_SECRET.
-    // Fails closed: with the secret unset the whole tree is unreachable, so the
-    // shared INFRA_COMMUNICATION_SECRET is never sufficient to reach admin. There is no
-    // login route because there is no admin account, only the secret.
+    // Every admin route requires the admin caller's credential (X-Admin, checked
+    // against ADMIN_COMMUNICATION_SECRET). Fails closed: with the secret unset the
+    // whole tree is unreachable, and the web_server caller secret is never
+    // sufficient to reach admin. There is no login route because there is no admin
+    // account, only the secret.
     Router::new()
         .nest("/invites", invites::router())
         .nest("/promos", promos::router())

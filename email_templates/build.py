@@ -10,7 +10,12 @@ Run after editing: python3 projects/silocat/email_templates/build.py
 import base64, pathlib, subprocess, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-OUT = ROOT / "email_templates" / "transactional"
+# Emails are filed by category, because each category sends under its own SES
+# MAIL FROM domain: "transactional" (mail the user's own action triggered) under
+# mail.silo.cat, "alerts" (product alerts the system emits) under notify.silo.cat.
+# A page picks its folder with category="alerts"; transactional is the default.
+OUT_ROOT = ROOT / "email_templates"
+DEFAULT_CATEGORY = "transactional"
 LOGO_SRC = ROOT / "services" / "web_server" / "static" / "silocat-logo.png"
 
 # Ink & Signal, straight from global.scss. Flat, hairline, one accent.
@@ -232,13 +237,14 @@ PAGES = {
 
 
 def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
     logo = logo_b64()
     for key, spec in PAGES.items():
+        out_dir = OUT_ROOT / spec.get("category", DEFAULT_CATEGORY)
+        out_dir.mkdir(parents=True, exist_ok=True)
         html = shell(spec["title"], spec["preheader"], spec["body"](), logo)
-        p = OUT / f"{key}.html"
+        p = out_dir / f"{key}.html"
         p.write_text(html)
-        print(f"  {p.name}  ({len(html):,} bytes)")
+        print(f"  {p.relative_to(OUT_ROOT)}  ({len(html):,} bytes)")
 
 
 if __name__ == "__main__":

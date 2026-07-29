@@ -55,7 +55,7 @@ pub fn smtp_config() -> anyhow::Result<SmtpConfig> {
                 .ok()
                 .filter(|v| !v.is_empty())
                 .or_else(|| env::var("SES_REGION").ok().filter(|v| !v.is_empty()))
-                .unwrap_or_else(|| "eu-central-1".to_string()),
+                .unwrap_or_else(|| "us-east-1".to_string()),
             template_prefix: env::var("SES_TEMPLATE_PREFIX")
                 .ok()
                 .filter(|v| !v.is_empty())

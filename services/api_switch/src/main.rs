@@ -4,8 +4,6 @@ pub mod middlewares;
 pub mod models;
 pub mod watchcat;
 
-use anyhow::Error;
-
 /// Fail-fast config gate. If any required environment variable is *unset*, print
 /// the full list and exit(1) before doing any work: never fall back to a silent
 /// default for required config. Checks presence (unset), not emptiness, so a
@@ -29,7 +27,6 @@ fn require_env(keys: &[&str]) {
 #[derive(Clone)]
 pub struct AppState {
     pub pg_pool: sqlx::Pool<sqlx::Postgres>,
-    pub authority_sign: String,
     pub smtp_config: libs::configs::SmtpConfig,
     pub r2: libs::r2::R2,
     pub google_oauth: libs::configs::GoogleOauthConfig,
@@ -59,7 +56,8 @@ async fn main() -> anyhow::Result<()> {
     ];
     if !watchcat_mode {
         required.extend([
-            "INFRA_COMMUNICATION_SECRET", "OAUTH_ID_GOOGLE", "OAUTH_SECRET_GOOGLE",
+            "WEB_SERVER_COMMUNICATION_SECRET", "ADMIN_COMMUNICATION_SECRET",
+            "OAUTH_ID_GOOGLE", "OAUTH_SECRET_GOOGLE",
             "SMTP_ADDRESS", "SMTP_USERNAME", "SMTP_PASSWORD",
             "RAZORPAY_ID", "RAZORPAY_SECRET",
         ]);
@@ -95,14 +93,6 @@ async fn main() -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    // source authority sign from env
-    let authority_sign = match std::env::var("INFRA_COMMUNICATION_SECRET"){
-        Ok(var) => var,
-        Err(_) => {
-            return Err(Error::msg("INFRA_COMMUNICATION_SECRET is missing from the environment"))
-        }
-    };
-
     let smtp_config = libs::configs::smtp_config()?;
     let google_oauth = libs::configs::google_oauth_config()?;
 
@@ -111,7 +101,6 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         pg_pool,
-        authority_sign,
         smtp_config,
         r2,
         google_oauth,

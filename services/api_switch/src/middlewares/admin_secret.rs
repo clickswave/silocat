@@ -1,8 +1,10 @@
 //! Admin gate.
 //!
-//! The admin surface is protected by a single high-entropy secret supplied in
-//! a header (name from `ADMIN_COMMUNICATION_SECRET_HEADER`, default `X-Admin-Secret`)
-//! and compared against `ADMIN_COMMUNICATION_SECRET` from the environment.
+//! The admin surface is protected by the admin-capable caller's credential: a
+//! high-entropy secret supplied in a header (name from `ADMIN_COMMUNICATION_HEADER`,
+//! default `X-Admin`) and compared against `ADMIN_COMMUNICATION_SECRET`. It is a
+//! distinct caller identity in the shared per-caller registry (see `super`), so
+//! this file just delegates the match.
 //!
 //! This deliberately replaces the previous `admin_users` table + password login
 //! + HMAC session tokens. That design required a seeded credential to exist in a
@@ -13,10 +15,11 @@
 //!
 //! Two properties are kept from the old design and matter more than sessions:
 //!
-//! 1. It is SEPARATE from `INFRA_COMMUNICATION_SECRET` (the shared frontend<->backend gate),
-//!    so knowing the shared sign is never sufficient to reach admin.
-//! 2. It FAILS CLOSED. With `ADMIN_COMMUNICATION_SECRET` unset or empty the entire admin tree
-//!    is unreachable, rather than falling back to a derivable or default value.
+//! 1. It is a SEPARATE caller from `WEB_SERVER_COMMUNICATION_SECRET` (the
+//!    frontend<->backend gate), so the web_server secret is never sufficient to
+//!    reach admin.
+//! 2. It FAILS CLOSED. With `ADMIN_COMMUNICATION_SECRET` unset or empty the admin
+//!    caller is absent from the registry and the entire admin tree is unreachable.
 //!
 //! Tradeoff, stated plainly: a static secret carries no per-admin identity, no
 //! expiry, and no way to revoke one operator without rotating for everyone. With
@@ -31,51 +34,19 @@ use axum::{
 };
 use serde_json::json;
 
-/// The configured admin secret, or `None` when the surface is disabled.
-fn admin_secret() -> Option<String> {
-    std::env::var("ADMIN_COMMUNICATION_SECRET")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Constant-time comparison so a timing side channel cannot leak the secret one
-/// byte at a time.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-/// Middleware: require a valid `X-Admin-Secret` on every admin route.
+/// Middleware: require a valid ADMIN-capable caller credential on every admin
+/// route. Delegates to the shared per-caller registry (constant-time compare,
+/// fail-closed when no admin caller is configured).
 pub async fn validate_admin_secret(request: Request, next: Next) -> Response {
-    let unauthorized = respond(
-        401,
-        "Unauthorized",
-        vec!["Admin authentication required".to_string()],
-        json!({}),
-    );
-
-    // No secret configured => the admin surface does not exist.
-    let expected = match admin_secret() {
-        Some(s) => s,
-        None => return unauthorized.into_response(),
-    };
-
-    let provided = request
-        .headers()
-        .get(super::admin_header().as_str())
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !ct_eq(provided.as_bytes(), expected.as_bytes()) {
-        return unauthorized.into_response();
+    if super::admin_caller_authenticated(&request) {
+        next.run(request).await
+    } else {
+        respond(
+            401,
+            "Unauthorized",
+            vec!["Admin authentication required".to_string()],
+            json!({}),
+        )
+        .into_response()
     }
-
-    next.run(request).await
 }
