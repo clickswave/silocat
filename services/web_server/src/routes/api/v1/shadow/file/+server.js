@@ -10,7 +10,7 @@ async function validateRequest(event) {
 	// 1. API key enforcement
 	const apiKey = request.headers.get('X-Api-Key');
 	const ipHeaders = clientIpHeaders(event);
-	const clientIp = ipHeaders['CF-Connecting-IP'] || '127.0.0.1';
+	const clientIp = ipHeaders['X-Client-IP'] || '127.0.0.1';
 	const userAgent = headers.get('user-agent');
 	// Cloudflare geo headers (best case)
 	const geo = {

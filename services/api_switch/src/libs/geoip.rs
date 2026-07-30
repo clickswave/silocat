@@ -33,9 +33,29 @@ pub fn load() -> Option<GeoReader> {
 }
 
 /// Resolve the real client IP, preferring proxy headers and falling back to the
-/// socket peer. CF-Connecting-IP (Cloudflare) -> X-Forwarded-For (first hop) ->
+/// socket peer. X-Client-IP -> CF-Connecting-IP -> X-Forwarded-For (first hop) ->
 /// X-Real-IP -> ConnectInfo peer.
+///
+/// X-Client-IP comes FIRST, and it is the only one that carries the visitor's
+/// address in this topology. api.<zone> is proxied, so a call from the
+/// Pages-hosted web_server to api_switch crosses Cloudflare a second time, and
+/// Cloudflare rewrites CF-Connecting-IP on that hop to the calling function's
+/// egress address. Trusting CF-Connecting-IP therefore recorded a Cloudflare IP
+/// for every request: the admin panel showed 2a06:98c0::/29 for every anonymous
+/// session, per-IP rate limits collapsed into one shared bucket, and an IP ban
+/// would have banned Cloudflare rather than a user.
+///
+/// Trusting a caller-supplied header is safe here only because every route is
+/// behind `authority_sign_check`, so nothing without a caller secret can set it.
+/// CF-Connecting-IP is kept below it as a fallback for any path that reaches the
+/// origin directly from the edge.
 pub fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> String {
+    if let Some(xc) = headers.get("x-client-ip").and_then(|v| v.to_str().ok()) {
+        let ip = xc.trim();
+        if !ip.is_empty() {
+            return ip.to_string();
+        }
+    }
     if let Some(cf) = headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()) {
         let ip = cf.trim();
         if !ip.is_empty() {
