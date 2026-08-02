@@ -469,9 +469,12 @@ img, svg, video { display: block; max-width: 100%; }
   margin-top: 2px;
 }
 
-/* One status glyph, drawn from the same palette as the rest of the UI. */
+/* One status glyph, drawn from the same palette as the rest of the UI. Sonner
+   ships the icon with an asymmetric margin (margin-left: -3px, margin-right: 4px)
+   which made it sit off-centre - padding on the left, none on the right. Zero
+   both so the only spacing is the toast's own symmetric padding + gap. */
 [data-sonner-toast] [data-icon] {
-  margin-top: 1px;
+  margin: 1px 0 0 0;
   width: 16px;
   height: 16px;
 }

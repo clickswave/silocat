@@ -139,10 +139,10 @@
 		files = files.filter((_, i) => i !== index);
 	}
 
-	// Password protection defaults ON: the safe choice should be the default
-	// one, not an extra step. A password is generated up front so the field is
-	// never empty when the switch is already on.
-	let encryptionEnabled = $state(true);
+	// Password protection defaults OFF: most uploads are quick, throwaway shares,
+	// so the common path stays a single step. Turning the switch on generates a
+	// password up front (see onEncryptionToggle) so the field is never empty.
+	let encryptionEnabled = $state(false);
 	let password = $state('');
 	let showPassword = $state(false);
 
@@ -1142,6 +1142,7 @@
 
 	.pw-input {
 		flex: 1;
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
@@ -1575,6 +1576,18 @@
 			flex-direction: column;
 			align-items: flex-start;
 			gap: var(--space-2);
+		}
+
+		/* Keep the password row inside the card on narrow screens: the input takes
+		   the full width and Generate drops onto its own full-width line instead of
+		   being pushed past the card edge. */
+		.pw-field {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.generate {
+			width: 100%;
 		}
 	}
 </style>
