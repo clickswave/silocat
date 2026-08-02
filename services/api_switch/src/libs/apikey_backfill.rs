@@ -114,12 +114,31 @@ async fn migrate_anonymous(pool: &sqlx::PgPool) -> Result<usize, sqlx::Error> {
                 .bind(&bi).bind(raw).execute(&mut *tx).await?;
             sqlx::query("UPDATE folders SET owner_api_key = $1 WHERE owner_api_key = $2")
                 .bind(&bi).bind(raw).execute(&mut *tx).await?;
-            // Anonymous keys are browser-generated and never displayed by the
-            // server, so there is nothing to encrypt: index only.
-            sqlx::query(
-                "UPDATE anonymous_users SET api_key = $1, api_key_migrated = TRUE WHERE api_key = $2",
+            // api_key IS the primary key here. On a live DB the server can mint a
+            // fresh raw row for a returning anonymous user whose twin was already
+            // migrated to `bi` on an earlier pass, so `UPDATE ... SET api_key = bi`
+            // would collide on the PK and abort the whole migration. blind_index is
+            // injective, so an existing `bi` row means the SAME key: this raw row is
+            // a duplicate of it. Its objects are now re-pointed to `bi`, so drop the
+            // duplicate rather than collide. Otherwise migrate it in place (anonymous
+            // keys are browser-generated and never displayed, so index only).
+            let bi_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM anonymous_users WHERE api_key = $1)",
             )
-            .bind(&bi).bind(raw).execute(&mut *tx).await?;
+            .bind(&bi)
+            .fetch_one(&mut *tx)
+            .await?;
+            if bi_exists {
+                sqlx::query("DELETE FROM anonymous_users WHERE api_key = $1")
+                    .bind(raw)
+                    .execute(&mut *tx)
+                    .await?;
+            } else {
+                sqlx::query(
+                    "UPDATE anonymous_users SET api_key = $1, api_key_migrated = TRUE WHERE api_key = $2",
+                )
+                .bind(&bi).bind(raw).execute(&mut *tx).await?;
+            }
             tx.commit().await?;
             done += 1;
         }
