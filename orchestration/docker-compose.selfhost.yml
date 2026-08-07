@@ -37,20 +37,37 @@ services:
     volumes:
       - silocat_minio:/data
     ports:
+      # 9000 is the S3 API and MUST be published. Clients encrypt and PUT chunks
+      # straight at storage using presigned URLs, so the browser needs to reach
+      # MinIO directly; without this every upload fails. See CF_R2_*_API_URL in
+      # env.selfhost.example for the address that has to go in those URLs.
+      - '9000:9000'
       - '9001:9001' # admin console (optional)
     networks:
-      - silocat_network
+      silocat_network:
+        # MinIO validates the Host header and rejects underscores, which are not
+        # legal in DNS hostnames (RFC 1123). Reaching it as `sc_minio` returns
+        # 400 InvalidRequest "invalid hostname" on every call, so it is addressed
+        # by this underscore-free alias everywhere instead of by service name.
+        aliases:
+          - minio
 
   # One-shot: create the three buckets Silocat uses.
   sc_minio_init:
     image: minio/mc:latest
     depends_on:
       - sc_minio
+    # `mc mb` is idempotent with -p, so the retry loop is safe. It replaces a
+    # fixed `sleep 3`, which raced MinIO's startup on a slow or loaded host, and
+    # the trailing `|| true` that made every failure exit 0 and look like success.
     entrypoint: >
       sh -c "
-      sleep 3 &&
-      mc alias set local http://sc_minio:9000 $${MINIO_ROOT_USER:-silocat} $${MINIO_ROOT_PASSWORD} &&
-      mc mb -p local/silocat-shadow local/silocat-sanctum local/silocat-dp || true
+      for i in $$(seq 1 30); do
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-silocat} $${MINIO_ROOT_PASSWORD} && break;
+        echo 'waiting for minio...'; sleep 2;
+      done &&
+      mc mb -p local/silocat-shadow local/silocat-sanctum local/silocat-dp &&
+      mc ls local
       "
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-silocat}
@@ -82,23 +99,29 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       DATABASE_URL: postgres://silocat:${POSTGRES_PASSWORD}@sc_postgres:5432/silocat
       WEB_SERVER_COMMUNICATION_SECRET: ${WEB_SERVER_COMMUNICATION_SECRET:?set WEB_SERVER_COMMUNICATION_SECRET in .env}
-      ADMIN_TOKEN_SECRET: ${ADMIN_TOKEN_SECRET:?set ADMIN_TOKEN_SECRET in .env}
+      ADMIN_COMMUNICATION_SECRET: ${ADMIN_COMMUNICATION_SECRET:-}
+      ADMIN_COMMUNICATION_HEADER: ${ADMIN_COMMUNICATION_HEADER:-X-Admin}
+      WEB_SERVER_COMMUNICATION_HEADER: ${WEB_SERVER_COMMUNICATION_HEADER:-X-Web-Server}
       SILOCAT_INVITE_ONLY: ${SILOCAT_INVITE_ONLY:-0}
 
       # Storage: defaults point at the bundled MinIO.
       CF_R2_REGION: ${CF_R2_REGION:-us-east-1}
       CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET:-silocat-shadow}
-      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL:-http://sc_minio:9000}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL:-http://minio:9000}
       CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
       CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
       CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET:-silocat-sanctum}
-      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL:-http://sc_minio:9000}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL:-http://minio:9000}
       CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
       CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
       CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET:-silocat-dp}
-      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL:-http://sc_minio:9000}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL:-http://minio:9000}
       CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
       CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
+
+      # Storage per new account, in GiB. Uncapped by default here: on your own
+      # hardware the disk is the limit, not a plan. Set a number to impose one.
+      SIGNUP_STORAGE_GB: ${SIGNUP_STORAGE_GB:-unlimited}
 
       # Optional integrations: leave blank to disable.
       SMTP_ADDRESS: ${SMTP_ADDRESS:-}
@@ -130,35 +153,37 @@ services:
     environment:
       WATCHCAT_MODE: 1
       API_KEY_ENC_KEY: ${API_KEY_ENC_KEY}
-      EMAIL_USE_SES_TEMPLATES: ${EMAIL_USE_SES_TEMPLATES}
+      # Same defaults as sc_api_switch above: without them an unset optional var
+      # makes compose warn on every start of a perfectly healthy stack.
+      EMAIL_USE_SES_TEMPLATES: ${EMAIL_USE_SES_TEMPLATES:-0}
       EMAIL_COOLDOWN_SECS: ${EMAIL_COOLDOWN_SECS:-60}
       EMAIL_MAX_PER_HOUR: ${EMAIL_MAX_PER_HOUR:-5}
       EMAIL_MAX_PER_DAY: ${EMAIL_MAX_PER_DAY:-20}
       EMAIL_GLOBAL_MAX_PER_DAY: ${EMAIL_GLOBAL_MAX_PER_DAY:-2000}
-      AWS_REGION: ${AWS_REGION}
-      SES_TEMPLATE_PREFIX: ${SES_TEMPLATE_PREFIX}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SES_TEMPLATE_PREFIX: ${SES_TEMPLATE_PREFIX:-silocat-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       WATCHCAT_SHADOW_TTL_DAYS: ${WATCHCAT_SHADOW_TTL_DAYS:-7}
       WATCHCAT_TRASH_TTL_DAYS: ${WATCHCAT_TRASH_TTL_DAYS:-30}
       WATCHCAT_ORDER_TTL_DAYS: ${WATCHCAT_ORDER_TTL_DAYS:-7}
       APP_ENV: production
       DATABASE_URL: postgres://silocat:${POSTGRES_PASSWORD}@sc_postgres:5432/silocat
-      WEB_SERVER_COMMUNICATION_SECRET: ${WEB_SERVER_COMMUNICATION_SECRET}
-      WEB_SERVER_COMMUNICATION_HEADER: ${WEB_SERVER_COMMUNICATION_HEADER}
-      ADMIN_COMMUNICATION_SECRET: ${ADMIN_COMMUNICATION_SECRET}
-      ADMIN_COMMUNICATION_HEADER: ${ADMIN_COMMUNICATION_HEADER}
+      WEB_SERVER_COMMUNICATION_SECRET: ${WEB_SERVER_COMMUNICATION_SECRET:?set WEB_SERVER_COMMUNICATION_SECRET in .env}
+      WEB_SERVER_COMMUNICATION_HEADER: ${WEB_SERVER_COMMUNICATION_HEADER:-X-Web-Server}
+      ADMIN_COMMUNICATION_SECRET: ${ADMIN_COMMUNICATION_SECRET:-}
+      ADMIN_COMMUNICATION_HEADER: ${ADMIN_COMMUNICATION_HEADER:-X-Admin}
       CF_R2_REGION: ${CF_R2_REGION:-us-east-1}
       CF_R2_SHADOW_BUCKET: ${CF_R2_SHADOW_BUCKET:-silocat-shadow}
-      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL:-http://sc_minio:9000}
+      CF_R2_SHADOW_API_URL: ${CF_R2_SHADOW_API_URL:-http://minio:9000}
       CF_R2_SHADOW_ACCESS_ID: ${CF_R2_SHADOW_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
       CF_R2_SHADOW_ACCESS_SECRET: ${CF_R2_SHADOW_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
       CF_R2_SANCTUM_BUCKET: ${CF_R2_SANCTUM_BUCKET:-silocat-sanctum}
-      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL:-http://sc_minio:9000}
+      CF_R2_SANCTUM_API_URL: ${CF_R2_SANCTUM_API_URL:-http://minio:9000}
       CF_R2_SANCTUM_ACCESS_ID: ${CF_R2_SANCTUM_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
       CF_R2_SANCTUM_ACCESS_SECRET: ${CF_R2_SANCTUM_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
       CF_R2_DP_BUCKET: ${CF_R2_DP_BUCKET:-silocat-dp}
-      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL:-http://sc_minio:9000}
+      CF_R2_DP_API_URL: ${CF_R2_DP_API_URL:-http://minio:9000}
       CF_R2_DP_ACCESS_ID: ${CF_R2_DP_ACCESS_ID:-${MINIO_ROOT_USER:-silocat}}
       CF_R2_DP_ACCESS_SECRET: ${CF_R2_DP_ACCESS_SECRET:-${MINIO_ROOT_PASSWORD}}
     networks:
@@ -178,8 +203,8 @@ services:
     environment:
       INTERNAL_API_URL: http://sc_api_switch:31337
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
-      WEB_SERVER_COMMUNICATION_SECRET: ${WEB_SERVER_COMMUNICATION_SECRET}
-      WEB_SERVER_COMMUNICATION_HEADER: ${WEB_SERVER_COMMUNICATION_HEADER}
+      WEB_SERVER_COMMUNICATION_SECRET: ${WEB_SERVER_COMMUNICATION_SECRET:?set WEB_SERVER_COMMUNICATION_SECRET in .env}
+      WEB_SERVER_COMMUNICATION_HEADER: ${WEB_SERVER_COMMUNICATION_HEADER:-X-Web-Server}
       PUBLIC_TURNSTILE_KEY: ${PUBLIC_TURNSTILE_KEY:-1x00000000000000000000AA}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-1x0000000000000000000000000000000AA}
       OAUTH_CALLBACK_BASE_URI: ${OAUTH_CALLBACK_BASE_URI:-http://localhost:12001}

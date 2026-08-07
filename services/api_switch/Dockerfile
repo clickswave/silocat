@@ -20,3 +20,17 @@ RUN rustup toolchain install nightly
 RUN rustup default nightly
 RUN cargo install cargo-watch
 RUN cargo install sqlx-cli
+
+# Bring the service source into the image.
+#
+# Required by the self-host compose, which mounts no volumes: without this the
+# container starts on an empty /root/codebase, `cargo sqlx migrate run` fails
+# with "error canonicalizing path migrations", and the service crash-loops. The
+# dev compose bind-mounts over this same path, so day-to-day development is
+# unaffected by it.
+COPY . .
+
+# Compile at image build time rather than on every container start. sqlx builds
+# against the checked-in .sqlx query cache, so no database is needed here.
+ENV SQLX_OFFLINE=true
+RUN cargo build --release

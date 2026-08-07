@@ -1,0 +1,16 @@
+# Keep the build context small and let the image install its own dependencies.
+# Copying a host `node_modules/` in is both slow and wrong: native modules built
+# against the host platform can fail inside the container.
+node_modules/
+.svelte-kit/
+build/
+.git/
+
+# Never bake a developer's local secrets into an image. .gitignore expects
+# .env / .env.* to exist here during development.
+.env
+.env.*
+!.env.example
+.gitignore
+Dockerfile
+.dockerignore

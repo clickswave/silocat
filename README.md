@@ -91,7 +91,7 @@ presigned URLs, and serves the public share pages.
 
 **api_switch** is a Rust/Axum backend on `0.0.0.0:31337`. It owns all data and
 storage logic and runs its own migrations on startup. Every route requires a
-shared secret in a header (`INFRA_COMMUNICATION_SECRET`), so only our own
+shared secret in a header (`WEB_SERVER_COMMUNICATION_SECRET`), so only our own
 backends can reach it. The `/admin` tree sits behind a second, independent
 secret and is served on its own hostname; the public zone returns 404 for it.
 Both gates fail closed, so an unset secret means reachable by nobody.

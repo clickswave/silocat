@@ -1,0 +1,12 @@
+# Keep the build context small and the image reproducible. Without this, a
+# developer's local `target/` (often several GB) is copied into the build and
+# host-built artifacts can shadow the ones the image compiles.
+target/
+.git/
+
+# Never bake a developer's local secrets into an image.
+.env
+.env.*
+.gitignore
+Dockerfile
+.dockerignore
