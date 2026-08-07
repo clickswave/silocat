@@ -157,7 +157,8 @@ pub async fn handle(
         },
         Ok(None) => {
             // First Google sign-in: create the account. Google already verified the
-            // email; there is no password (login is via Google). Default 50GB storage.
+            // email; there is no password (login is via Google). Storage comes from
+            // libs::quota so it matches the password signup path exactly.
             let base: String = google_user
                 .name
                 .to_lowercase()
@@ -193,7 +194,7 @@ pub async fn handle(
             .bind(&google_user.email)
             .bind(&api_key)
             .bind(&minted.encrypted)
-            .bind(53687091200_i64)
+            .bind(libs::quota::signup_storage_bytes())
             .bind(&google_user.picture)
             .bind(&geo_country)
             .fetch_one(&axum_state.pg_pool)

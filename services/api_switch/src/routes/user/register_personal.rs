@@ -140,15 +140,16 @@ pub async fn handle(
     let user_id = rng::uuid();
 
 
-    // Determine initial storage. Free tier is 10 GB (existing users keep whatever
-    // their row already holds: this default only applies to new signups).
-    let mut initial_storage_bytes: i64 = 10 * 1024 * 1024 * 1024; // 10 GB default
+    // Determine initial storage. The default is owned by libs::quota so that this
+    // path and the Google signup path cannot drift apart again (existing users keep
+    // whatever their row already holds: this only applies to new signups).
+    let mut initial_storage_bytes: i64 = libs::quota::signup_storage_bytes();
 
     if let Some(ref invite) = valid_invite_code {
         if invite.benefit.ends_with("GB") {
             let gb_str = invite.benefit.trim_end_matches("GB");
             if let Ok(gb) = gb_str.parse::<i64>() {
-                initial_storage_bytes = gb * 1024 * 1024 * 1024;
+                initial_storage_bytes = gb.saturating_mul(libs::quota::GIB);
             }
         }
     }

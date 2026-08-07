@@ -13,6 +13,57 @@
 
 use sqlx::{Pool, Postgres};
 
+/// Bytes in a gibibyte. Every storage grant in the codebase is expressed as a
+/// multiple of this rather than a literal byte count, because the two signup
+/// paths once carried the same quantity as two different magic numbers.
+pub const GIB: i64 = 1024 * 1024 * 1024;
+
+/// What a new account gets when `SIGNUP_STORAGE_GB` is unset. This is the hosted
+/// silo.cat free tier, so changing it changes the product.
+const DEFAULT_SIGNUP_STORAGE_GIB: i64 = 10;
+
+/// Sentinel for "no practical cap", used by self-hosted deployments where the
+/// only real limit is the disk.
+///
+/// Deliberately not `i64::MAX`: `for_user` adds subscription space to this value
+/// inside Postgres, and BIGINT addition at the type ceiling errors rather than
+/// saturating. 1 PiB is unreachable on real hardware and leaves ~13 bits of
+/// headroom for the addition.
+const UNLIMITED_STORAGE_BYTES: i64 = 1024 * 1024 * GIB;
+
+/// Storage granted to a newly created account, in bytes.
+///
+/// **Both signup paths must call this.** They previously hardcoded the same
+/// concept as two different numbers, 10 GiB in `register_personal` and 50 GiB in
+/// `google_auth`, so which plan you landed on depended on which button you
+/// clicked. Neither was configurable, which meant a self-hoster pointing Silocat
+/// at a 4 TB array still handed out 10 GiB accounts with no way to change it
+/// short of recompiling.
+///
+/// `SIGNUP_STORAGE_GB` overrides the default. `0` or `unlimited` means no
+/// practical cap; the self-host compose file sets it that way. An unparseable or
+/// non-positive value falls back to the default rather than failing the signup,
+/// since a bad env var should not take registration down.
+pub fn signup_storage_bytes() -> i64 {
+    let raw = std::env::var("SIGNUP_STORAGE_GB").ok();
+
+    match raw.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        None => DEFAULT_SIGNUP_STORAGE_GIB * GIB,
+        Some(v) if v == "0" || v.eq_ignore_ascii_case("unlimited") => UNLIMITED_STORAGE_BYTES,
+        Some(v) => match v.parse::<i64>() {
+            Ok(gib) if gib > 0 => gib.saturating_mul(GIB).min(UNLIMITED_STORAGE_BYTES),
+            _ => {
+                eprintln!(
+                    "[quota] SIGNUP_STORAGE_GB={:?} is not a positive integer; \
+                     falling back to {} GiB",
+                    v, DEFAULT_SIGNUP_STORAGE_GIB
+                );
+                DEFAULT_SIGNUP_STORAGE_GIB * GIB
+            }
+        },
+    }
+}
+
 pub struct Quota {
     pub limit: i64,
     pub used: i64,

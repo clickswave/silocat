@@ -213,15 +213,12 @@ pub async fn handle(
     };
 
     // 3. Save Order to Database
+    // Via calculate_space, not an inline copy of the same table: this used to
+    // duplicate the tier list that calculate_space already owns, so adding a tier
+    // in one place silently sold storage the other place would not grant.
     let mut add_space: i64 = 0;
     if payload.order_type == "quota" {
-        add_space = match payload.identifier.as_str() {
-            "1tb" => 1000 * 1024 * 1024 * 1024,
-            "5tb" => 5000 * 1024 * 1024 * 1024,
-            "10tb" => 10000 * 1024 * 1024 * 1024,
-            "20tb" => 20000 * 1024 * 1024 * 1024,
-            _ => 0
-        };
+        add_space = calculate_space(&payload.identifier);
     }
 
     let insert_result = sqlx::query!(
