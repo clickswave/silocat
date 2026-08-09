@@ -20,6 +20,7 @@ regex = "1.12.2"
 uuid = { version = "1.19.0", features = ["v4", "fast-rng"] }
 email_address = { version = "0.2.9", features = [] }
 aws-sdk-s3 = "1.104.0"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 aws-smithy-types = "1.3.2"
 aws-config = "1.8.6"
 rand_core = "0.10.0-rc-3"
