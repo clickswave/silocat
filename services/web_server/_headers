@@ -2,7 +2,7 @@
 #
 # NOTE: a full Content-Security-Policy (script-src / connect-src / frame-src /
 # worker-src) still needs to be added and validated against the app's real
-# origins — self, Cloudflare Turnstile (challenges.cloudflare.com), Razorpay
+# origins: self, Cloudflare Turnstile (challenges.cloudflare.com), Razorpay
 # (checkout.razorpay.com), the R2 upload/download endpoints
 # (*.r2.cloudflarestorage.com), the CDN, Google Analytics, WASM
 # ('wasm-unsafe-eval' for libsodium) and blob: workers. Shipping a strict CSP
