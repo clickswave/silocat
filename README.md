@@ -31,8 +31,13 @@ below, or read the code and decide for yourself whether to believe us.
 - **Whole folders.** Drop a directory and the structure survives the trip.
 - **Share links you control.** Public, one-time, or off, with optional link
   passwords and expiry.
-- **Every feature on every tier.** Paid plans buy space, not features. The free
-  tier gets the same encryption and the same share controls.
+- **Secure delivery, both directions.** Send files out, or create a request link
+  and have anyone send files straight into your account, no sign-up on their end.
+  Delivery receipts show you who opened a link, and when.
+- **Privacy is free for everyone.** Every privacy feature (encryption, link
+  passwords, expiry, basic and one-time sharing) is free on every tier. We never
+  paywall security. Paid plans add space and delivery workflow tools
+  (request-a-file and delivery receipts), not privacy.
 
 ## How the encryption works
 
