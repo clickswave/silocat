@@ -19,7 +19,9 @@ let createToken = (tokenData) => {
 
 let decodeToken = (token) => {
 	try {
-		return jwt.verify(token, JWT_SECRET);
+		// Pin the algorithm: without this, jsonwebtoken accepts any alg the token
+		// header declares, which is the classic JWT algorithm-confusion footgun.
+		return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
 	} catch{
 		return null;
 	}

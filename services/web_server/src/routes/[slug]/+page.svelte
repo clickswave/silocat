@@ -45,7 +45,9 @@
 			description: 'A file shared securely and stored on silo.cat.'
 		}
 	);
-	const shareUrl = $derived(`https://silo.cat/${$page.params.slug}`);
+	// Use the request origin so a self-hosted instance builds links to ITS own
+	// domain, not silo.cat.
+	const shareUrl = $derived(`${$page.url.origin}/${$page.params.slug}`);
 
 	let fileId = $page.params.slug;
 	let fileMeta = $state(null);
@@ -57,10 +59,11 @@
 	let isDeleting = $state(false);
 
 	function handleDeleteClick() {
-		const user = $page.data.user;
-		if (user && user.api_key) {
-			deleteKeyInput = user.api_key;
-		} else if ($shadowKey) {
+		// Anonymous drops are deleted with the browser-held shadow key. The
+		// account api_key is no longer exposed to the client (it stays server-side),
+		// so we only ever pre-fill the shadow key; a logged-in owner deletes account
+		// files from the dashboard instead.
+		if ($shadowKey) {
 			deleteKeyInput = $shadowKey;
 		}
 		showDeleteModal = true;
@@ -407,7 +410,7 @@
 	<meta property="og:title" content={og.title} />
 	<meta property="og:description" content={og.description} />
 	<meta property="og:url" content={shareUrl} />
-	<meta property="og:image" content="https://silo.cat/og-image.png" />
+	<meta property="og:image" content={`${$page.url.origin}/og-image.png`} />
 	<meta property="og:image:width" content="1200" />
 	<meta property="og:image:height" content="630" />
 
@@ -415,7 +418,7 @@
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content={og.title} />
 	<meta name="twitter:description" content={og.description} />
-	<meta name="twitter:image" content="https://silo.cat/og-image.png" />
+	<meta name="twitter:image" content={`${$page.url.origin}/og-image.png`} />
 </svelte:head>
 
 <div class="dl-page">
@@ -559,9 +562,7 @@
 	<div class="del-body">
 		<p class="del-msg">This permanently deletes the {isFolder ? 'folder' : 'file'}. It can't be undone.</p>
 		<Input bind:value={deleteKeyInput} label="Owner key" icon="ri:key-2-line" placeholder="API key to verify ownership" mono hint={`Required to prove ownership. Without it the ${isFolder ? 'folder' : 'file'} can't be deleted.`}>
-			{#if $page.data.user && deleteKeyInput === $page.data.user.api_key}
-				<Badge tone="accent">Account</Badge>
-			{:else if $shadowKey && deleteKeyInput === $shadowKey}
+			{#if $shadowKey && deleteKeyInput === $shadowKey}
 				<Badge tone="neutral">Browser</Badge>
 			{/if}
 		</Input>

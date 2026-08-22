@@ -192,15 +192,20 @@ services:
   sc_web_server:
     container_name: sc_web_server
     restart: unless-stopped
+    # Production build: adapter-node standalone server (see Dockerfile.selfhost),
+    # not the Vite dev server. Behind a TLS-terminating reverse proxy in a real
+    # deployment; it listens on 12001.
     build:
       context: ../services/web_server
-      dockerfile: Dockerfile
-    command: sh -c "npm i && npm run dev"
+      dockerfile: Dockerfile.selfhost
+    command: node build
     depends_on:
       - sc_api_switch
     ports:
       - '12001:12001'
     environment:
+      HOST: 0.0.0.0
+      PORT: '12001'
       INTERNAL_API_URL: http://sc_api_switch:31337
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       WEB_SERVER_COMMUNICATION_SECRET: ${WEB_SERVER_COMMUNICATION_SECRET:?set WEB_SERVER_COMMUNICATION_SECRET in .env}

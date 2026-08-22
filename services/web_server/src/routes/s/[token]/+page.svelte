@@ -21,7 +21,8 @@
 	let downloadProgress = 0;
 
 	// Encryption state
-	let needsPassword = false;
+	let needsPassword = false;   // a password is needed at all (server gate OR client decryption)
+	let passwordRequired = false; // the OWNER set a SERVER-side link-password gate
 	let password = '';
 	let showPasswordInput = false;
 
@@ -36,6 +37,7 @@
 				// link password gate (server-enforced on authorize).
 				if (file.password_required) {
 					needsPassword = true;
+					passwordRequired = true; // server-enforced gate; this pw is sent to authorize
 				} else if (file.type === 'file' && file.encrypted) {
 					needsPassword = true;
 				} else if (file.type === 'folder' && file.files && file.files.some((f) => f.encrypted)) {
@@ -67,8 +69,16 @@
 		downloadProgress = 0;
 
 		try {
-			// Authorize download and get chunks (password gate enforced server-side).
-			const res = await axios.post('/api/v1/public/share/authorize', { token, password });
+			// Only send the password to the server when the OWNER set a server-side
+			// link-password gate. For a client-side-ENCRYPTED file with no gate the
+			// password IS the decryption key and must never leave the browser (the
+			// server holds the ciphertext + salt + nonce, so sending it would let a
+			// compromised/logging server decrypt everything). Authorize without it
+			// and derive the key locally.
+			const res = await axios.post('/api/v1/public/share/authorize', {
+				token,
+				...(passwordRequired ? { password } : {})
+			});
 			if (res.data.success) {
 				const data = res.data.success.data;
 
@@ -119,7 +129,8 @@
 			const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 				token: token,
 				file_id: f.id,
-				password
+				// Only for a server-side gate; never leak the decryption key.
+				...(passwordRequired ? { password } : {})
 			});
 
 			if (chunksRes.data && chunksRes.data.success) {
@@ -219,7 +230,8 @@
 				const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 					token: token,
 					file_id: f.id,
-					password
+					// Only for a server-side gate; never leak the decryption key.
+					...(passwordRequired ? { password } : {})
 				});
 
 				if (chunksRes.data && chunksRes.data.success) {

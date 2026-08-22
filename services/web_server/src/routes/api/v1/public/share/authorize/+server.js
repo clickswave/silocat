@@ -2,12 +2,16 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network.js';
 
-export async function POST({ request }) {
+export async function POST({ request, getClientAddress }) {
     try {
         const payload = await request.json();
 
-        // Public endpoint, no auth needed
-        const res = await ApiServerClient.post('/file/public/share/authorize', payload);
+        // Forward the real visitor IP so the backend's per-IP share-password
+        // throttle keys on the actual client, not this proxy's peer address
+        // (otherwise every caller shares one bucket and the limit is toothless).
+        const res = await ApiServerClient.post('/file/public/share/authorize', payload, {
+            headers: { 'X-Client-IP': getClientAddress() }
+        });
 
         if (res.data.status === 200) {
             return json({

@@ -12,10 +12,10 @@ mod fetch_folders;
 mod delete_folders;
 
 mod fetch_chunks;
-mod fetch_progress;
 mod fetch_resource;
 mod star;
 mod share;
+pub mod request;
 
 
 
@@ -42,7 +42,19 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/share/toggle", axum::routing::post(share::toggle_share))
         .route("/share/regenerate", axum::routing::post(share::regenerate_token))
         .route("/share/info/{id}", axum::routing::get(share::get_share_info))
-        
+        // Delivery receipts for the owner's shared file/folder (proof of delivery).
+        .route("/share/access-log", axum::routing::post(share::access_log))
+
+        // Request-a-file (inbound delivery). Owner side (account required):
+        .route("/request/create", axum::routing::post(request::create_request))
+        .route("/request/list", axum::routing::get(request::list_requests))
+        .route("/request/received", axum::routing::post(request::received_files))
+        .route("/request/set-active", axum::routing::post(request::set_active))
+        // Public side (authorized by the request token, no account needed):
+        .route("/public/request/info/{token}", axum::routing::get(request::public_info))
+        .route("/public/request/upload", axum::routing::post(request::upload_create))
+        .route("/public/request/mark-complete", axum::routing::post(request::upload_mark_complete))
+
         // Public routes (no auth middleware check if placed outside? No, router() is wrapped in auth check in main.rs!)
         // `authority_sign_check` validates the `X-Authority-Sign` header from the web server.
         // The web server (SvelteKit) HAS the authority sign.
@@ -53,7 +65,6 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/public/share/info/{token}", axum::routing::get(share::public_get_info))
         .route("/public/share/authorize", axum::routing::post(share::public_authorize_download))
         .route("/public/share/fetch-chunks", axum::routing::post(share::public_fetch_file_chunks))
-        // .route("/fetch-progress", axum::routing::post(fetch_progress::handle))
         // Resolve the X-Api-Key into an Option<Caller> (user or shadow) for every
         // file route. Non-rejecting: public/share routes simply see no caller.
         // Handlers derive ownership from the Caller, never from body user_id.

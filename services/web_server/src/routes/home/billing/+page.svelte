@@ -195,19 +195,27 @@
 				return;
 			}
 
-			const { order_id, amount, currency: cur, key_id } = orderRes.data.success;
+			const success = orderRes.data.success;
+			const { amount, currency: cur, key_id } = success;
+			// A recurring plan comes back with subscription_id (an auto-renewing
+			// mandate); a one-time purchase (or a plan with no Razorpay plan
+			// configured yet) comes back with order_id.
+			const isSubscription = !!success.subscription_id;
 			const Razorpay = await loadRazorpay();
 			const rzp = new Razorpay({
 				key: key_id,
 				amount,
 				currency: cur,
 				name: 'Silocat',
-				description: `${checkoutPlan} (${cycle})`,
-				order_id,
+				description: `${checkoutPlan} (${cycle})${isSubscription ? ' · renews automatically' : ''}`,
+				...(isSubscription
+					? { subscription_id: success.subscription_id }
+					: { order_id: success.order_id }),
 				handler: async (response) => {
 					try {
 						await FrontendClient.post('/api/v1/billing/verify', {
 							order_id: response.razorpay_order_id,
+							subscription_id: response.razorpay_subscription_id,
 							payment_id: response.razorpay_payment_id,
 							signature: response.razorpay_signature
 						});

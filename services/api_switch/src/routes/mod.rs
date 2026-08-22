@@ -89,9 +89,8 @@ pub async fn all(state: crate::AppState) -> Router<crate::AppState> {
     let webhooks = Router::new()
         .route("/webhooks/razorpay", post(billing::razorpay_webhook::handle));
 
-    // Unauthenticated liveness at a stable, cross-product path (same route and
-    // shape as crossfyre's /health), so the deploy smoke test and any uptime
-    // check hit an identical endpoint on both products.
+    // Unauthenticated liveness at a stable path, so the deploy smoke test and any
+    // uptime check have one endpoint to hit.
     let health = Router::new().route("/health", get(health_check));
 
     // A panic in any handler becomes a 500 for that one request instead of

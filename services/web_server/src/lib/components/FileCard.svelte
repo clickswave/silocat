@@ -1,25 +1,25 @@
 <script>
 	import Icon from '$lib/ui/Icon.svelte';
 
-	export let name = 'File';
-	export let size = '0 B';
-	export let date = '';
-	export let type = 'file'; // image, video, audio, doc, file
-	export let encrypted = false;
-	export let starred = false;
+	let {
+		name = 'File',
+		size = '0 B',
+		date = '',
+		type = 'file', // image, video, audio, doc, file
+		encrypted = false,
+		starred = false,
+		// Callbacks
+		onclick = () => {},
+		ondownload = () => {},
+		ondelete = () => {},
+		onstar = () => {},
+		onshare = () => {},
+		onrestore = () => {},
+		isTrash = false
+	} = $props();
 
-	// Callbacks
-	export let onclick = () => {};
-	export let ondownload = () => {};
-	export let ondelete = () => {};
-	export let onstar = () => {};
-	export let onshare = () => {};
-	export let onrestore = () => {};
-
-	export let isTrash = false;
-
-	let showMenu = false;
-	let menuRef;
+	let showMenu = $state(false);
+	let menuRef = $state();
 
 	function toggleMenu(e) {
 		e.stopPropagation();
@@ -66,14 +66,14 @@
 	}
 </script>
 
-<svelte:window on:click={handleClickOutside} />
+<svelte:window onclick={handleClickOutside} />
 
 <div
 	class="file-card"
-	on:click={onclick}
+	onclick={onclick}
 	role="button"
 	tabindex="0"
-	on:keydown={(e) => e.key === 'Enter' && onclick()}
+	onkeydown={(e) => e.key === 'Enter' && onclick()}
 >
 	<div class="top">
 		<div class="file-icon {type}">
@@ -103,26 +103,26 @@
 	</div>
 
 	<div class="menu-container {showMenu ? 'visible' : ''}" bind:this={menuRef}>
-		<button class="menu-btn" on:click={toggleMenu} aria-label="More actions">
+		<button class="menu-btn" onclick={toggleMenu} aria-label="More actions">
 			<Icon icon="ri:more-2-fill" width="18" />
 		</button>
 		{#if showMenu}
 			<div class="dropdown-menu">
 				{#if isTrash}
-					<button class="dropdown-item" on:click={handleRestore}>
+					<button class="dropdown-item" onclick={handleRestore}>
 						<Icon icon="ri:arrow-go-back-line" width="16" />
 						Restore
 					</button>
-					<button class="dropdown-item danger" on:click={handleDelete}>
+					<button class="dropdown-item danger" onclick={handleDelete}>
 						<Icon icon="ri:delete-bin-line" width="16" />
 						Delete Forever
 					</button>
 				{:else}
-					<button class="dropdown-item" on:click={handleDownload}>
+					<button class="dropdown-item" onclick={handleDownload}>
 						<Icon icon="ri:download-line" width="16" />
 						Download
 					</button>
-					<button class="dropdown-item" on:click={handleStar}>
+					<button class="dropdown-item" onclick={handleStar}>
 						<Icon
 							icon={starred ? 'ri:star-fill' : 'ri:star-line'}
 							width="16"
@@ -130,11 +130,11 @@
 						/>
 						{starred ? 'Unstar' : 'Star'}
 					</button>
-					<button class="dropdown-item" on:click={handleShare}>
+					<button class="dropdown-item" onclick={handleShare}>
 						<Icon icon="ri:share-forward-line" width="16" />
 						Share
 					</button>
-					<button class="dropdown-item danger" on:click={handleDelete}>
+					<button class="dropdown-item danger" onclick={handleDelete}>
 						<Icon icon="ri:delete-bin-line" width="16" />
 						Delete
 					</button>

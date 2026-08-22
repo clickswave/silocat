@@ -23,19 +23,20 @@
 
 			<p>
 				Silocat exists because sending a file should not require a subscription, an account, or a
-				privacy policy you have to trust. You drop a file, it gets encrypted in your browser, and
-				you get a link. That's the whole product.
+				privacy policy you have to trust. You drop a file, turn on password protection if you want it
+				encrypted in your browser, and you get a link. That's the whole product.
 			</p>
 			<p>
 				The name is honest about what it is: a silo, guarded by a cat. Cats do not care about your
 				files. They will not read them, sell them, or train anything on them. Neither will we, and
-				unlike a promise, that's enforced by mathematics. The server stores ciphertext it cannot
-				open.
+				unlike a promise, that's enforced by mathematics. When you enable password protection, the
+				server stores ciphertext it cannot open.
 			</p>
 			<p>
-				Every feature is available on every tier. Free accounts get the same encryption, the same
-				share controls, the same speed. Paying gets you more space, nothing else. We think
-				paywalling security features is a moral failure, so we don't.
+				Every privacy feature is available on every tier. Free accounts get the same
+				encryption, the same share controls, the same speed. We think paywalling security is a
+				moral failure, so we never do it. Paid plans add space and delivery workflow tools,
+				request-a-file inboxes and delivery receipts, not privacy.
 			</p>
 			<p>
 				The entire codebase is open source under AGPL-3.0. You can read the encryption, audit the

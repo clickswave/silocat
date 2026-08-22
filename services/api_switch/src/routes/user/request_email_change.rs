@@ -11,10 +11,30 @@ pub struct Input {
 // Stage a new email + OTP without touching the live (verified) account email.
 // Also used as the "resend" action: calling again regenerates + resends the code.
 pub async fn handle(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Extension(user): Extension<UserTokenData>,
     Json(payload): Json<Input>,
 ) -> impl IntoResponse {
+    // Throttle before doing anything: this route emails an attacker-supplied
+    // address, so without a limit one account can blast verification mail at any
+    // inbox (SES-reputation drain) and spin fresh OTPs for a brute-force. Mirror
+    // forgot-password: a per-IP cap plus a 60s per-account cooldown.
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    if !state.rate_limiter.check(
+        &format!("emailchange:ip:{}", ip), 10, std::time::Duration::from_secs(600))
+    {
+        return respond(429, "Too Many Requests",
+            vec!["Too many requests. Please try again later.".to_string()], json!({}));
+    }
+    if !state.rate_limiter.check(
+        &format!("emailchange:req:{}", user.id), 1, std::time::Duration::from_secs(60))
+    {
+        return respond(429, "Too Many Requests",
+            vec!["Please wait a minute before requesting another code.".to_string()], json!({}));
+    }
+
     let new_email = payload.email.trim().to_lowercase();
 
     if new_email.is_empty() {

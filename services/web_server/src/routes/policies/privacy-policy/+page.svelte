@@ -34,30 +34,36 @@
 	<section>
 		<h2>2. Zero Knowledge Philosophy</h2>
 		<p>
-			SiloCat is built on a simple premise: <strong>The server knows nothing.</strong>
-			We collect the absolute minimum metadata required to facilitate the transfer. Your IP address is
-			used for abuse prevention and rate limiting, but it is not permanently linked to your files in a
-			readable form.
+			SiloCat is built on a simple premise: <strong>we hold ciphertext plus metadata, and nothing
+			more.</strong> When you enable password protection, the file contents are ciphertext we cannot
+			open; either way, we hold the metadata around the transfer: filenames, folder names, file size,
+			timestamps, and a hash of the file's plaintext (which lets us confirm whether a specific known
+			file was uploaded). We collect the minimum required to facilitate the transfer. Your IP address
+			is used for abuse prevention and rate limiting, but it is not permanently linked to your files
+			in a readable form.
 		</p>
 	</section>
 
 	<section>
 		<h2>3. Encryption and Storage Architecture</h2>
 		<p>
-			<strong>Client-Side:</strong> Files are encrypted in your browser using
-			<strong>ChaCha20-Poly1305</strong>. The keys are never sent to our servers.
+			<strong>Client-Side (optional):</strong> When you turn on password protection, files are
+			encrypted in your browser using <strong>ChaCha20-Poly1305</strong>, and the keys are never sent
+			to our servers. Without password protection, the file is uploaded unencrypted and we can read
+			it.
 		</p>
 		<p>
-			<strong>Storage (WatchCat):</strong> Our internal service, WatchCat, places your encrypted blobs
-			into secure storage (Cloudflare R2 or Backblaze B2). To us, your data is nothing more than
-			opaque encrypted blobs. We cannot read it, mine it, or sell it.
+			<strong>Storage (WatchCat):</strong> Our internal service, WatchCat, places your blobs into
+			secure storage (Cloudflare R2 or Backblaze B2). For password-protected uploads, your data is
+			nothing more than opaque encrypted blobs we cannot read, mine, or sell.
 		</p>
 	</section>
 
 	<section>
 		<h2>4. Metadata and Logs</h2>
 		<p>
-			We store minimal metadata in our database (for example, file size, mime type, and expiry). For
+			We store minimal metadata in our database (for example, filenames, folder names, file size,
+			mime type, a plaintext content hash, and expiry). For
 			<strong>Shadow</strong> (anonymous) uploads, this data evaporates after 7 days. For
 			<strong>Sanctum</strong> (authenticated) uploads, it persists until you delete it. We do not use
 			third-party tracking pixels or analytics.

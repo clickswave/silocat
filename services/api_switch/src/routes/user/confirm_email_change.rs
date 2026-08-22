@@ -35,7 +35,18 @@ pub async fn handle(
         Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
-    if payload.otp.trim() != pending_otp {
+    // Brute-force guard. The pending OTP is a 6-digit code (~10^6 space) with no
+    // built-in TTL, so cap confirmation attempts: 5 per 10 minutes per account
+    // makes searching the space infeasible. Compare in constant time so a timing
+    // side channel can't leak the code either.
+    if !state.rate_limiter.check(
+        &format!("emailchange:confirm:{}", user.id), 5, std::time::Duration::from_secs(600))
+    {
+        return respond(429, "Too Many Requests",
+            vec!["Too many attempts. Please wait and try again.".to_string()], json!({}));
+    }
+
+    if !crate::middlewares::ct_eq(payload.otp.trim().as_bytes(), pending_otp.as_bytes()) {
         return respond(400, "Invalid OTP", vec!["The code you entered is incorrect.".to_string()], json!({}));
     }
 

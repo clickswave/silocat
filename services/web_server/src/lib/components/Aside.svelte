@@ -15,6 +15,7 @@
 		{ icon: 'home', label: 'Home', href: '/home' },
 		{ icon: 'files', label: 'Files', href: '/home/files' },
 		{ icon: 'share', label: 'Shared', href: '/home/shared' },
+		{ icon: 'inbox', label: 'Requests', href: '/home/requests' },
 		{ icon: 'star', label: 'Starred', href: '/home/starred' },
 		{ icon: 'trash', label: 'Trash', href: '/home/trash' }
 	];

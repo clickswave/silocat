@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO request_uploads (request_id, file_id, uploader_name) VALUES ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9640e5029a0e0ae357a0bd1e5a2e35998dc0de2cadf59c48cce0a72270cbf7e9"
+}

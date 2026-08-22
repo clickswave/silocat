@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "share_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "link_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "link_max_downloads",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "share_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "share_password_hash",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "1329e9b9e1b360d8b8b5fbf90a7e497f888781a52e1c247d2785c3aa41136e31"
+}

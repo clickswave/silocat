@@ -1,12 +1,15 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network.js';
 
-export async function POST({ request }) {
+export async function POST({ request, getClientAddress }) {
     try {
         const payload = await request.json();
 
-        // Forward to backend
-        const res = await ApiServerClient.post('/file/public/share/fetch-chunks', payload);
+        // Forward the real visitor IP so the backend's per-IP share-password
+        // throttle keys on the actual client, not this proxy's peer address.
+        const res = await ApiServerClient.post('/file/public/share/fetch-chunks', payload, {
+            headers: { 'X-Client-IP': getClientAddress() }
+        });
 
         // Normalize response to match expected frontend structure
         if (res.data.success) {

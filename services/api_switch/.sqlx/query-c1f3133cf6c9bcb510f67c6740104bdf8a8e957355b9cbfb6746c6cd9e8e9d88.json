@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
+  "query": "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
   "describe": {
     "columns": [
       {
@@ -72,5 +72,5 @@
       true
     ]
   },
-  "hash": "71bd2e31c5b7f5b35ca6b00ed936d972a5cc294f0a31608bb402aba31d6cc07a"
+  "hash": "c1f3133cf6c9bcb510f67c6740104bdf8a8e957355b9cbfb6746c6cd9e8e9d88"
 }

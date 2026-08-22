@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "feba1aaecc59ae753105220a141c84b061b640ca49b7285e034fe1fe36fed912"
+}

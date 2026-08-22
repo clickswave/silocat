@@ -44,9 +44,26 @@ pub async fn handle(
                 return respond(404, "File not found", vec![], json!({}));
             }
 
-            // 3. Permanently delete
-            // Chunks should cascade if foreign keys are set up, otherwise we might need to delete them explicitly.
-            // Assuming standard cascade or job cleanup.
+            // 3. Remove the ciphertext from R2 BEFORE the DB rows. The chunk rows
+            // cascade away on the file delete, so once they are gone nothing can
+            // ever rediscover the object keys; skipping this leaves the encrypted
+            // bytes in R2 forever (a privacy contradiction for a zero-knowledge
+            // product, and a monotonic storage-cost leak). Mirrors watchcat's
+            // gc_expired_trash; delete_object is idempotent. R2 key = chunk id.
+            let storage = if record.user_id.is_some() { "sanctum" } else { "shadow" };
+            let chunk_ids: Vec<String> =
+                sqlx::query_scalar("SELECT id FROM chunks WHERE file_id = $1")
+                    .bind(&payload.file_id)
+                    .fetch_all(&axum_state.pg_pool)
+                    .await
+                    .unwrap_or_default();
+            for cid in &chunk_ids {
+                if let Err(e) = axum_state.r2.delete_object(storage, cid).await {
+                    println!("[permanent-delete] r2 delete {}/{} failed: {:?}", storage, cid, e);
+                }
+            }
+
+            // 4. Permanently delete the DB rows (chunk rows cascade via FK).
             let delete_result = sqlx::query!(
                 "DELETE FROM files WHERE id = $1",
                 payload.file_id

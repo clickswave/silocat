@@ -17,30 +17,15 @@ pub struct CreateOrderPayload {
     pub cycle: Option<String>, // "monthly" (default) or "annual"
 }
 
-/// Storage a paid plan grants, in bytes. Free tier is 10 GB (set at signup);
-/// Plus adds 200 GB, Pro adds 2 TB.
-fn plan_space(identifier: &str) -> i64 {
-    match identifier {
-        "plus" => 200 * 1024 * 1024 * 1024,      // 200 GB
-        "pro" => 2 * 1024_i64.pow(4),            // 2 TB
-        _ => 0,
-    }
-}
+// Plan grants + cycle intervals live in one place now (libs::plans); these thin
+// wrappers keep the local call sites unchanged.
+use crate::libs::plans;
 
-/// Display name stored on the subscription row (drives the UI plan label).
-fn plan_name(identifier: &str) -> Option<&'static str> {
-    match identifier {
-        "plus" => Some("Plus"),
-        "pro" => Some("Pro"),
-        _ => None,
-    }
-}
+fn plan_space(identifier: &str) -> i64 { plans::plan_space(identifier) }
 
-/// Postgres INTERVAL literal for a billing cycle. Mapped to fixed literals (never
-/// interpolated from user input) so it is safe to inline into the query.
-fn cycle_interval(cycle: &str) -> &'static str {
-    if cycle == "annual" { "1 year" } else { "1 month" }
-}
+fn plan_name(identifier: &str) -> Option<&'static str> { plans::plan_name(identifier) }
+
+fn cycle_interval(cycle: &str) -> &'static str { plans::cycle_interval(cycle) }
 
 fn normalize_cycle(cycle: &Option<String>) -> String {
     match cycle.as_deref() {
@@ -146,6 +131,12 @@ pub async fn handle(
                 .execute(&state.pg_pool).await;
         } else if let (Some(name), true) = (plan_name(&payload.identifier), payload.order_type == "plan") {
              let interval = cycle_interval(&cycle);
+             // Replace any active paid plan first so the grant doesn't stack quota.
+             let _ = sqlx::query(
+                 "UPDATE subscriptions SET expires_on = NOW() \
+                  WHERE created_by = $1 AND invited = false AND expires_on > NOW()")
+                .bind(&user_id)
+                .execute(&state.pg_pool).await;
              let sub_res = sqlx::query(
                  &format!("INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) \
                            VALUES ($1, $2, $3, NOW() + INTERVAL '{}', FALSE) RETURNING id", interval))
@@ -177,6 +168,82 @@ pub async fn handle(
             return respond(500, "Server configuration error", vec![], json!({}));
         }
     };
+
+    // 2a. Recurring plans. If a Razorpay Plan is configured for this
+    // (plan, cycle, currency), create an auto-renewing SUBSCRIPTION (a real
+    // mandate) instead of a one-time order, which is what turns paid plans into
+    // actual recurring revenue. When no plan id is configured the code falls
+    // through to the one-time order below, so behaviour is unchanged until the
+    // plans are created and their ids wired in via env
+    // (scripts/silocat_razorpay_plans.py).
+    if payload.order_type == "plan" {
+        if let Some(plan_id) =
+            crate::libs::plans::razorpay_plan_id(&payload.identifier, &cycle, &payload.currency)
+        {
+            let sub_res = client
+                .post("https://api.razorpay.com/v1/subscriptions")
+                .basic_auth(&rzp_config.key_id, Some(&rzp_config.key_secret))
+                .json(&json!({
+                    "plan_id": plan_id,
+                    "total_count": crate::libs::plans::SUBSCRIPTION_TOTAL_COUNT,
+                    "customer_notify": 1,
+                    "notes": {
+                        "type": "plan",
+                        "identifier": payload.identifier,
+                        "user_id": user_id,
+                        "cycle": cycle,
+                    }
+                }))
+                .send()
+                .await;
+
+            let sub_json: serde_json::Value = match sub_res {
+                Ok(r) => match r.json().await {
+                    Ok(j) => j,
+                    Err(_e) => return respond(500, "Failed to parse Gateway response", vec![], json!({})),
+                },
+                Err(_e) => return respond(500, "Gateway connection failed", vec![], json!({})),
+            };
+            if sub_json.get("error").is_some() {
+                return respond(500, "Payment Gateway Error",
+                    vec![sub_json["error"]["description"].as_str().unwrap_or("Unknown").to_string()],
+                    json!({}));
+            }
+            let sub_id = match sub_json.get("id").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => return respond(500, "Invalid Gateway response", vec![], json!({})),
+            };
+
+            // Track the pending activation as an order row keyed by the
+            // subscription id, so /billing/verify and the webhook find it the same
+            // way they find a one-time order.
+            let ins = sqlx::query!(
+                "INSERT INTO orders (reference_id, user_id, subscription_name, subscription_cycle, additional_space, payment_gateway, currency, amount, status, details) \
+                 VALUES ($1, $2, $3, $4, 0, 'razorpay', $5, $6, 'pending', $7)",
+                sub_id,
+                user_id,
+                payload.identifier,
+                cycle,
+                payload.currency,
+                amount,
+                json!({ "gateway_res": sub_json, "kind": "subscription", "promo_code": payload.promo_code })
+            )
+            .execute(&state.pg_pool)
+            .await;
+            if let Err(e) = ins {
+                println!("DB Error: {:?}", e);
+                return respond(500, "Database Error", vec![], json!({}));
+            }
+
+            return respond(200, "Subscription created", vec![], json!({
+                "subscription_id": sub_id,
+                "amount": amount,
+                "currency": payload.currency,
+                "key_id": rzp_config.key_id,
+                "recurring": true
+            }));
+        }
+    }
 
     let rzp_order_res = client.post("https://api.razorpay.com/v1/orders")
         .basic_auth(&rzp_config.key_id, Some(&rzp_config.key_secret))

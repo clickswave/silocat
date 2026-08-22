@@ -1,12 +1,7 @@
-use axum::{extract::State, Json, response::IntoResponse};
-use serde::{Deserialize, Serialize};
+use axum::{extract::State, Extension, response::IntoResponse};
+use serde::Serialize;
 use serde_json::json;
-use crate::routes::respond;
-
-#[derive(Deserialize, Debug)]
-pub struct Payload {
-    pub user_id: String,
-}
+use crate::{models::UserTokenData, routes::respond};
 
 #[derive(Serialize, Debug)]
 pub struct StorageStats {
@@ -15,11 +10,15 @@ pub struct StorageStats {
     pub free: i64,
 }
 
+// Identity comes from the authenticated X-Api-Key (validate_token), NEVER a body
+// `user_id`. Previously this was a public route that returned any user's stats
+// for an attacker-supplied `user_id`; now it can only report the caller's own.
 pub async fn handle(
     State(state): State<crate::AppState>,
-    Json(payload): Json<Payload>,
+    Extension(user): Extension<UserTokenData>,
 ) -> impl IntoResponse {
-    
+    let user_id = user.id;
+
     // 1. Total storage limit = base (default_storage_bytes) + active, non-expired
     //    subscription space (promos / Pro grants live here, so they auto-expire).
     //    Runtime query (no macro) keeps the SQLX_OFFLINE prod build cache-free.
@@ -28,7 +27,7 @@ pub async fn handle(
               + COALESCE((SELECT SUM(additional_space) FROM subscriptions \
                           WHERE created_by = $1 AND expires_on > NOW()), 0))::BIGINT"
     )
-    .bind(&payload.user_id)
+    .bind(&user_id)
     .fetch_one(&state.pg_pool)
     .await;
 
@@ -41,18 +40,16 @@ pub async fn handle(
         }
     };
 
-    // 2. Calculate Used Storage (Sum of non-deleted files)
-    // Note: We should likely include 'uploading' chunks or similar in a refined model, 
-    // but for now, summing file sizes is a good start. 
-    // Better accuracy: Sum of all chunks marked 'uploaded' for files owned by user?
-    // Current 'files' table 'size' is the logical size. 'chunks' table has 'size'.
-    
-    // Only count COMPLETED uploads (uploaded_chunks >= total_chunks) so an
-    // abandoned, half-uploaded file does not inflate the user's used quota.
+    // 2. Used storage = real stored bytes (each uploaded chunk's HeadObject
+    //    size_on_server) for non-deleted files. Matches libs::quota so the UI
+    //    counter and the upload gate agree, and can't be gamed by a client that
+    //    under-declares files.size.
     let usage = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(SUM(size), 0)::BIGINT FROM files          WHERE user_id = $1 AND deleted = false AND uploaded_chunks >= total_chunks"
+        "SELECT COALESCE(SUM(c.size_on_server), 0)::BIGINT \
+         FROM chunks c JOIN files f ON f.id = c.file_id \
+         WHERE f.user_id = $1 AND f.deleted = false AND c.uploaded = true"
     )
-    .bind(&payload.user_id)
+    .bind(&user_id)
     .fetch_one(&state.pg_pool)
     .await;
 

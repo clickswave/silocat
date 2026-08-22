@@ -183,6 +183,20 @@ impl R2 {
         Ok(())
     }
 
+    /// The real stored size of an object (bytes), via HeadObject. Used to
+    /// reconcile a chunk's `size_on_server` against the client-declared size so
+    /// quota reflects bytes actually stored and can't be gamed by under-declaring.
+    pub async fn object_size(&self, storage: &str, key: &str) -> anyhow::Result<i64> {
+        let (client, bucket) = match storage {
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str()),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str()),
+            "dp" => (&self.dp_client, self.dp_bucket.as_str()),
+            _ => return Err(anyhow::anyhow!("Invalid storage option")),
+        };
+        let resp = client.head_object().bucket(bucket).key(key).send().await?;
+        Ok(resp.content_length().unwrap_or(0))
+    }
+
     /// Calculate bucket usage (object count and total size)
     pub async fn get_bucket_usage(&self, storage: &str) -> anyhow::Result<(i64, i64)> {
         let (client, bucket, _) = match storage {

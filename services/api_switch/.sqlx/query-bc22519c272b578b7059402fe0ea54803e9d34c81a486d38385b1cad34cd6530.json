@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.file_id FROM chunks c JOIN request_uploads ru ON ru.file_id = c.file_id WHERE c.id = $1 AND ru.request_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bc22519c272b578b7059402fe0ea54803e9d34c81a486d38385b1cad34cd6530"
+}

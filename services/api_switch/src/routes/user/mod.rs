@@ -24,7 +24,6 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
     let public_routes = Router::new()
         .route("/register-personal", post(register_personal::handle))
         .route("/login", post(login::handle))
-        .route("/storage-stats", post(fetch_storage_stats::handle))
         .route("/google-auth", post(google_auth::handle))
         // Public OTP-based password reset (no session yet).
         .route("/forgot-password", post(forgot_password::handle))
@@ -38,6 +37,8 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/change-password", post(change_password::handle))
         .route("/update-profile", post(update_profile::handle))
         .route("/info", get(fetch_info::handle))
+        // Caller-scoped: identity from the token, never a body user_id.
+        .route("/storage-stats", post(fetch_storage_stats::handle))
         .route("/username-status", get(username_status::handle))
         .route("/rotate-api-key", post(rotate_api_key::handle))
         .route("/verify-email", post(verify_email::handle))

@@ -585,10 +585,10 @@
 
 	<main class="main">
 		<section class="hero">
-			<h1>Big files. Zero knowledge.</h1>
+			<h1>Big files. Zero knowledge, when you want it.</h1>
 			<p class="sub">
-				End-to-end encrypted file transfer. No account needed. Drop up to 20&nbsp;GB and share a
-				link that expires in seven days.
+				Optional end-to-end encryption, on the moment you turn on password protection. No account
+				needed. Drop up to 20&nbsp;GB and share a link that expires in seven days.
 			</p>
 		</section>
 
@@ -611,7 +611,7 @@
 						</span>
 						<input type="file" id="file-upload" multiple onchange={handleFileSelect} hidden />
 						<span class="zone-hint">
-							encrypted before they leave ·
+							encrypt them on the next step ·
 							<label for="folder-upload" class="folder-link">upload a folder</label>
 						</span>
 						<input
@@ -627,7 +627,7 @@
 				{:else if zone === 'dragging'}
 					<div class="zone-idle dragging-body">
 						<Icon name="upload-lg" size={40} />
-						<span class="zone-title">Let go to encrypt</span>
+						<span class="zone-title">Let go to drop</span>
 						<span class="zone-mono">drop to stage your files</span>
 					</div>
 				{:else if zone === 'staged'}
@@ -763,7 +763,7 @@
 
 			<div class="steps">
 				<span>drop it</span><span class="dot">·</span>
-				<span>we encrypt it</span><span class="dot">·</span>
+				<span>encrypt it if you want</span><span class="dot">·</span>
 				<span>share the link</span>
 			</div>
 		</section>
@@ -772,9 +772,9 @@
 			<div class="fact">
 				<h2>Zero-knowledge</h2>
 				<p>
-					Your files are encrypted in the browser, before a single byte moves. The server stores
-					ciphertext and nothing else. We cannot read your files, hand them over, or recover them
-					for you.
+					Turn on password protection and your files are encrypted in the browser, before a single
+					byte moves, so the server stores ciphertext and nothing else. We cannot read those files,
+					hand them over, or recover them for you.
 				</p>
 			</div>
 			<div class="fact">
@@ -797,6 +797,14 @@
 					Drop a directory and the structure survives the trip. Up to 20&nbsp;GB per anonymous
 					drop, kept for seven days. A free account gives you 10&nbsp;GB that stays until you
 					delete it.
+				</p>
+			</div>
+			<div class="fact">
+				<h2>Request files</h2>
+				<p>
+					Turn it around: send a request link and have clients or colleagues drop files straight
+					into your account, no sign-up on their end. See who delivered what, and when. Secure
+					delivery, both directions.
 				</p>
 			</div>
 		</section>

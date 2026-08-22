@@ -9,8 +9,10 @@ export async function GET({ locals }) {
     }
 
     try {
-        let response = await ApiServerClient.post(ApiServerRoutes.fetchStorageStats, {
-            user_id: sessionUser.id
+        // Identity is proven by the session's api key (validate_token on the
+        // backend), not a body user_id, so a caller can only read their own stats.
+        let response = await ApiServerClient.post(ApiServerRoutes.fetchStorageStats, {}, {
+            headers: { 'X-Api-Key': sessionUser.api_key }
         }).then(res => res.data);
 
         return json({ success: response.data });

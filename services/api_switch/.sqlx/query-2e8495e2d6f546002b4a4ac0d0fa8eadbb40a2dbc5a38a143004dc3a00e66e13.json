@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id FROM files WHERE id = $1 AND folder_id = $2",
+  "query": "SELECT id, user_id FROM files WHERE id = $1 AND folder_id = $2 AND deleted = false",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       true
     ]
   },
-  "hash": "07e35178850034ed37bf69ca93bf692f1e4dcc939fd8728f04981bf1628d428e"
+  "hash": "2e8495e2d6f546002b4a4ac0d0fa8eadbb40a2dbc5a38a143004dc3a00e66e13"
 }

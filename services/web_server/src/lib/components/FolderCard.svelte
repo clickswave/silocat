@@ -1,25 +1,24 @@
 <script>
 	import Icon from '$lib/ui/Icon.svelte';
 
-	export let name = 'Folder';
-	export let count = 0;
-	// export let color = 'blue'; // Deprecated
-	export let compact = false;
-	export let starred = false;
+	let {
+		name = 'Folder',
+		count = 0,
+		compact = false,
+		starred = false,
+		// Callbacks
+		onrename = () => {},
+		ondelete = () => {},
+		ondownloadzip = () => {},
+		onclick = () => {},
+		onstar = () => {},
+		onshare = () => {},
+		onrestore = () => {},
+		isTrash = false
+	} = $props();
 
-	// New Props for Callbacks
-	export let onrename = () => {};
-	export let ondelete = () => {};
-	export let ondownloadzip = () => {};
-	export let onclick = () => {};
-	export let onstar = () => {};
-	export let onshare = () => {};
-	export let onrestore = () => {};
-
-	export let isTrash = false;
-
-	let showMenu = false;
-	let menuRef;
+	let showMenu = $state(false);
+	let menuRef = $state();
 
 	function toggleMenu(e) {
 		e.stopPropagation();
@@ -74,10 +73,10 @@
 	}
 </script>
 
-<svelte:window on:click={handleClickOutside} />
+<svelte:window onclick={handleClickOutside} />
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<div class="folder-card {compact ? 'compact' : ''}" on:click={onclick} role="button" tabindex="0">
+<div class="folder-card {compact ? 'compact' : ''}" onclick={onclick} role="button" tabindex="0">
 	<div class="top">
 		<div class="folder-icon">
 			<Icon icon="ri:folder-3-line" width={compact ? '17' : '20'} />
@@ -92,31 +91,31 @@
 	</div>
 
 	<div class="menu-container {showMenu ? 'visible' : ''}" bind:this={menuRef}>
-		<button class="menu-btn" on:click={toggleMenu} aria-label="More actions">
+		<button class="menu-btn" onclick={toggleMenu} aria-label="More actions">
 			<Icon icon="ri:more-2-fill" width="18" />
 		</button>
 
 		{#if showMenu}
 			<div class="dropdown-menu">
 				{#if isTrash}
-					<button class="dropdown-item" on:click={handleRestore}>
+					<button class="dropdown-item" onclick={handleRestore}>
 						<Icon icon="ri:arrow-go-back-line" width="16" />
 						Restore
 					</button>
-					<button class="dropdown-item danger" on:click={handleDelete}>
+					<button class="dropdown-item danger" onclick={handleDelete}>
 						<Icon icon="ri:delete-bin-line" width="16" />
 						Delete Forever
 					</button>
 				{:else}
-					<button class="dropdown-item" on:click={handleRename}>
+					<button class="dropdown-item" onclick={handleRename}>
 						<Icon icon="ri:edit-line" width="16" />
 						Rename
 					</button>
-					<button class="dropdown-item" on:click={handleDownloadZip}>
+					<button class="dropdown-item" onclick={handleDownloadZip}>
 						<Icon icon="ri:file-zip-line" width="16" />
 						Download Zip
 					</button>
-					<button class="dropdown-item" on:click={handleStar}>
+					<button class="dropdown-item" onclick={handleStar}>
 						<Icon
 							icon={starred ? 'ri:star-fill' : 'ri:star-line'}
 							width="16"
@@ -124,13 +123,13 @@
 						/>
 						{starred ? 'Unstar' : 'Star'}
 					</button>
-					<button class="dropdown-item" on:click={handleShare}>
+					<button class="dropdown-item" onclick={handleShare}>
 						<Icon icon="ri:share-forward-line" width="16" />
 						Share
 					</button>
 
 					<div class="divider"></div>
-					<button class="dropdown-item danger" on:click={handleDelete}>
+					<button class="dropdown-item danger" onclick={handleDelete}>
 						<Icon icon="ri:delete-bin-line" width="16" />
 						Delete
 					</button>

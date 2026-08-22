@@ -63,8 +63,12 @@ async function computeFileHash(file, chunkSize) {
 }
 
 function deriveKey(password, salt) {
-    // Replicating logic from frontend: 
-    // sodium.crypto_pwhash(32, password, salt, sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE, sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE, sodium.crypto_pwhash_ALG_DEFAULT)
+    // This KDF MUST stay byte-for-byte identical to deriveKeyFromPassword in
+    // src/lib/chacha.js (Argon2id, OPSLIMIT_MODERATE / MEMLIMIT_MODERATE,
+    // ALG_DEFAULT). The upload path uses this worker copy; the download path uses
+    // chacha.js. If the two ever diverge, files encrypted by one become
+    // undecryptable by the other, i.e. permanent data loss. (An earlier draft of
+    // this comment named the INTERACTIVE params; both paths are MODERATE now.)
     // Ensuring we receive uint8arrays.
 
     const saltBytes = new Uint8Array(salt); // Assuming passed as array or buffer

@@ -38,25 +38,40 @@ pub async fn handle(
     .fetch_optional(&axum_state.pg_pool)
     .await;
 
-    let file_id = match owner {
+    let (file_id, file_user_id) = match owner {
         Ok(Some(rec)) => {
             if !caller.owns(&rec.user_id, &rec.owner_api_key) {
                 return respond(404, "Chunk not found", vec![], json!({}));
             }
-            rec.file_id
+            (rec.file_id, rec.user_id)
         }
         Ok(None) => return respond(404, "Chunk not found", vec![], json!({})),
         Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
-    // 1. Mark the chunk uploaded.
-    if let Err(_e) = sqlx::query!(
-        "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = size WHERE id = $1",
-        payload.chunk_id
-    )
-    .execute(&axum_state.pg_pool)
-    .await
-    {
+    // 1. Mark the chunk uploaded, recording the REAL stored object size (via
+    //    HeadObject) rather than the client-declared size, so quota reflects
+    //    bytes actually in R2 and a dishonest client can't understate usage to
+    //    beat its plan. Fall back to the declared chunk size if HeadObject is
+    //    momentarily unavailable (e.g. read-after-write lag).
+    let storage = if file_user_id.is_some() { "sanctum" } else { "shadow" };
+    let real_size = axum_state.r2.object_size(storage, &payload.chunk_id).await.ok();
+    let upd = if let Some(sz) = real_size {
+        sqlx::query!(
+            "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2",
+            sz, payload.chunk_id
+        )
+        .execute(&axum_state.pg_pool)
+        .await
+    } else {
+        sqlx::query!(
+            "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = size WHERE id = $1",
+            payload.chunk_id
+        )
+        .execute(&axum_state.pg_pool)
+        .await
+    };
+    if upd.is_err() {
         return respond(500, "Failed to update chunk status", vec![], json!({}));
     }
 

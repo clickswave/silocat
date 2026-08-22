@@ -1170,14 +1170,10 @@
 		showDeleteFileModal = false;
 		if (!fileToDelete) return;
 
-		console.log('[Delete] Requesting delete for:', fileToDelete.id, fileToDelete.name);
 		try {
-			console.log('[Delete] Sending API request...');
-			const res = await axios.post('/api/v1/sanctum/file/delete', {
-				file_id: fileToDelete.id,
-				api_key: data.user.api_key
+			await axios.post('/api/v1/sanctum/file/delete', {
+				file_id: fileToDelete.id
 			});
-			console.log('[Delete] Success response:', res);
 			toast.success('File deleted');
 			queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
 			queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
@@ -1354,8 +1350,7 @@
 			try {
 				if (type === 'file') {
 					await axios.post('/api/v1/sanctum/file/delete', {
-						file_id: item.id,
-						api_key: data.user.api_key
+						file_id: item.id
 					});
 				} else {
 					await axios.post('/api/v1/sanctum/folder/delete', { folder_id: item.id });
@@ -2374,7 +2369,7 @@
 {/if}
 
 {#if showShareModal}
-	<ShareModal item={itemToShare} on:close={() => (showShareModal = false)} />
+	<ShareModal item={itemToShare} onclose={() => (showShareModal = false)} />
 {/if}
 
 {#if showUploadModal}

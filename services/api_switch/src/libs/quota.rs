@@ -5,11 +5,12 @@
 //! limit/used computation used by the storage-stats endpoint, and admission is
 //! decided before an upload is accepted.
 //!
-//! NOTE: `used` and the admitted size are summed from the client-declared
-//! `files.size`. A malicious client can under-declare; the complete fix is to
-//! record each chunk's real R2 object size (HeadObject) on mark-chunk-complete
-//! and compute usage from that. This check enforces the plan for honest clients
-//! and is the primary business-model guard.
+//! `used` is summed from each chunk's real R2 object size (`size_on_server`),
+//! which mark-chunk-complete records via HeadObject, so a client that
+//! under-declares `file_size` cannot understate its usage. The create-time
+//! pre-check still admits on the client-declared `file_size` (the bytes aren't
+//! stored yet), so a single upload can transiently overshoot, but the next
+//! check counts the real stored bytes.
 
 use sqlx::{Pool, Postgres};
 
@@ -90,9 +91,14 @@ pub async fn for_user(pool: &Pool<Postgres>, user_id: &str) -> Option<Quota> {
     .ok()
     .flatten()?;
 
+    // Count REAL stored bytes (each chunk's HeadObject-measured size_on_server),
+    // not the client-declared files.size, so usage can't be understated to beat
+    // the plan. Uploaded chunks of any non-deleted file count (bytes are stored
+    // whether or not the file is fully assembled yet).
     let used = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(SUM(size), 0)::BIGINT FROM files \
-         WHERE user_id = $1 AND deleted = false AND uploaded_chunks >= total_chunks",
+        "SELECT COALESCE(SUM(c.size_on_server), 0)::BIGINT \
+         FROM chunks c JOIN files f ON f.id = c.file_id \
+         WHERE f.user_id = $1 AND f.deleted = false AND c.uploaded = true",
     )
     .bind(user_id)
     .fetch_one(pool)

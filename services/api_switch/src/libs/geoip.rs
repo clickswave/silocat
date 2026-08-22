@@ -1,4 +1,4 @@
-//! Server-side IP observation + GeoLite2-City geolocation (ported from crossfyre).
+//! Server-side IP observation + GeoLite2-City geolocation.
 //!
 //! SiloCat sits behind Cloudflare -> nginx -> api_switch, so the real client IP
 //! is in `CF-Connecting-IP` (Cloudflare) or `X-Forwarded-For` / `X-Real-IP`

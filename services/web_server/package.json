@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "vite dev --host --port 12001",
 		"build": "vite build",
+		"build:node": "ADAPTER=node vite build",
+		"start": "node build",
 		"preview": "wrangler pages dev .svelte-kit/cloudflare --port 4173",
 		"prepare": "pnpm run types && svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
@@ -18,7 +20,8 @@
 		"@eslint/compat": "^1.4.0",
 		"@eslint/js": "^9.39.1",
 		"@sveltejs/adapter-cloudflare": "^7.2.4",
-		"@sveltejs/kit": "^2.49.1",
+		"@sveltejs/adapter-node": "^5.5.7",
+		"@sveltejs/kit": "^2.70.3",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
 		"@types/node": "^24",
 		"eslint": "^9.39.1",

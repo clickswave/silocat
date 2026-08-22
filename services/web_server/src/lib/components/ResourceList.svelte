@@ -298,7 +298,7 @@
 />
 
 {#if shareItem}
-	<ShareModal item={shareItem} on:close={() => { shareItem = null; invalidate(); }} />
+	<ShareModal item={shareItem} onclose={() => { shareItem = null; invalidate(); }} />
 {/if}
 
 <style lang="scss">

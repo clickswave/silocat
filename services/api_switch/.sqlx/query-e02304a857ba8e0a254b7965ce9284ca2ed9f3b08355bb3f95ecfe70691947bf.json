@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE file_requests SET upload_count = upload_count + 1 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e02304a857ba8e0a254b7965ce9284ca2ed9f3b08355bb3f95ecfe70691947bf"
+}

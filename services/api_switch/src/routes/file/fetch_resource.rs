@@ -29,10 +29,18 @@ pub async fn handle(
 
     match file_query {
         Ok(Some(file)) => {
-            let allowed = file.public_access
-                || caller
-                    .as_ref()
-                    .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+            // A non-owner reads by id only via public_access, and only when no
+            // active share protection applies (password / one-time / expiry /
+            // delete); protected shares must use the token path.
+            let now = chrono::Utc::now();
+            let share_protected = file.share_password_hash.is_some()
+                || file.share_type.as_deref() == Some("once")
+                || file.share_expires_at.map_or(false, |e| e <= now)
+                || file.deleted;
+            let allowed = caller
+                .as_ref()
+                .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
+                || (file.public_access && !share_protected);
             if !allowed {
                 return respond(404, "Resource not found", vec![], json!({}));
             }

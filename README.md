@@ -8,18 +8,21 @@
   <a href="SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-3ecf8e" /></a>
 </p>
 
-Silocat is end-to-end encrypted file sharing and storage. Files are encrypted in
-your browser before a single byte moves, so the server stores ciphertext it
-cannot open. Drop a file, share a link, and nobody in between can read it.
+Silocat is file sharing and storage with optional end-to-end encryption. Turn on
+password protection and files are encrypted in your browser before a single byte
+moves, so the server stores ciphertext it cannot open. Drop a file, share a link,
+and for encrypted uploads nobody in between can read it. Leave password protection
+off (the default) and the file is uploaded unencrypted, which the server can read.
 
 Live at **[silo.cat](https://silo.cat)**. Run it yourself with the compose file
 below, or read the code and decide for yourself whether to believe us.
 
 ## What it does
 
-- **Encrypted before it leaves.** XChaCha20-Poly1305 per chunk, with a key
-  Argon2id derives from your password on your device. Lose the password and the
-  file is gone. No recovery, no backdoor, no exceptions.
+- **Optionally encrypted before it leaves.** Turn on password protection and
+  each chunk is sealed with XChaCha20-Poly1305, keyed by Argon2id from your
+  password on your device. Lose the password and the file is gone. No recovery,
+  no backdoor, no exceptions. Leave it off and the upload is unencrypted.
 - **No account needed.** Drop up to 20 GB anonymously and share the link. A key
   in your browser lets you manage those uploads later. Anonymous drops expire
   after seven days.
@@ -38,14 +41,16 @@ below, or read the code and decide for yourself whether to believe us.
 | Select | You pick files. Nothing has moved. | Only you |
 | Encrypt | libsodium encrypts each chunk with a key Argon2id derives from your password, on your device. | Only you |
 | Upload | Only ciphertext travels. TLS wraps it again in transit. | Only you |
-| Store | We hold encrypted blobs plus metadata: size, timestamps, a content hash. | You, plus metadata to us |
+| Store | We hold the blobs (ciphertext when encrypted) plus metadata we can read: filenames, folder names, size, timestamps, and a hash of the file's plaintext. | You, plus metadata to us |
 | Share | The link carries no key. You pass the password separately. | Anyone with link + password |
 | Download | The recipient's browser fetches ciphertext and decrypts locally. | Only you |
 | Delete | Blobs are unlinked immediately and scrubbed in the next sweep. | No one |
 
-Zero-knowledge is not zero-metadata. We can see that a 4 GB file was uploaded on
-a Tuesday. We cannot see what is in it. If your threat model includes the
-former, Silocat does not solve it.
+Zero-knowledge is not zero-metadata. Even for encrypted uploads, we can see the
+filename, the folder names, the size, and the timestamps, and the content hash
+we store is a hash of the file's plaintext, so we can confirm whether a specific
+known file was uploaded. We cannot see the contents of an encrypted file. If your
+threat model includes that metadata, Silocat does not solve it.
 
 ## Self-hosting
 
@@ -77,9 +82,10 @@ A few things worth knowing:
   `WATCHCAT_ORDER_TTL_DAYS` (abandoned checkouts, default 7). If you change
   them, change the copy that promises them.
 - **Web deployment**: the hosted silo.cat serves the frontend from Cloudflare
-  Pages. The self-host compose runs the dev server for simplicity; for a
-  hardened deployment put it behind a reverse proxy or switch to
-  `@sveltejs/adapter-node`.
+  Pages. The self-host compose builds a standalone Node server with
+  `@sveltejs/adapter-node` (see `services/web_server/Dockerfile.selfhost`) and
+  runs that, not the dev server. Put it behind a TLS-terminating reverse proxy
+  (Caddy, nginx, Traefik) in a real deployment; it listens on `:12001`.
 
 ## Architecture
 

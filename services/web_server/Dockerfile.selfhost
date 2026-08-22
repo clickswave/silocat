@@ -1,0 +1,22 @@
+# Production self-host image for the web_server: builds the SvelteKit app with
+# adapter-node and runs the resulting standalone Node server. No dev server, no
+# Cloudflare/wrangler. Used by orchestration/docker-compose.selfhost.yml.
+FROM node:bookworm-slim
+
+WORKDIR /app
+
+# Install deps first for layer caching, then build with the Node adapter.
+COPY package*.json ./
+RUN npm ci || npm install
+
+COPY . .
+ENV ADAPTER=node
+RUN npm run build
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=12001
+EXPOSE 12001
+
+# adapter-node's entrypoint.
+CMD ["node", "build"]

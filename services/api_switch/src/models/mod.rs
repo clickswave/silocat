@@ -105,6 +105,10 @@ pub struct Subscription {
     pub created_on: DateTime<Utc>,
     pub expires_on: DateTime<Utc>,
     pub invited: bool,
+    // The Razorpay Subscription driving this row's recurring charges (NULL for
+    // one-time, promo, and invite/trial grants).
+    #[serde(default)]
+    pub razorpay_subscription_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, FromRow)]

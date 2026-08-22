@@ -37,6 +37,11 @@
         "ordinal": 6,
         "name": "invited",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "razorpay_subscription_id",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -49,7 +54,8 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "49a2d27e872615104c2f42e19c606d610d848e0c4b297fc140f3c56644388125"

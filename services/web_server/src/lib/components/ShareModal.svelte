@@ -1,29 +1,30 @@
 <script>
-	import { createEventDispatcher } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import Icon from '$lib/ui/Icon.svelte';
 	import axios from 'axios';
 	import { toast } from 'svelte-sonner';
 
-	export let item; // The file or folder object { id, name, type, ... }
-
-	const dispatch = createEventDispatcher();
+	// item: the file or folder object { id, name, type, ... }. onclose: called to
+	// dismiss the modal (was a `close` event dispatch before the runes migration).
+	let { item, onclose = () => {} } = $props();
 
 	// State
-	let loading = true;
-	let shareType = 'off'; // 'off', 'public', 'once'
-	let shareToken = null;
-	let downloads = 0;
-	let maxDownloads = 1;
-	let link = '';
+	let loading = $state(true);
+	let shareType = $state('off'); // 'off', 'public', 'once'
+	let shareToken = $state(null);
+	let downloads = $state(0);
+	let maxDownloads = $state(1);
+	let link = $state('');
+	let accessEvents = $state([]); // delivery receipts: who opened the link, and when
+	let receiptsLocked = $state(false); // true when receipts are gated to a paid plan
 
 	// Hardening
-	let expiresAt = null; // ISO string or null
-	let passwordProtected = false; // current saved state
-	let expiryChoice = '0'; // '0' = never, else days
-	let newPassword = ''; // new/changed password to apply
-	let removePassword = false;
-	let savingOptions = false;
+	let expiresAt = $state(null); // ISO string or null
+	let passwordProtected = $state(false); // current saved state
+	let expiryChoice = $state('0'); // '0' = never, else days
+	let newPassword = $state(''); // new/changed password to apply
+	let removePassword = $state(false);
+	let savingOptions = $state(false);
 
 	function expiryLabel(iso) {
 		if (!iso) return null;
@@ -51,6 +52,7 @@
 				const data = res.data.success.data;
 				shareType = data.share_type || 'off';
 				shareToken = data.share_token;
+				if (shareToken) loadAccessLog();
 				downloads = data.link_downloads || 0;
 				maxDownloads = data.link_max_downloads || 1;
 				expiresAt = data.expires_at || null;
@@ -70,6 +72,17 @@
 			link = `${window.location.origin}/s/${shareToken}`;
 		} else {
 			link = '';
+		}
+	}
+
+	async function loadAccessLog() {
+		try {
+			const res = await axios.post('/api/v1/sanctum/file/share/access-log', { id: item.id });
+			if (res.data.success) accessEvents = res.data.success.data.events || [];
+		} catch (e) {
+			// A free plan is gated; show an upsell rather than the receipts list.
+			if (e.response?.status === 403 || e.response?.data?.upgrade_required) receiptsLocked = true;
+			// otherwise ignore: receipts are a nice-to-have.
 		}
 	}
 
@@ -167,18 +180,18 @@
 	}
 
 	function close() {
-		dispatch('close');
+		onclose();
 	}
 </script>
 
-<div class="modal-backdrop" on:click={close}>
-	<div class="modal" on:click|stopPropagation>
+<div class="modal-backdrop" onclick={close}>
+	<div class="modal" onclick={(e) => e.stopPropagation()}>
 		<div class="modal-header">
 			<div class="head-title">
 				<span class="title-icon"><Icon icon="ri:share-forward-line" width="20" /></span>
 				<h3>Share “{item.name}”</h3>
 			</div>
-			<button class="close-btn" on:click={close} aria-label="Close">
+			<button class="close-btn" onclick={close} aria-label="Close">
 				<Icon icon="ri:close-line" width="22" />
 			</button>
 		</div>
@@ -198,19 +211,19 @@
 						<div class="toggles">
 							<button
 								class="toggle-btn {shareType === 'off' ? 'active' : ''}"
-								on:click={() => handleToggle('off')}
+								onclick={() => handleToggle('off')}
 							>
 								Off
 							</button>
 							<button
 								class="toggle-btn {shareType === 'public' ? 'active' : ''}"
-								on:click={() => handleToggle('public')}
+								onclick={() => handleToggle('public')}
 							>
 								Public
 							</button>
 							<button
 								class="toggle-btn {shareType === 'once' ? 'active' : ''}"
-								on:click={() => handleToggle('once')}
+								onclick={() => handleToggle('once')}
 							>
 								Once
 							</button>
@@ -223,12 +236,12 @@
 						<div class="input-group">
 							<input type="text" readonly value={link} />
 							<div class="actions">
-								<button class="action-btn copy" on:click={copyLink} title="Copy Link">
+								<button class="action-btn copy" onclick={copyLink} title="Copy Link">
 									<Icon icon="ri:file-copy-line" width="20" />
 								</button>
 								<button
 									class="action-btn regen"
-									on:click={handleRegenerate}
+									onclick={handleRegenerate}
 									title="Regenerate Link"
 								>
 									<Icon icon="ri:refresh-line" width="20" />
@@ -251,6 +264,30 @@
 								</span>
 							{/if}
 						</div>
+
+						{#if receiptsLocked}
+							<div class="receipts">
+								<div class="receipts-head">
+									<Icon icon="ri:eye-line" width="14" />
+									<span>See who opens this link, and when. <a href="/home/billing">Upgrade</a></span>
+								</div>
+							</div>
+						{:else if accessEvents.length}
+							<div class="receipts">
+								<div class="receipts-head">
+									<Icon icon="ri:eye-line" width="14" />
+									<span>Recent access ({accessEvents.length})</span>
+								</div>
+								<ul>
+									{#each accessEvents.slice(0, 6) as ev}
+										<li>
+											<span class="ev-when">{new Date(ev.at).toLocaleString()}</span>
+											<span class="ev-ip">{ev.ip || 'unknown'}</span>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
 
 						<!-- Link hardening options -->
 						<div class="opts">
@@ -278,6 +315,13 @@
 								/>
 							</label>
 
+							<p class="opt-hint">
+								A link password is a server-side access gate, not encryption. It
+								controls who can open the link, but it does not encrypt the file. To
+								encrypt a file so nobody (including us) can read it, turn on password
+								protection when you upload it.
+							</p>
+
 							{#if passwordProtected}
 								<label class="opt-remove">
 									<input type="checkbox" bind:checked={removePassword} />
@@ -285,7 +329,7 @@
 								</label>
 							{/if}
 
-							<button class="save-opts" on:click={applyOptions} disabled={savingOptions}>
+							<button class="save-opts" onclick={applyOptions} disabled={savingOptions}>
 								{savingOptions ? 'Saving…' : 'Save options'}
 							</button>
 						</div>
@@ -630,6 +674,39 @@
 					color: var(--ink);
 				}
 			}
+		}
+		.opt-hint {
+			margin: var(--space-1) 0 0;
+			font-size: var(--fs-xs, 0.72rem);
+			line-height: 1.45;
+			color: var(--ink-faint);
+		}
+		.receipts {
+			margin-top: var(--space-2);
+			font-size: var(--fs-xs, 0.72rem);
+			color: var(--ink-mute);
+		}
+		.receipts-head {
+			display: flex;
+			align-items: center;
+			gap: var(--space-1);
+			color: var(--ink-faint);
+			margin-bottom: var(--space-1);
+		}
+		.receipts ul {
+			list-style: none;
+			margin: 0;
+			padding: 0;
+		}
+		.receipts li {
+			display: flex;
+			justify-content: space-between;
+			gap: var(--space-2);
+			padding: 2px 0;
+		}
+		.receipts .ev-ip {
+			color: var(--ink-faint);
+			font-family: var(--font-mono, monospace);
 		}
 		.opt-remove {
 			display: flex;

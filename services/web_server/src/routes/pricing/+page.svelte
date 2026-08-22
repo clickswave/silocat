@@ -41,7 +41,13 @@
 			billNote: annual ? 'billed annually · 2 months free' : `or ${price('plus', 'annual')}/yr`,
 			tagline: '20× the space.',
 			badge: 'Recommended',
-			features: ['200 GB encrypted storage', 'Everything in Free', 'Email support'],
+			features: [
+				'200 GB encrypted storage',
+				'Everything in Free',
+				'Request a file (secure inbox)',
+				'Delivery receipts',
+				'Email support'
+			],
 			cta: 'Choose Plus',
 			href: '/auth/signup?plan=plus',
 			style: 'ghost',
@@ -55,7 +61,13 @@
 			billNote: annual ? 'billed annually · 2 months free' : `or ${price('pro', 'annual')}/yr`,
 			tagline: 'Room for everything.',
 			badge: '',
-			features: ['2 TB encrypted storage', 'Everything in Free', 'Priority support'],
+			features: [
+				'2 TB encrypted storage',
+				'Everything in Plus',
+				'Request a file (secure inbox)',
+				'Delivery receipts',
+				'Priority support'
+			],
 			cta: 'Go Pro',
 			href: '/auth/signup?plan=pro',
 			style: 'solid'
@@ -81,7 +93,7 @@
 	<main class="main">
 		<section class="head">
 			<h1>Pricing</h1>
-			<p class="sub">Every feature is free. You only pay for space.</p>
+			<p class="sub">Privacy is free for everyone. Paid plans add space and delivery tools.</p>
 
 			<div class="controls">
 				<div class="seg">

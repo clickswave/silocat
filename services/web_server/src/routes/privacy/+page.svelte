@@ -27,7 +27,7 @@
 		},
 		{
 			stage: 'Store',
-			what: 'Our servers hold encrypted blobs plus minimal metadata: size, timestamps, a content hash.',
+			what: 'Our servers hold your file blobs (ciphertext when you enable password protection, otherwise the plain file) plus metadata we can always read: filenames, folder names, size, timestamps, and a hash of the file\'s plaintext that lets us tell whether a specific known file was uploaded.',
 			who: 'You + metadata: us',
 			tone: 'mute'
 		},
@@ -72,9 +72,10 @@
 		<section class="head">
 			<h1>The security model</h1>
 			<p class="sub">
-				Zero knowledge means exactly that: your files are encrypted before they leave your device,
-				and the key never touches our servers. We could not read your files if we wanted to, were
-				paid to, or were ordered to.
+				Zero knowledge is optional and yours to switch on: turn on password protection and your
+				files are encrypted before they leave your device, and the key never touches our servers.
+				For those files we could not read them if we wanted to, were paid to, or were ordered to.
+				Leave it off and the file is uploaded unencrypted, which our servers can read.
 			</p>
 		</section>
 

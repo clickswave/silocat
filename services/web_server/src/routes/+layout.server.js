@@ -49,8 +49,20 @@ export const load = async ({ locals, url }) => {
 			}
 		}
 
+		// Never serialize the account api_key to the client. Whatever a load()
+		// returns lands in the page hydration payload, which is readable by any
+		// client-side JS, browser extension, or error logger; the api_key is a
+		// long-lived, non-expiring capability credential and must stay server-side.
+		// Every /api/v1 proxy attaches it from the session cookie, so the browser
+		// never needs it. (The raw key lives only in the httpOnly session cookie.)
+		let clientUser = user;
+		if (user) {
+			const { api_key, ...rest } = user;
+			clientUser = rest;
+		}
+
 		return {
-			user,
+			user: clientUser,
 			storage
 		};
 	} catch (e) {

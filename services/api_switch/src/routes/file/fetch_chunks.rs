@@ -45,13 +45,20 @@ pub async fn handle(
         Err(_e) => return respond(500, "Database error", vec![], json!({})),
     };
 
-    // Access control: only public files, or files the caller owns, hand out
-    // download URLs. Anonymous downloads of shared items go through the
-    // token-checked /file/public/share/* path, not this by-id endpoint.
-    let allowed = file.public_access
-        || caller
-            .as_ref()
-            .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+    // Access control. The owner always reaches their own chunks via `owns`. A
+    // non-owner gets download URLs only via public_access AND only when the file
+    // carries no active share protection (password / one-time / expiry / delete);
+    // protected shares must go through the token-checked /file/public/share/*
+    // path so those controls are actually enforced.
+    let now = chrono::Utc::now();
+    let share_protected = file.share_password_hash.is_some()
+        || file.share_type.as_deref() == Some("once")
+        || file.share_expires_at.map_or(false, |e| e <= now)
+        || file.deleted;
+    let allowed = caller
+        .as_ref()
+        .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
+        || (file.public_access && !share_protected);
     if !allowed {
         return respond(404, "File not found", vec![], json!({}));
     }

@@ -7,18 +7,19 @@ use sha2::Sha256;
 use reqwest::Client;
 use sqlx::Row;
 
-/// Paid plan → (display name, storage bytes). Mirrors order.rs plan_space/plan_name.
+/// Paid plan → (display name, storage bytes). Canonical source: libs::plans.
 fn plan_grant(identifier: &str) -> Option<(&'static str, i64)> {
-    match identifier {
-        "plus" => Some(("Plus", 200 * 1024 * 1024 * 1024)),
-        "pro" => Some(("Pro", 2 * 1024_i64.pow(4))),
-        _ => None,
-    }
+    crate::libs::plans::plan_grant(identifier)
 }
 
 #[derive(Deserialize, Debug)]
 pub struct VerifyPayload {
-    pub order_id: String,
+    // A one-time order sends order_id; a subscription checkout sends
+    // subscription_id instead (Razorpay Checkout returns razorpay_subscription_id).
+    #[serde(default)]
+    pub order_id: Option<String>,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
     pub payment_id: String,
     pub signature: String,
 }
@@ -27,8 +28,18 @@ pub async fn handle(
     State(state): State<crate::AppState>,
     Json(payload): Json<VerifyPayload>,
 ) -> impl IntoResponse {
+    // Orders and subscriptions share this endpoint. A subscription checkout
+    // returns razorpay_subscription_id (and signs payment_id|subscription_id); a
+    // one-time order returns order_id (and signs order_id|payment_id). Either way
+    // the pending row is keyed by reference_id (see order.rs).
+    let is_subscription = payload.subscription_id.is_some();
+    let reference = match payload.subscription_id.clone().or_else(|| payload.order_id.clone()) {
+        Some(r) => r,
+        None => return respond(400, "Missing order or subscription id", vec![], json!({})),
+    };
+
     // 1. Fetch the order.
-    let order = match sqlx::query!("SELECT * FROM orders WHERE reference_id = $1", payload.order_id)
+    let order = match sqlx::query!("SELECT * FROM orders WHERE reference_id = $1", reference)
         .fetch_optional(&state.pg_pool)
         .await
     {
@@ -50,8 +61,14 @@ pub async fn handle(
         Err(_e) => return respond(500, "Configuration Error", vec![], json!({})),
     };
 
-    // 2. Verify the checkout handshake signature (constant-time).
-    let msg = format!("{}|{}", payload.order_id, payload.payment_id);
+    // 2. Verify the checkout handshake signature (constant-time). Razorpay signs
+    //    payment_id|subscription_id for a subscription and order_id|payment_id for
+    //    a one-time order.
+    let msg = if is_subscription {
+        format!("{}|{}", payload.payment_id, reference)
+    } else {
+        format!("{}|{}", reference, payload.payment_id)
+    };
     let mut mac = Hmac::<Sha256>::new_from_slice(rzp_config.key_secret.as_bytes())
         .expect("HMAC can take key of any size");
     mac.update(msg.as_bytes());
@@ -106,7 +123,7 @@ pub async fn handle(
         "UPDATE orders SET status = 'completed', transactions = array_append(transactions, $1) \
          WHERE reference_id = $2 AND status = 'pending' RETURNING reference_id",
         json!({ "payment_id": payload.payment_id, "signature": payload.signature }),
-        payload.order_id
+        reference
     )
     .fetch_optional(&mut *tx)
     .await;
@@ -139,16 +156,34 @@ pub async fn handle(
     } else if let Some((plan_display, plan_space)) = plan_grant(&order.subscription_name) {
         // Interval literal is chosen from a fixed set (never user input), safe to inline.
         let interval = if order.subscription_cycle == "annual" { "1 year" } else { "1 month" };
+        // Replace any currently-active PAID plan (invited = false) before granting
+        // the new one, so a renewal or upgrade bought before the old plan lapses
+        // does not STACK quota (two active Pro rows would sum to 4 TB). Promo and
+        // invite grants (invited = true) are left untouched.
+        if let Err(_e) = sqlx::query(
+            "UPDATE subscriptions SET expires_on = NOW() \
+             WHERE created_by = $1 AND invited = false AND expires_on > NOW()"
+        )
+        .bind(&order.user_id)
+        .execute(&mut *tx)
+        .await
+        {
+            let _ = tx.rollback().await;
+            return respond(500, "Failed to update subscription", vec![], json!({}));
+        }
+        // Link the local subscription to the Razorpay Subscription (when this
+        // grant came from one) so subscription.charged webhooks can extend it.
         let sub_res = sqlx::query(
             &format!(
-                "INSERT INTO subscriptions (name, additional_space, created_by, expires_on) \
-                 VALUES ($1, $2, $3, NOW() + INTERVAL '{}') RETURNING id",
+                "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, razorpay_subscription_id) \
+                 VALUES ($1, $2, $3, NOW() + INTERVAL '{}', $4) RETURNING id",
                 interval
             )
         )
         .bind(plan_display)
         .bind(plan_space)
         .bind(&order.user_id)
+        .bind(if is_subscription { Some(reference.clone()) } else { None::<String> })
         .fetch_one(&mut *tx)
         .await;
 

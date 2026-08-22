@@ -29,12 +29,21 @@ pub async fn handle(
 
     match file {
         Ok(Some(file)) => {
-            // Access control: public files are readable by anyone; otherwise the
-            // caller must own the file. Blocks reading another user's file by id.
-            let allowed = file.public_access
-                || caller
-                    .as_ref()
-                    .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+            // Access control. The owner always reaches their own file (incl.
+            // trashed) via `owns`. A non-owner may read a file only through the
+            // public_access shortcut, and ONLY when the file carries no active
+            // share protection: a password, a one-time link, an expiry, or a
+            // soft-delete must force the token-checked /file/public/share/* path,
+            // never leak by id.
+            let now = chrono::Utc::now();
+            let share_protected = file.share_password_hash.is_some()
+                || file.share_type.as_deref() == Some("once")
+                || file.share_expires_at.map_or(false, |e| e <= now)
+                || file.deleted;
+            let allowed = caller
+                .as_ref()
+                .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
+                || (file.public_access && !share_protected);
             if !allowed {
                 return respond(404, "File not found", vec![], json!({}));
             }

@@ -19,13 +19,9 @@ use sha2::Sha256;
 use crate::routes::respond;
 use sqlx::Row;
 
-/// Paid plan → (display name, storage bytes). Must match order.rs / verify.rs.
+/// Paid plan → (display name, storage bytes). Canonical source: libs::plans.
 fn plan_grant(identifier: &str) -> Option<(&'static str, i64)> {
-    match identifier {
-        "plus" => Some(("Plus", 200 * 1024 * 1024 * 1024)),
-        "pro" => Some(("Pro", 2 * 1024_i64.pow(4))),
-        _ => None,
-    }
+    crate::libs::plans::plan_grant(identifier)
 }
 
 fn webhook_secret() -> Option<String> {
@@ -41,6 +37,17 @@ fn razorpay_order_id(event: &Value) -> Option<String> {
         .and_then(|v| v.as_str())
         .or_else(|| event.pointer("/payload/payment/entity/order_id").and_then(|v| v.as_str()))
         .map(|s| s.to_string())
+}
+
+/// The amount + currency Razorpay actually settled, from either the order or the
+/// payment entity on the event.
+fn razorpay_paid_amount(event: &Value) -> Option<(i64, String)> {
+    let entity = event
+        .pointer("/payload/order/entity")
+        .or_else(|| event.pointer("/payload/payment/entity"))?;
+    let amount = entity.get("amount").and_then(|v| v.as_i64())?;
+    let currency = entity.get("currency").and_then(|v| v.as_str())?.to_string();
+    Some((amount, currency))
 }
 
 pub async fn handle(
@@ -78,7 +85,7 @@ pub async fn handle(
     match event_type {
         "order.paid" | "payment.captured" => {
             if let Some(oid) = razorpay_order_id(&event) {
-                if let Err(e) = reconcile_and_grant(&state, &oid).await {
+                if let Err(e) = reconcile_and_grant(&state, &oid, razorpay_paid_amount(&event)).await {
                     eprintln!("[razorpay-webhook] grant failed for {}: {:?}", oid, e);
                 }
             }
@@ -100,6 +107,16 @@ pub async fn handle(
                 }
             }
         }
+        "subscription.charged" => {
+            if let Err(e) = handle_subscription_charged(&state, &event).await {
+                eprintln!("[razorpay-webhook] subscription.charged failed: {:?}", e);
+            }
+        }
+        "subscription.cancelled" | "subscription.halted" | "subscription.completed" => {
+            // The mandate stopped: we just stop extending. The user keeps access
+            // until the current expires_on, then the plan lapses naturally (WatchCat
+            // nulls the pointer and quota reclaims). No immediate action needed.
+        }
         _ => {}
     }
 
@@ -109,9 +126,13 @@ pub async fn handle(
 
 /// Grant an order's benefits if it is still pending (idempotent, atomic). Same
 /// grant shape as /billing/verify: the conditional claim serialises with it.
-async fn reconcile_and_grant(state: &crate::AppState, order_id: &str) -> anyhow::Result<()> {
+async fn reconcile_and_grant(
+    state: &crate::AppState,
+    order_id: &str,
+    paid: Option<(i64, String)>,
+) -> anyhow::Result<()> {
     let order = sqlx::query!(
-        "SELECT user_id, additional_space, subscription_name, subscription_cycle, status FROM orders WHERE reference_id = $1",
+        "SELECT user_id, additional_space, subscription_name, subscription_cycle, status, amount, currency FROM orders WHERE reference_id = $1",
         order_id
     )
     .fetch_optional(&state.pg_pool)
@@ -120,6 +141,19 @@ async fn reconcile_and_grant(state: &crate::AppState, order_id: &str) -> anyhow:
         Some(o) if o.status == "pending" => o,
         _ => return Ok(()), // already completed/failed/unknown: nothing to do
     };
+
+    // Defense in depth on top of the HMAC: grant only if what Razorpay actually
+    // captured meets the order's expected amount and currency, so a partial
+    // capture or a replayed event for a different order can't unlock a plan.
+    if let Some((paid_amt, paid_cur)) = paid {
+        if paid_amt < order.amount || !paid_cur.eq_ignore_ascii_case(&order.currency) {
+            eprintln!(
+                "[razorpay-webhook] amount/currency mismatch for {}: captured {} {} vs order {} {}; not granting",
+                order_id, paid_amt, paid_cur, order.amount, order.currency
+            );
+            return Ok(());
+        }
+    }
 
     let mut tx = state.pg_pool.begin().await?;
     let claimed = sqlx::query(
@@ -141,16 +175,30 @@ async fn reconcile_and_grant(state: &crate::AppState, order_id: &str) -> anyhow:
             .await?;
     } else if let Some((plan_display, plan_space)) = plan_grant(&order.subscription_name) {
         let interval = if order.subscription_cycle == "annual" { "1 year" } else { "1 month" };
+        // Replace any active paid plan first so renewals/upgrades don't stack quota
+        // (see the same guard in verify.rs). Promo/invite grants are left alone.
+        sqlx::query(
+            "UPDATE subscriptions SET expires_on = NOW() \
+             WHERE created_by = $1 AND invited = false AND expires_on > NOW()"
+        )
+        .bind(&order.user_id)
+        .execute(&mut *tx)
+        .await?;
+        // A Razorpay subscription id ("sub_...") as the reference means this grant
+        // came from a recurring subscription: link the row so subscription.charged
+        // renewals can extend it.
+        let rzp_sub = if order_id.starts_with("sub_") { Some(order_id.to_string()) } else { None };
         let row = sqlx::query(
             &format!(
-                "INSERT INTO subscriptions (name, additional_space, created_by, expires_on) \
-                 VALUES ($1, $2, $3, NOW() + INTERVAL '{}') RETURNING id",
+                "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, razorpay_subscription_id) \
+                 VALUES ($1, $2, $3, NOW() + INTERVAL '{}', $4) RETURNING id",
                 interval
             )
         )
         .bind(plan_display)
         .bind(plan_space)
         .bind(&order.user_id)
+        .bind(rzp_sub)
         .fetch_one(&mut *tx)
         .await?;
         let sub_id: String = row.get("id");
@@ -162,6 +210,63 @@ async fn reconcile_and_grant(state: &crate::AppState, order_id: &str) -> anyhow:
     }
 
     tx.commit().await?;
+    Ok(())
+}
+
+/// Extend a subscription's expiry by one billing cycle (on a renewal charge).
+async fn extend_subscription(state: &crate::AppState, rzp_sub_id: &str) -> anyhow::Result<()> {
+    let cycle: Option<String> = sqlx::query_scalar(
+        "SELECT subscription_cycle FROM orders WHERE reference_id = $1 ORDER BY created_on DESC LIMIT 1",
+    )
+    .bind(rzp_sub_id)
+    .fetch_optional(&state.pg_pool)
+    .await?;
+    let interval = if cycle.as_deref() == Some("annual") { "1 year" } else { "1 month" };
+    // Extend from the later of NOW and the current expiry, so a slightly-early
+    // renewal charge never shortens the paid period.
+    sqlx::query(&format!(
+        "UPDATE subscriptions SET expires_on = GREATEST(expires_on, NOW()) + INTERVAL '{}' \
+         WHERE razorpay_subscription_id = $1",
+        interval
+    ))
+    .bind(rzp_sub_id)
+    .execute(&state.pg_pool)
+    .await?;
+    Ok(())
+}
+
+/// A subscription was charged. Period 1 is granted by /billing/verify; this
+/// EXTENDS on later renewal charges, and also acts as the server-side safety net
+/// that grants period 1 if the browser never reached /verify.
+async fn handle_subscription_charged(state: &crate::AppState, event: &Value) -> anyhow::Result<()> {
+    let sub_id = match event.pointer("/payload/subscription/entity/id").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    let paid_count = event
+        .pointer("/payload/subscription/entity/paid_count")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM subscriptions WHERE razorpay_subscription_id = $1 LIMIT 1",
+    )
+    .bind(sub_id)
+    .fetch_optional(&state.pg_pool)
+    .await?;
+
+    if existing.is_some() {
+        // Already granted period 1 (verify.rs). Extend only on later charges so a
+        // duplicated first-charge event can't double-count the period.
+        if paid_count > 1 {
+            extend_subscription(state, sub_id).await?;
+        }
+        return Ok(());
+    }
+
+    // No local row yet: grant period 1 from the pending order (safety net for a
+    // user who paid then closed the tab before /verify ran).
+    reconcile_and_grant(state, sub_id, None).await?;
     Ok(())
 }
 

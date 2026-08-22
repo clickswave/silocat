@@ -249,6 +249,7 @@ pub async fn handle(
                                         created_on: row.get("created_on"),
                                         expires_on: row.get("expires_on"),
                                         invited: row.get("invited"),
+                                        razorpay_subscription_id: None,
                                     });
                                     let _ = sqlx::query("UPDATE signup_promos SET uses_count = uses_count + 1 WHERE code = $1")
                                         .bind(code)
@@ -280,7 +281,14 @@ pub async fn handle(
                     let expires_on = Utc::now() + chrono::Duration::days(days);
                     
                     // We use sqlx::query (not macro) to match the surrounding style for dynamic inserts without macro overhead if DB not present
-                    let sub_res = sqlx::query("INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) VALUES ('Pro', 1099511627776, $1, $2, TRUE) RETURNING *")
+                    // Canonical Pro grant. This used to hardcode 1 TiB
+                    // (1099511627776) while billing Pro grants 2 TB; libs::plans is
+                    // now the single source so invited and paid Pro match.
+                    let (pro_name, pro_bytes) = crate::libs::plans::plan_grant("pro")
+                        .unwrap_or(("Pro", 2 * crate::libs::plans::TIB));
+                    let sub_res = sqlx::query("INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) VALUES ($1, $2, $3, $4, TRUE) RETURNING *")
+                        .bind(pro_name)
+                        .bind(pro_bytes)
                         .bind(&user.id)
                         .bind(expires_on)
                         .fetch_optional(&axum_state.pg_pool)
@@ -302,8 +310,9 @@ pub async fn handle(
                             created_on: row.get("created_on"),
                             expires_on: row.get("expires_on"),
                             invited: row.get("invited"),
+                            razorpay_subscription_id: None,
                         };
-                        
+
                         // Update User Record
                         let _ = sqlx::query!("UPDATE users SET subscription_id = $1 WHERE id = $2", sub_id, user.id)
                             .execute(&axum_state.pg_pool)

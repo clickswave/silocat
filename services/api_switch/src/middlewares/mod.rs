@@ -10,7 +10,7 @@ pub mod admin_secret;
 pub mod resolve_identity;
 
 // ---- per-caller internal auth -----------------------------------------------
-// Identical model to crossfyre's api_switch: each backend authenticates with its
+// Per-service credentials: each backend authenticates with its
 // OWN header + secret (per-service credentials), so a call is attributable to a
 // specific service and one service's secret rotates without touching the others.
 // Header names are configurable so the published source does not fingerprint the

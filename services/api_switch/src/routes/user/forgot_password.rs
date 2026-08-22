@@ -66,13 +66,10 @@ pub async fn handle(
     if let Some(last_sent) = otp_last_sent_at {
         let diff = chrono::Utc::now().signed_duration_since(last_sent);
         if diff.num_seconds() < 60 {
-            let retry_after = 60 - diff.num_seconds();
-            return respond(
-                429,
-                "Too Many Requests",
-                vec![format!("Please wait {} seconds before requesting another code", retry_after)],
-                json!({ "retry_after": retry_after }),
-            );
+            // Within the per-account cooldown: silently skip the resend and give
+            // the SAME generic response as an unknown email. Returning a distinct
+            // 429 only when the account exists is an account-enumeration oracle.
+            return generic_ok();
         }
     }
 

@@ -403,13 +403,116 @@ pub struct PublicChunkResponse {
     pub salt: Option<String>,
 }
 
+/// Record a delivery receipt: an authorized access to a shared link. Best effort,
+/// so a logging failure never blocks the download.
+async fn record_share_access(
+    pool: &sqlx::PgPool,
+    token: &str,
+    file_id: &str,
+    owner_user_id: &Option<String>,
+    ip: &str,
+    user_agent: Option<&str>,
+) {
+    let _ = sqlx::query(
+        "INSERT INTO share_access_events (share_token, file_id, owner_user_id, ip, user_agent) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(token)
+    .bind(file_id)
+    .bind(owner_user_id)
+    .bind(ip)
+    .bind(user_agent)
+    .execute(pool)
+    .await;
+}
+
+#[derive(Deserialize)]
+pub struct AccessLogPayload {
+    pub id: String, // a file or folder id the caller owns
+}
+
+/// Owner-only: the delivery receipts (who accessed the link, and when) for one of
+/// the caller's shared files or folders. The "proof of delivery" surface that
+/// makes secure delivery a paid feature.
+pub async fn access_log(
+    State(axum_state): State<crate::AppState>,
+    Extension(caller): Extension<Option<Caller>>,
+    Json(payload): Json<AccessLogPayload>,
+) -> impl IntoResponse {
+    let caller = match caller.as_ref() {
+        Some(c) => c,
+        None => return respond(401, "Unauthorized", vec!["Authentication required".to_string()], json!({})),
+    };
+
+    // Resolve the shared resource's token, checking ownership (file, then folder).
+    let file = sqlx::query!(
+        "SELECT share_token, user_id, owner_api_key FROM files WHERE id = $1",
+        payload.id
+    )
+    .fetch_optional(&axum_state.pg_pool)
+    .await;
+    let token: Option<String> = match file {
+        Ok(Some(f)) if caller.owns(&f.user_id, &f.owner_api_key) => f.share_token,
+        Ok(Some(_)) => return respond(404, "Not found", vec![], json!({})),
+        _ => {
+            let folder = sqlx::query!(
+                "SELECT share_token, user_id, owner_api_key FROM folders WHERE id = $1",
+                payload.id
+            )
+            .fetch_optional(&axum_state.pg_pool)
+            .await;
+            match folder {
+                Ok(Some(fo)) if caller.owns(&fo.user_id, &fo.owner_api_key) => fo.share_token,
+                _ => return respond(404, "Not found", vec![], json!({})),
+            }
+        }
+    };
+
+    // Ownership is confirmed. Delivery receipts are a paid feature (the access
+    // history is recorded for everyone, so it is all there the moment a free user
+    // upgrades). A non-owner already got a 404 above, so this cannot leak.
+    if !crate::libs::plans::is_paid(&axum_state.pg_pool, &caller.user_id.clone().unwrap_or_default()).await {
+        return respond(
+            403,
+            "Upgrade required",
+            vec!["Delivery receipts are a paid feature. Upgrade to see who opened your links, and when.".to_string()],
+            json!({ "upgrade_required": true, "feature": "delivery_receipts" }),
+        );
+    }
+
+    let token = match token {
+        Some(t) => t,
+        None => return respond(200, "No share", vec![], json!({ "events": [], "count": 0 })),
+    };
+
+    let events = sqlx::query!(
+        "SELECT ip, user_agent, created_at FROM share_access_events \
+         WHERE share_token = $1 ORDER BY created_at DESC LIMIT 100",
+        token
+    )
+    .fetch_all(&axum_state.pg_pool)
+    .await;
+
+    match events {
+        Ok(rows) => {
+            let list: Vec<_> = rows
+                .into_iter()
+                .map(|e| json!({ "ip": e.ip, "user_agent": e.user_agent, "at": e.created_at }))
+                .collect();
+            let count = list.len();
+            respond(200, "Access log", vec![], json!({ "events": list, "count": count }))
+        }
+        Err(_e) => respond(500, "Database error", vec![], json!({})),
+    }
+}
+
 pub async fn public_get_info(
     State(axum_state): State<crate::AppState>,
     Path(token): Path<String>,
 ) -> impl IntoResponse {
     // Check files
     let file = sqlx::query!(
-        "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, name, size, mime, share_type, link_downloads, link_max_downloads, encrypted, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -458,7 +561,7 @@ pub async fn public_get_info(
 
     // Check folders
     let folder = sqlx::query!(
-        "SELECT id, name, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, name, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -542,7 +645,7 @@ pub async fn public_fetch_file_chunks(
 
     // Verify folder token
     let folder = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -585,7 +688,7 @@ pub async fn public_fetch_file_chunks(
         // Since `list_files` does not Recurse, `public_authorize_download` for folder will likely only list top-level files.
         
         let file = sqlx::query!(
-            "SELECT id, user_id FROM files WHERE id = $1 AND folder_id = $2",
+            "SELECT id, user_id FROM files WHERE id = $1 AND folder_id = $2 AND deleted = false",
             file_id,
             folder_rec.id
         )
@@ -657,7 +760,7 @@ pub async fn public_authorize_download(
 
     // Check file
     let file_query = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads, user_id, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, share_type, link_downloads, link_max_downloads, user_id, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -700,6 +803,17 @@ pub async fn public_authorize_download(
             Ok(None) => return respond(410, "This safe-link has expired.", vec![], json!({})),
             Err(_e) => return respond(500, "Database error", vec![], json!({})),
         }
+
+        // Delivery receipt: log this authorized access for the owner (best effort).
+        record_share_access(
+            &axum_state.pg_pool,
+            &token,
+            &r.id,
+            &r.user_id,
+            &client_ip,
+            headers.get("user-agent").and_then(|v| v.to_str().ok()),
+        )
+        .await;
 
         // FETCH CHUNKS LOGIC
         let storage_type = if r.user_id.is_some() { "sanctum" } else { "shadow" };
@@ -744,7 +858,7 @@ pub async fn public_authorize_download(
     
     // Check folder
     let folder = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off'",
+        "SELECT id, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash FROM folders WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
