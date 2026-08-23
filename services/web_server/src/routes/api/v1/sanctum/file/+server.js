@@ -23,7 +23,6 @@ export async function POST(event) {
         body.storage_type = 'sanctum'; // Explicitly set storage type
 
     } catch (e) {
-        console.log(e);
         return json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 

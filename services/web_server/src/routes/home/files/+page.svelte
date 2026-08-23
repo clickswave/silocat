@@ -42,12 +42,9 @@
 
 	async function fetchFoldersFn() {
 		try {
-			console.log('[FetchFolders] Requesting root folders...');
-			console.log('[FetchFolders] Requesting folders for parent:', currentFolderId);
 			let { data } = await FrontendClient.post('/api/v1/sanctum/folder/list', {
 				parent_id: currentFolderId || null
 			}); // Filter by parent
-			console.log('[FetchFolders] Response:', data);
 
 			// Backend returns: { status: 200, data: { folders: [...] } }
 			if (data && data.data && data.data.folders) {
@@ -134,6 +131,7 @@
 	} from '$lib/chacha.js';
 	import sodium from 'libsodium-wrappers-sumo';
 	import { downloadFile, fetchDecryptedBlob } from '$lib/download.js';
+	import { generatePassword } from '$lib/password.js';
 	import { fade, scale } from 'svelte/transition';
 	import JSZip from 'jszip';
 
@@ -313,12 +311,10 @@
 		if (!name) return;
 
 		try {
-			console.log('Creating folder:', name);
 			const res = await axios.post('/api/v1/sanctum/folder/create', {
 				name,
 				parent_id: currentFolderId
 			});
-			console.log('Folder created response:', res);
 
 			if (res.data && res.data.data && res.data.data.id) {
 				toast.success('Folder created');
@@ -758,13 +754,6 @@
 		files = files.filter((_, i) => i !== index);
 	}
 
-	function generatePassword() {
-		const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-		let pass = '';
-		for (let i = 0; i < 16; i++) pass += chars.charAt(Math.floor(Math.random() * chars.length));
-		return pass;
-	}
-
 	// --- Upload Logic ---
 	const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
 
@@ -917,8 +906,6 @@
 				}
 				uploadStats.phase = 'Uploading…';
 
-				console.log(`[Upload] Chunk ${i} URL:`, serverChunk.presigned_url);
-				console.log(`[Upload] Chunk ${i} Size:`, dataToUpload.byteLength);
 
 				const MAX_RETRIES = 3;
 				let lastError;

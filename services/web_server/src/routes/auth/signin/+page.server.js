@@ -50,7 +50,6 @@ export const actions = {
 				(res) => res.data
 			);
 			await locals.session.user.set(response.data.user);
-			console.log('[*] User logged in successfully');
 
 			return {
 				success: response

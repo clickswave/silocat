@@ -23,8 +23,6 @@ async function validateRequest(event) {
 		isp: headers.get('cf-isp') || "Unknown"
 	};
 
-	console.log("[log 1]");
-
 	let payload = {
 		api_key: apiKey, user_agent: userAgent, ip: clientIp, geo
 	};
@@ -42,7 +40,6 @@ async function validateRequest(event) {
 			errors: 'Something went wrong trying to validate user, please try again later',
 			data: {}
 		};
-		console.log({ error });
 		return { success: false, error };
 	}
 }
@@ -81,7 +78,6 @@ export async function POST(event) {
 		}
 
 	} catch (e) {
-		console.log(e);
 		return json({ error: 'Invalid JSON body' }, { status: 400 });
 	}
 

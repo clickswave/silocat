@@ -14,8 +14,6 @@ const { PUBLIC_TURNSTILE_KEY } = env;
 export const load = async ({ locals }) => {
 	let session = await locals.session.get();
 
-	console.log({ session });
-
 	if (session) throw redirect(302, '/home');
 
 	return {
@@ -44,7 +42,6 @@ export const actions = {
 		let turnstile_token = data.get('cf-turnstile-response');
 		let { success } = await validateTurnstileToken(turnstile_token);
 
-		console.log({SIGNUP_RESPONSE: {data, success}});
 		if (!success) {
 			return {
 				error: {
@@ -63,7 +60,6 @@ export const actions = {
 			};
 			let response = await ApiServerClient.post(ApiServerRoutes.registerPersonal, payload, { headers: clientIpHeaders(event) }).then((res) => res.data);
 			await locals.session.user.set(response.data.user);
-			console.log('[*] User logged in successfully');
 
 			return {
 				success: response

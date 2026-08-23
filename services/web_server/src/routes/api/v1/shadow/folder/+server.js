@@ -31,7 +31,6 @@ export async function POST({ request, locals }) {
         if (apiKey) {
             payload.owner_api_key = apiKey;
         } else if (!sessionUser) {
-            console.log('[SHADOW_CREATE_FOLDER] No API Key or Session found');
         }
 
         let response = await ApiServerClient.post(ApiServerRoutes.createFolder, payload, { headers: { 'X-Api-Key': sessionUser?.api_key || apiKey || undefined } }).then(res => res.data);
