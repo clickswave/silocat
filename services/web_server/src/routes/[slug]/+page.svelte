@@ -1,9 +1,12 @@
 <script>
 	import { page } from '$app/stores';
+	import { CHUNK_SIZE } from '$lib/chunking.js';
+	import { guardNavigation, holdTransfer } from '$lib/transferGuard.js';
 	import { onMount } from 'svelte';
 	import axios from 'axios';
 	import sodium from 'libsodium-wrappers-sumo';
-	import { decryptChunk, deriveKeyFromPassword } from '$lib/chacha.js';
+	import { decryptChunk, deriveKey } from '$lib/cryptoClient.js';
+	import { createFileSink } from '$lib/fileSink.js';
 	import { toast } from 'svelte-sonner';
 	import Icon from '$lib/ui/Icon.svelte';
 	import Navbar from '$lib/components/Navbar.svelte';
@@ -35,10 +38,11 @@
 		return 'ri:file-3-line';
 	}
 
-	const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
 
 	// Server-rendered Open Graph data (from +page.server.js) for link previews.
 	let { data } = $props();
+
+	guardNavigation('A transfer is still running. Leaving this page will cancel it.');
 	const og = $derived(
 		data?.og || {
 			title: 'Secure download on Silocat',
@@ -110,7 +114,6 @@
 
 	let isDownloading = $state(false);
 	let progress = $state(0);
-	let downloadUrl = $state(null);
 	let error = $state(null);
 
 	let pollingInterval;
@@ -184,7 +187,16 @@
 	let isWaiting = $state(false);
 	let uploadProgress = $state(0);
 
-	async function downloadFileBytes(fileTarget, onProgress) {
+	/**
+	 * Pull a file down chunk by chunk, decrypting as it goes.
+	 *
+	 * Polls, because on this page a download can start while the uploader is still
+	 * pushing chunks. Pass a `sink` to write each chunk straight to disk and get
+	 * nothing back; omit it to accumulate and receive a Blob, which only the zip
+	 * path needs (JSZip cannot take a stream). Accumulating was previously the
+	 * only mode, which is why a large single file could not be downloaded here.
+	 */
+	async function downloadFileBytes(fileTarget, onProgress, sink = null) {
 		const downloadedChunks = [];
 		let downloadedBytes = 0;
 		let processedChunkCount = 0;
@@ -218,7 +230,7 @@
 					const firstChunk = chunks[0];
 					if (firstChunk.salt) {
 						const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-						key = await deriveKeyFromPassword(password, saltBytes);
+						key = await deriveKey(password, saltBytes);
 					}
 				}
 
@@ -259,7 +271,8 @@
 						}
 					}
 
-					downloadedChunks.push(finalBytes);
+					if (sink) await sink.write(finalBytes);
+					else downloadedChunks.push(finalBytes);
 					downloadedBytes += chunk.size;
 					processedChunkCount++;
 
@@ -276,7 +289,7 @@
 			}
 		}
 
-		return new Blob(downloadedChunks, { type: fileTarget.mime });
+		return sink ? null : new Blob(downloadedChunks, { type: fileTarget.mime });
 	}
 
 	async function startDownload(targetFile = null) {
@@ -288,37 +301,44 @@
 		progress = 0;
 		currentDownloadProgress = 0;
 		uploadProgress = 0;
-		downloadUrl = null;
 		isWaiting = false;
 
+		// Opened before the first byte, so a dismissed save dialog costs nothing and
+		// the browser knows the name and size up front.
+		let sink = null;
+		const releaseTransfer = holdTransfer();
 		try {
-			const blob = await downloadFileBytes(fileTarget, (pct) => {
-				progress = pct;
-				currentDownloadProgress = pct;
-				// Logic to update uploadProgress/isWaiting based on polling is encapsulated in helper?
-				// Not fully. downloadFileBytes encapsulates the LOOP.
-				// If we want "uploadProgress" UI (remote progress), we need to pass back data.
-				// For now, simple progress bar is enough.
+			sink = await createFileSink(fileTarget.name, {
+				size: Number(fileTarget.size) || 0,
+				mime: fileTarget.mime
 			});
 
-			if (!isDownloading) return; // Cancelled
+			await downloadFileBytes(
+				fileTarget,
+				(pct) => {
+					progress = pct;
+					currentDownloadProgress = pct;
+				},
+				sink
+			);
 
-			downloadUrl = URL.createObjectURL(blob);
+			if (!isDownloading) {
+				await sink.abort(new Error('Cancelled')).catch(() => {});
+				return; // Cancelled
+			}
 
-			const a = document.createElement('a');
-			a.href = downloadUrl;
-			a.download = fileTarget.name;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
+			await sink.close();
+			sink = null;
 
 			toast.success('Download complete!');
 		} catch (e) {
+			await sink?.abort(e).catch(() => {});
+			if (e?.name === 'SinkCancelled') return;
 			console.error(e);
 			toast.error('Download failed: ' + e.message);
 		} finally {
-			// Only clear if not in zip mode? startDownload is single.
 			isDownloading = false;
+			releaseTransfer();
 		}
 	}
 	import JSZip from 'jszip';

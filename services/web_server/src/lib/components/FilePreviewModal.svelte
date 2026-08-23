@@ -2,12 +2,12 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import { onMount, onDestroy } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
-	import { fetchDecryptedBlob } from '$lib/download.js';
+	import { fetchDecryptedBlob, PREVIEW_MAX_BYTES } from '$lib/download.js';
 
 	// file: { id, name, mime, size, encrypted, type }
 	let { file, password = null, onclose = () => {}, ondownload = () => {} } = $props();
 
-	let status = $state('loading'); // 'loading' | 'ready' | 'error' | 'unsupported'
+	let status = $state('loading'); // 'loading' | 'ready' | 'error' | 'unsupported' | 'too-large'
 	let url = $state(null);
 	let error = $state('');
 	let progress = $state(0);
@@ -15,6 +15,8 @@
 	let textContent = $state('');
 
 	let controller = new AbortController();
+
+	const previewCap = `${Math.round(PREVIEW_MAX_BYTES / (1024 * 1024))} MB`;
 
 	function resolveKind(mime = '') {
 		if (mime.startsWith('image/')) return 'image';
@@ -44,6 +46,13 @@
 			status = 'ready';
 		} catch (e) {
 			if (controller.signal.aborted) return;
+			// Preview renders from an object URL, so it genuinely needs the whole
+			// file resident. Above the cap that is a bad trade: it would pull down
+			// gigabytes to show a thumbnail. Say so instead of trying.
+			if (e?.message === 'TOO_LARGE_TO_PREVIEW') {
+				status = 'too-large';
+				return;
+			}
 			console.error('[preview]', e);
 			error = e?.message || 'Could not load preview';
 			status = 'error';
@@ -88,6 +97,18 @@
 					<Icon name="alert" size={30} stroke={1.4} />
 					<span class="pv-state-title">Could not open this file</span>
 					<span class="pv-state-line">{error}</span>
+				</div>
+			{:else if status === 'too-large'}
+				<div class="pv-state">
+					<Icon name="file" size={32} stroke={1.3} />
+					<span class="pv-state-title">Too large to preview</span>
+					<span class="pv-state-line">
+						Preview holds the whole file in memory, so it stops at {previewCap}. Downloading
+						writes straight to disk and has no such limit.
+					</span>
+					<button type="button" class="pv-cta" onclick={() => ondownload()}>
+						<Icon name="download" size={15} /> Download instead
+					</button>
 				</div>
 			{:else if status === 'unsupported'}
 				<div class="pv-state">

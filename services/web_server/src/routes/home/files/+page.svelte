@@ -1,5 +1,7 @@
 <script>
 	import FolderCard from '$lib/components/FolderCard.svelte';
+	import { CHUNK_SIZE } from '$lib/chunking.js';
+	import { holdTransfer } from '$lib/transferGuard.js';
 	import FileCard from '$lib/components/FileCard.svelte';
 	import { flip } from 'svelte/animate'; // Add flip import for smooth list reordering animation
 	import { FrontendClient } from '$lib/frontendClient.js';
@@ -122,13 +124,17 @@
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from '$lib/toast.js';
 	import axios from 'axios';
+	// generateSalt/generateNonce are plain RNG calls and stay on this thread.
+	// Hashing, Argon2id and the per-chunk cipher all go to the shared worker: they
+	// are the calls that freeze the tab.
+	import { generateSalt, generateNonce } from '$lib/chacha.js';
 	import {
+		hashFile,
+		deriveKey,
 		encryptChunk,
-		deriveKeyFromPassword,
-		generateSalt,
-		generateNonce,
-		decryptChunk
-	} from '$lib/chacha.js';
+		decryptChunk,
+		terminateCrypto
+	} from '$lib/cryptoClient.js';
 	import sodium from 'libsodium-wrappers-sumo';
 	import { downloadFile, fetchDecryptedBlob } from '$lib/download.js';
 	import { generatePassword } from '$lib/password.js';
@@ -257,7 +263,7 @@
 						if (!firstChunk.salt) throw new Error(`File ${file.name} missing salt.`);
 						const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
 						// Using `decryptionPassword` if set
-						fileKey = await deriveKeyFromPassword(decryptionPassword, saltBytes);
+						fileKey = await deriveKey(decryptionPassword, saltBytes);
 					}
 
 					const downloadedChunks = [];
@@ -447,7 +453,7 @@
 		// Abort alone only takes effect at the next await boundary. Hashing and
 		// key derivation are single long worker calls, so the worker itself has
 		// to be stopped for the cross to feel immediate.
-		terminateWorker(UPLOAD_HALTED);
+		terminateCrypto(UPLOAD_HALTED);
 	}
 	let showUploadModal = $state(false);
 	let encryptionEnabled = $state(false);
@@ -758,70 +764,6 @@
 	}
 
 	// --- Upload Logic ---
-	const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
-
-	// Worker Integration
-	import CryptoWorker from '$lib/workers/crypto.worker.js?worker';
-
-	let cryptoWorker;
-	let workerCallbacks = new Map();
-
-	function initWorker() {
-		if (!cryptoWorker) {
-			cryptoWorker = new CryptoWorker();
-			cryptoWorker.onmessage = (e) => {
-				const { id, status, result, error } = e.data;
-				if (id && workerCallbacks.has(id)) {
-					const { resolve, reject } = workerCallbacks.get(id);
-					if (status === 'success') resolve(result);
-					else reject(new Error(error));
-					workerCallbacks.delete(id);
-				}
-			};
-		}
-	}
-
-	function callWorker(type, payload, transferables = []) {
-		initWorker();
-		return new Promise((resolve, reject) => {
-			const id = Math.random().toString(36).substring(7);
-			workerCallbacks.set(id, { resolve, reject });
-			cryptoWorker.postMessage({ id, type, payload }, transferables);
-		});
-	}
-
-	/**
-	 * Stop the worker mid-call.
-	 *
-	 * Hashing a large file is one long message round trip, so a flag checked on
-	 * return does nothing until it finishes: on a 750MB file that is the entire
-	 * wait. Terminating is the only way to interrupt it. Every pending call is
-	 * rejected first, because a terminated worker will never answer them and the
-	 * awaiting code would hang forever. A fresh worker is created lazily on the
-	 * next call.
-	 */
-	function terminateWorker(reason) {
-		for (const { reject } of workerCallbacks.values()) {
-			reject(new Error(reason));
-		}
-		workerCallbacks.clear();
-		cryptoWorker?.terminate();
-		cryptoWorker = null;
-	}
-
-	async function getFileChecksum(file) {
-		return callWorker('hashFile', { file, chunkSize: CHUNK_SIZE });
-	}
-
-	async function deriveKeyFromPasswordWorker(password, salt) {
-		// salt is Uint8Array, we pass it directly.
-		return callWorker('deriveKey', { password, salt });
-	}
-
-	async function encryptChunkWorker(chunkBuffer, key, nonce) {
-		// Pass chunkBuffer as transferable
-		return callWorker('encryptChunk', { chunk: chunkBuffer, key, nonce }, [chunkBuffer.buffer]);
-	}
 
 	const uploadMutation = createMutation(() => ({
 		mutationFn: async ({ file, folderId, onProgress, signal }) => {
@@ -830,7 +772,7 @@
 
 			throwIfHalted(signal);
 			uploadStats.phase = 'Hashing file…';
-			const fileChecksum = await getFileChecksum(file);
+			const fileChecksum = await hashFile(file, CHUNK_SIZE);
 			throwIfHalted(signal);
 			let key = null;
 			let salt = null;
@@ -839,7 +781,7 @@
 				if (!password) throw new Error('Password required for encrypted upload');
 				salt = generateSalt(); // Fast
 				uploadStats.phase = 'Deriving encryption key…';
-				key = await deriveKeyFromPasswordWorker(password, salt);
+				key = await deriveKey(password, salt);
 				throwIfHalted(signal);
 			}
 
@@ -909,7 +851,7 @@
 					// Offload encryption to worker
 					uploadStats.phase =
 						totalChunks > 1 ? `Encrypting chunk ${i + 1}/${totalChunks}…` : 'Encrypting…';
-					dataToUpload = await encryptChunkWorker(chunkBuffer, key, chunkMeta._rawNonce);
+					dataToUpload = await encryptChunk(chunkBuffer, key, chunkMeta._rawNonce);
 				}
 				uploadStats.phase = 'Uploading…';
 
@@ -1030,6 +972,7 @@
 	async function startUpload() {
 		if (files.length === 0) return;
 		isUploading = true;
+		const releaseTransfer = holdTransfer();
 		uploadAbort = new AbortController();
 		const signal = uploadAbort.signal;
 		folderCache.clear(); // Reset cache for new upload session
@@ -1124,6 +1067,7 @@
 		} finally {
 			isUploading = false;
 			uploadAbort = null;
+			releaseTransfer();
 		}
 	}
 
@@ -1417,7 +1361,26 @@
 		doBulkZip(bulkPwAll, { ...bulkPwValues });
 	}
 
+	// Zipping is the one flow that cannot stream: JSZip needs each entry, and the
+	// finished archive, in memory. So it keeps a ceiling. Single-file downloads go
+	// through the streaming sink and have no such limit, which is what to suggest
+	// when someone hits this.
+	const ZIP_TOTAL_LIMIT = 2 * 1024 * 1024 * 1024; // 2 GB
+
+	function bulkZipTooBig(fileItems) {
+		const total = fileItems.reduce((sum, f) => sum + (Number(f.size) || 0), 0);
+		return total > ZIP_TOTAL_LIMIT ? total : 0;
+	}
+
 	async function doBulkZip(fileItems, pwMap) {
+		const over = bulkZipTooBig(fileItems);
+		if (over) {
+			toast.error(
+				'Too much to zip at once',
+				`${formatSize(over)} selected. Zipping has to build the archive in memory, so it caps at ${formatSize(ZIP_TOTAL_LIMIT)}. Download the files individually and they stream straight to disk.`
+			);
+			return;
+		}
 		const toastId = toast.loading('Preparing zip download...');
 		try {
 			await sodium.ready;
@@ -1427,7 +1390,10 @@
 			for (const file of fileItems) {
 				try {
 					const pw = file.encrypted ? pwMap[file.id] || null : null;
-					const blob = await fetchDecryptedBlob(file, { password: pw });
+					// maxBytes: 0 disables the preview cap. Zipping genuinely has to
+					// hold each file in memory to hand it to JSZip, so the cap does
+					// not apply; the size guard for this path is bulkZipTooBig below.
+					const blob = await fetchDecryptedBlob(file, { password: pw, maxBytes: 0 });
 					zip.file(file.name, blob);
 					okc++;
 				} catch (e) {

@@ -4,6 +4,7 @@
 	import { navigating } from '$app/stores';
 	import { afterNavigate } from '$app/navigation';
 	import Icon from '$lib/ui/Icon.svelte';
+	import { guardNavigation } from '$lib/transferGuard.js';
 
 	let { children, data } = $props();
 
@@ -12,6 +13,11 @@
 	// Free: that is a real plan here, not an absence, so it is labelled rather
 	// than left blank.
 	let plan = $derived((data?.user?.subscription?.name || 'free').toLowerCase());
+
+	// Uploads run from the Files page and downloads run app-wide through the
+	// download manager, so the guard lives here rather than on any one page:
+	// clicking Billing mid-upload used to discard the transfer without a word.
+	guardNavigation('A transfer is still running. Leaving this page will cancel it.');
 
 	// Mobile-only off-canvas nav. Close it after navigating to a new page.
 	let navOpen = $state(false);

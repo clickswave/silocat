@@ -7,17 +7,13 @@
 // (authorized by the request token), so no account or api key is involved.
 
 import axios from 'axios';
-import { encryptChunk, deriveKeyFromPassword, generateSalt, generateNonce } from '$lib/chacha.js';
+import { generateSalt, generateNonce } from '$lib/chacha.js';
+import { hashFile, deriveKey, encryptChunk } from '$lib/cryptoClient.js';
+import { CHUNK_SIZE } from '$lib/chunking.js';
 
-const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB, matching the main upload path
 
 function b64(bytes) {
 	return btoa(String.fromCharCode(...bytes));
-}
-
-async function sha256Hex(file) {
-	const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -35,13 +31,21 @@ export async function uploadToRequest(token, file, opts = {}) {
 	const { encrypt = false, password = '', uploaderName = '', onProgress } = opts;
 
 	// 1. Plaintext checksum + (optional) key derivation.
-	const fileChecksum = await sha256Hex(file);
+	//
+	// Both go through the worker. This used to call
+	// crypto.subtle.digest(await file.arrayBuffer()), which materialises the whole
+	// file in memory before a single byte is uploaded, so sending anything much
+	// over a gigabyte through a request link died with an allocation failure. The
+	// main upload path already hashed in slices; this one did not. Argon2id was
+	// likewise on the main thread here, freezing the page for the recipient of the
+	// link, who is usually not even a user yet.
+	const fileChecksum = await hashFile(file, CHUNK_SIZE);
 	let key = null;
 	let salt = null;
 	if (encrypt) {
 		if (!password) throw new Error('A password is required to encrypt.');
 		salt = generateSalt();
-		key = await deriveKeyFromPassword(password, salt);
+		key = await deriveKey(password, salt);
 	}
 
 	// 2. Chunk metadata (per-chunk nonce; shared salt).

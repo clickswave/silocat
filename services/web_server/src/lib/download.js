@@ -1,9 +1,22 @@
-// Global download manager: chunked fetch -> (decrypt) -> reassemble -> save,
-// with live per-file progress and cancellation. UI is DownloadToasts.svelte.
+// Global download manager: chunked fetch -> (decrypt) -> stream to disk, with
+// live per-file progress and cancellation. UI is DownloadToasts.svelte.
+//
+// Two things used to make this unusable on real files:
+//
+//   * every chunk was collected into an array and handed to `new Blob()`, so
+//     peak memory was roughly twice the file size. Uploads are allowed up to
+//     20 GB anonymous / 50 GB authenticated; downloads died in the low
+//     single-digit GB. Chunks now go to a sink that writes straight to disk.
+//
+//   * Argon2id key derivation and per-chunk decryption ran on the main thread,
+//     freezing the tab solid for the duration. The phase label would be set to
+//     "Deriving key…" and then block the thread that would have painted it.
+//     Both now run in the shared crypto worker.
 import { writable } from 'svelte/store';
 import axios from 'axios';
-import sodium from 'libsodium-wrappers-sumo';
-import { decryptChunk, deriveKeyFromPassword } from '$lib/chacha.js';
+import { deriveKey, decryptChunk } from '$lib/cryptoClient.js';
+import { createFileSink, willStruggle, BLOB_SINK_LIMIT } from '$lib/fileSink.js';
+import { holdTransfer } from '$lib/transferGuard.js';
 
 // Each entry: { id, name, loaded, total, status, error, controller }
 // status: 'active' | 'done' | 'error' | 'cancelled'
@@ -26,9 +39,16 @@ function isCancel(e, controller) {
 		controller.signal.aborted ||
 		e?.code === 'ERR_CANCELED' ||
 		e?.name === 'CanceledError' ||
+		e?.name === 'SinkCancelled' ||
 		(axios.isCancel && axios.isCancel(e))
 	);
 }
+
+/** Above this, preview would download the whole file for nothing. Offer a save instead. */
+export const PREVIEW_MAX_BYTES = 150 * 1024 * 1024;
+
+/** True when this browser will have to buffer the whole file to download it. */
+export { willStruggle, BLOB_SINK_LIMIT };
 
 /**
  * Download a file with progress + cancel.
@@ -49,9 +69,12 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 		controller
 	});
 
-	try {
-		await sodium.ready;
+	let sink = null;
+	// Claim the navigation guard for the whole transfer, released in `finally` so
+	// an error cannot leave the app permanently prompting on every navigation.
+	const release = holdTransfer();
 
+	try {
 		const chunksRes = await axios.post(chunksUrl, { file_id: file.id }, { signal: controller.signal });
 		const chunks = chunksRes.data?.data?.chunks;
 		if (!chunks || chunks.length === 0) throw new Error('No chunks found');
@@ -65,14 +88,21 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 			if (!password) throw new Error('Password required for encrypted file');
 			if (!chunks[0].salt) throw new Error('Encrypted file is missing its salt');
 			const saltBytes = Uint8Array.from(atob(chunks[0].salt), (c) => c.charCodeAt(0));
-			// argon2 key derivation is the slow part where the bar would otherwise sit at 0.
+			// Argon2id is the slow part where the bar would otherwise sit at 0. It
+			// runs in the worker, so this label actually gets painted.
 			patch(id, { phase: 'Deriving key…' });
-			fileKey = await deriveKeyFromPassword(password, saltBytes);
+			fileKey = await deriveKey(password, saltBytes);
 		}
+
+		// Opened before the first byte so a cancelled save dialog costs nothing,
+		// and so the browser has the filename and total length up front.
+		sink = await createFileSink(file.name, {
+			size: file.encrypted ? Number(file.size) || 0 : total,
+			mime: file.mime
+		});
 
 		patch(id, { phase: file.encrypted ? 'Downloading + decrypting…' : 'Downloading…' });
 
-		const parts = [];
 		let loaded = 0;
 		for (const chunk of chunks) {
 			const res = await axios.get(chunk.presigned_url, {
@@ -86,59 +116,81 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 				const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
 				bytes = await decryptChunk(bytes, fileKey, nonceBytes);
 			}
-			parts.push(bytes);
+			await sink.write(bytes);
 			patch(id, { loaded });
 		}
 
-		const blob = new Blob(parts, { type: file.mime || 'application/octet-stream' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = file.name;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
+		patch(id, { phase: 'Saving…' });
+		await sink.close();
+		sink = null;
 
 		patch(id, { status: 'done', loaded: total });
 		setTimeout(() => remove(id), 4000);
 	} catch (e) {
+		await sink?.abort(e).catch(() => {});
 		if (isCancel(e, controller)) {
 			patch(id, { status: 'cancelled' });
 			setTimeout(() => remove(id), 2500);
 		} else {
 			console.error('[download]', e);
-			patch(id, { status: 'error', error: e?.message || 'Download failed' });
+			patch(id, { status: 'error', error: friendlyError(e, file) });
 			setTimeout(() => remove(id), 6000);
 		}
+	} finally {
+		release();
 	}
+}
+
+/** Turn the failures people actually hit into something they can act on. */
+function friendlyError(e, file) {
+	const msg = e?.message || '';
+	if (/decrypt|tag|verification/i.test(msg)) return 'Wrong password for this file';
+	if (e?.name === 'QuotaExceededError' || /allocation|out of memory/i.test(msg)) {
+		return 'This file is too large for your browser to download here';
+	}
+	if (file?.encrypted && /password/i.test(msg)) return msg;
+	return msg || 'Download failed';
 }
 
 /**
  * Fetch + (decrypt) a file fully into an in-memory Blob (for inline preview).
  * Does NOT save to disk and does NOT register a DownloadToasts entry.
+ *
+ * This one genuinely needs the whole thing in memory, because a preview is
+ * rendered from an object URL. That makes it the wrong tool for large files, so
+ * callers must check `maxBytes` rather than letting someone preview 4 GB of
+ * video into oblivion.
+ *
  * @param {{id:string,name:string,mime?:string,encrypted?:boolean}} file
- * @param {{ password?:string|null, chunksUrl?:string, signal?:AbortSignal, onProgress?:(loaded:number,total:number)=>void }} opts
+ * @param {{ password?:string|null, chunksUrl?:string, signal?:AbortSignal, onProgress?:(loaded:number,total:number)=>void, maxBytes?:number }} opts
  * @returns {Promise<Blob>}
  */
 export async function fetchDecryptedBlob(
 	file,
-	{ password = null, chunksUrl = '/api/v1/sanctum/file/fetch-chunks', signal, onProgress } = {}
+	{
+		password = null,
+		chunksUrl = '/api/v1/sanctum/file/fetch-chunks',
+		signal,
+		onProgress,
+		maxBytes = PREVIEW_MAX_BYTES
+	} = {}
 ) {
-	await sodium.ready;
-
 	const chunksRes = await axios.post(chunksUrl, { file_id: file.id }, { signal });
 	const chunks = chunksRes.data?.data?.chunks;
 	if (!chunks || chunks.length === 0) throw new Error('No chunks found');
 
 	const total = chunks.reduce((s, c) => s + (Number(c.size) || 0), 0) || Number(file.size) || 0;
 
+	if (maxBytes && total > maxBytes) {
+		throw new Error('TOO_LARGE_TO_PREVIEW');
+	}
+
 	let fileKey = null;
 	if (file.encrypted) {
 		if (!password) throw new Error('Password required for encrypted file');
 		if (!chunks[0].salt) throw new Error('Encrypted file is missing its salt');
 		const saltBytes = Uint8Array.from(atob(chunks[0].salt), (c) => c.charCodeAt(0));
-		fileKey = await deriveKeyFromPassword(password, saltBytes);
+		fileKey = await deriveKey(password, saltBytes);
 	}
 
 	const parts = [];

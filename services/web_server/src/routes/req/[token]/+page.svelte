@@ -3,8 +3,11 @@
 	import { page } from '$app/stores';
 	import axios from 'axios';
 	import { uploadToRequest } from '$lib/requestUpload.js';
+	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
 
 	const token = $page.params.token;
+
+	guardNavigation('Your file is still uploading. Leaving now will cancel it.');
 
 	let loading = $state(true);
 	let info = $state(null); // { label, message, open }
@@ -44,6 +47,7 @@
 		error = '';
 		uploading = true;
 		progress = 0;
+		const releaseTransfer = holdTransfer();
 		try {
 			await uploadToRequest(token, file, {
 				encrypt,
@@ -56,6 +60,7 @@
 			error = e.response?.data?.message || e.message || 'Upload failed. Please try again.';
 		} finally {
 			uploading = false;
+			releaseTransfer();
 		}
 	}
 </script>

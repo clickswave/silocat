@@ -1,5 +1,7 @@
 <script>
 	import Icon from '$lib/ui/Icon.svelte';
+	import { CHUNK_SIZE } from '$lib/chunking.js';
+	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
 	import Seo from '$lib/components/Seo.svelte';
 	import { softwareApplicationSchema } from '$lib/seo.js';
 	import { fade } from 'svelte/transition';
@@ -15,6 +17,8 @@
 	import { shadowKey } from '$lib/stores/shadow.js';
 
 	let { data } = $props();
+
+	guardNavigation('Your upload is still running. Leaving this page will cancel it.');
 
 	// Use store or authenticated user key
 	let api_key = $derived(data?.user?.api_key || $shadowKey);
@@ -152,50 +156,11 @@
 
 	// --- Upload Logic ---
 
-	// Worker Integration
-	import CryptoWorker from '$lib/workers/crypto.worker.js?worker';
-	import sodium from 'libsodium-wrappers-sumo'; // Still need for ready check if mutation uses it, but try to minimize
-
-	let cryptoWorker;
-	let workerCallbacks = new Map();
-
-	function initWorker() {
-		if (!cryptoWorker) {
-			cryptoWorker = new CryptoWorker();
-			cryptoWorker.onmessage = (e) => {
-				const { id, status, result, error } = e.data;
-				if (id && workerCallbacks.has(id)) {
-					const { resolve, reject } = workerCallbacks.get(id);
-					if (status === 'success') resolve(result);
-					else reject(new Error(error));
-					workerCallbacks.delete(id);
-				}
-			};
-		}
-	}
-
-	function callWorker(type, payload, transferables = []) {
-		initWorker();
-		return new Promise((resolve, reject) => {
-			const id = Math.random().toString(36).substring(7);
-			workerCallbacks.set(id, { resolve, reject });
-			cryptoWorker.postMessage({ id, type, payload }, transferables);
-		});
-	}
-
-	const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB
-
-	async function getFileChecksum(file) {
-		return callWorker('hashFile', { file, chunkSize: CHUNK_SIZE });
-	}
-
-	async function deriveKeyFromPasswordWorker(password, salt) {
-		return callWorker('deriveKey', { password, salt });
-	}
-
-	async function encryptChunkWorker(chunkBuffer, key, nonce) {
-		return callWorker('encryptChunk', { chunk: chunkBuffer, key, nonce }, [chunkBuffer.buffer]);
-	}
+	// Crypto runs in the shared worker (see $lib/cryptoClient.js). This page used
+	// to carry its own private copy of the worker plumbing, byte-identical to the
+	// one in the Files page.
+	import sodium from 'libsodium-wrappers-sumo'; // for the RNG helpers below
+	import { hashFile, deriveKey, encryptChunk } from '$lib/cryptoClient.js';
 
 	// Helpers for quick generation on main thread
 	function generateSalt() {
@@ -230,7 +195,7 @@
 				if (encryptionEnabled) {
 					// We need the key here.
 					if (!key) throw new Error('Encryption key missing for upload');
-					dataToUpload = await encryptChunkWorker(chunkBuffer, key, chunkMeta._rawNonce);
+					dataToUpload = await encryptChunk(chunkBuffer, key, chunkMeta._rawNonce);
 				}
 
 				// Upload to R2
@@ -332,6 +297,7 @@
 	async function startUpload() {
 		if (files.length === 0) return;
 		isUploading = true;
+		const releaseTransfer = holdTransfer();
 		folderCache.clear();
 
 		uploadStats.totalBytes = files.reduce((acc, f) => acc + (f.file ? f.file.size : f.size), 0);
@@ -405,12 +371,12 @@
 				}
 
 				// Heavy lifting: Checksum + Encryption Meta
-				const fileChecksum = await getFileChecksum(file);
+				const fileChecksum = await hashFile(file, CHUNK_SIZE);
 				let key = null;
 				let salt = null;
 				if (encryptionEnabled) {
 					salt = generateSalt();
-					key = await deriveKeyFromPasswordWorker(password, salt);
+					key = await deriveKey(password, salt);
 				}
 
 				const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -517,6 +483,7 @@
 			}
 		} finally {
 			isUploading = false;
+			releaseTransfer();
 		}
 	}
 

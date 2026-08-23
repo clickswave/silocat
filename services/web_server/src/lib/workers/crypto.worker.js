@@ -29,6 +29,9 @@ self.onmessage = async (e) => {
             case 'encryptChunk':
                 result = encryptChunk(payload.chunk, payload.key, payload.nonce);
                 break;
+            case 'decryptChunk':
+                result = decryptChunk(payload.chunk, payload.key, payload.nonce);
+                break;
             default:
                 throw new Error(`Unknown message type: ${type}`);
         }
@@ -96,4 +99,20 @@ function encryptChunk(chunk, key, nonce) {
         new Uint8Array(key)
     );
     return cipherText; // Uint8Array
+}
+
+function decryptChunk(chunk, key, nonce) {
+    // The mirror of encryptChunk, and the reason downloads no longer freeze the
+    // page: decrypting a chunk is the same order of work as encrypting one, and
+    // it used to run on the main thread straight out of chacha.js.
+    //
+    // Throws on a bad tag, which is how a wrong password surfaces. The caller
+    // turns that into "wrong password" rather than a generic failure.
+    return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+        null, // secret nonce
+        new Uint8Array(chunk),
+        null, // associated data
+        new Uint8Array(nonce),
+        new Uint8Array(key)
+    );
 }

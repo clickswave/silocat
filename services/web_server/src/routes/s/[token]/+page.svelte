@@ -8,23 +8,27 @@
 	import { onMount } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import { toast } from '$lib/toast.js';
-	import { deriveKeyFromPassword, decryptChunk } from '$lib/chacha.js';
+	import { deriveKey, decryptChunk } from '$lib/cryptoClient.js';
+	import { createFileSink } from '$lib/fileSink.js';
 	import Prompt from '$lib/ui/Prompt.svelte';
 	import sodium from 'libsodium-wrappers-sumo';
 	import JSZip from 'jszip';
+	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
 
-	let token = $page.params.token;
-	let loading = true;
-	let error = null;
-	let file = null; // { id, name, size, type, data: { encrypted: bool } }
-	let downloading = false;
-	let downloadProgress = 0;
+	const token = $page.params.token;
+
+	guardNavigation('Your download is still running. Leaving this page will cancel it.');
+	let loading = $state(true);
+	let error = $state(null);
+	let file = $state(null); // { id, name, size, type, data: { encrypted: bool } }
+	let downloading = $state(false);
+	let downloadProgress = $state(0);
 
 	// Encryption state
-	let needsPassword = false;   // a password is needed at all (server gate OR client decryption)
-	let passwordRequired = false; // the OWNER set a SERVER-side link-password gate
-	let password = '';
-	let showPasswordInput = false;
+	let needsPassword = $state(false);   // a password is needed at all (server gate OR client decryption)
+	let passwordRequired = $state(false); // the OWNER set a SERVER-side link-password gate
+	let password = $state('');
+	let showPasswordInput = $state(false);
 
 	// Fetch info on mount
 	onMount(async () => {
@@ -46,8 +50,11 @@
 			}
 		} catch (e) {
 			console.error(e);
+			// 410 covers both a spent one-time link and one past its expiry date, and
+			// the server already says which. Hardcoding the one-time wording told
+			// people the wrong thing about their own link.
 			if (e.response && e.response.status === 410) {
-				error = "This 'Once' link has expired.";
+				error = e.response.data?.message || 'This link is no longer available.';
 			} else {
 				error = 'Invalid or expired link.';
 			}
@@ -67,6 +74,7 @@
 
 		downloading = true;
 		downloadProgress = 0;
+		const releaseTransfer = holdTransfer();
 
 		try {
 			// Only send the password to the server when the OWNER set a server-side
@@ -114,6 +122,7 @@
 			}
 		} finally {
 			downloading = false;
+			releaseTransfer();
 		}
 	}
 
@@ -161,48 +170,58 @@
 				console.warn('Encrypted file missing salt!');
 			} else {
 				const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-				fileKey = await deriveKeyFromPassword(password, saltBytes);
+				fileKey = await deriveKey(password, saltBytes);
 			}
 		}
 
-		// Download chunks
-		const downloadedChunks = [];
+		// Chunk sizes are ciphertext lengths and each carries a 16-byte Poly1305
+		// tag, so dividing them by the plaintext size overshoots 100%. Track
+		// against what we will actually pull down.
+		const totalBytes =
+			chunks.reduce((sum, c) => sum + (Number(c.size) || 0), 0) || Number(fileMeta.size) || 0;
+
+		// Straight to disk, one chunk at a time. This used to collect every chunk
+		// into an array and hand it to new Blob(), needing roughly twice the file
+		// in memory, so anything of real size killed the tab: recipients could be
+		// sent a file the page could not deliver.
+		const sink = await createFileSink(fileMeta.name, {
+			size: Number(fileMeta.size) || totalBytes,
+			mime: fileMeta.mime
+		});
+
 		let completedBytes = 0;
+		try {
+			for (let i = 0; i < chunks.length; i++) {
+				const chunk = chunks[i];
+				const chunkDataRes = await axios.get(chunk.presigned_url, {
+					responseType: 'arraybuffer'
+				});
 
-		for (let i = 0; i < chunks.length; i++) {
-			const chunk = chunks[i];
-			const chunkDataRes = await axios.get(chunk.presigned_url, {
-				responseType: 'arraybuffer'
-			});
+				let dataBytes = new Uint8Array(chunkDataRes.data);
 
-			let dataBytes = new Uint8Array(chunkDataRes.data);
-
-			if (fileMeta.encrypted && fileKey) {
-				if (!chunk.nonce) throw new Error(`Chunk ${i} missing nonce`);
-				const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
-				try {
-					dataBytes = await decryptChunk(dataBytes, fileKey, nonceBytes);
-				} catch (decryptErr) {
-					throw new Error('Decryption failed. Wrong password?');
+				if (fileMeta.encrypted && fileKey) {
+					if (!chunk.nonce) throw new Error(`Chunk ${i} missing nonce`);
+					const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
+					try {
+						dataBytes = await decryptChunk(dataBytes, fileKey, nonceBytes);
+					} catch (decryptErr) {
+						throw new Error('Decryption failed. Wrong password?');
+					}
 				}
-			}
 
-			downloadedChunks.push(dataBytes);
-			completedBytes += chunk.size;
-			downloadProgress = Math.floor((completedBytes / fileMeta.size) * 100);
+				await sink.write(dataBytes);
+				completedBytes += Number(chunk.size) || 0;
+				downloadProgress = totalBytes
+					? Math.min(100, Math.floor((completedBytes / totalBytes) * 100))
+					: 0;
+			}
+			await sink.close();
+		} catch (e) {
+			await sink.abort(e).catch(() => {});
+			throw e;
 		}
 
-		// Assemble
-		const blob = new Blob(downloadedChunks, { type: fileMeta.mime });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = fileMeta.name;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
-
+		downloadProgress = 100;
 		toast.success('Download complete');
 	}
 
@@ -244,7 +263,7 @@
 						const firstChunk = chunks[0];
 						if (!firstChunk.salt) throw new Error(`File ${f.name} missing salt.`);
 						const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-						fileKey = await deriveKeyFromPassword(password, saltBytes);
+						fileKey = await deriveKey(password, saltBytes);
 					}
 
 					// Download and decrypt chunks
@@ -303,8 +322,8 @@
 		return `${bytes.toFixed(1)} ${units[i]}`;
 	}
 
-	let reporting = false;
-	let showReportModal = false;
+	let reporting = $state(false);
+	let showReportModal = $state(false);
 	async function submitReport(reason) {
 		if (!reason || !reason.trim()) return;
 		showReportModal = false;
