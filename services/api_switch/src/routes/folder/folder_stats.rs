@@ -71,11 +71,17 @@ pub async fn handle(
                 200,
                 "Stats calculated",
                 vec![],
-                // Flat, like every other handler: `respond` already wraps this in
-                // the envelope's `data` field, so nesting a second `data` here
-                // put the numbers at res.data.data.data and nothing could read
-                // them. No client consumed this successfully before, because the
-                // proxy route it needs did not exist.
+                // Flat, like every other handler. This used to nest a second `data`
+                // inside the one `respond` already adds, putting the numbers at
+                // data.data.total_items. The web client could not reach them at
+                // all (its proxy route did not exist until now); only the testkit,
+                // which calls api_switch directly, knew the odd shape.
+                //
+                // Note the -1: for a folder the caller does not own, the recursive
+                // CTE's base case matches nothing, so `COUNT(*) - 1` is -1 and
+                // files is 0. That is the no-leak sentinel the BOLA suite pins,
+                // and it survives this change. Callers must treat a negative
+                // total as "not yours" rather than rendering it.
                 json!({
                     "total_items": total_items,
                     "folders": folders,

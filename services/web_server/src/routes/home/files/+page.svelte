@@ -413,8 +413,11 @@
 	async function fetchDeletionStats(folderId) {
 		try {
 			const res = await axios.post('/api/v1/sanctum/folder/stats', { folder_id: folderId });
-			const stats = res.data?.success?.data;
-			deletedItemCount = typeof stats?.total_items === 'number' ? stats.total_items : 'unknown';
+			// A negative total is the backend's "this folder is not yours" sentinel
+			// (the recursive CTE matches nothing and COUNT(*) - 1 goes to -1), not
+			// a count. Rendering it would put "-1 items" in a delete confirmation.
+			const n = res.data?.success?.data?.total_items;
+			deletedItemCount = typeof n === 'number' && n >= 0 ? n : 'unknown';
 		} catch (e) {
 			console.error('Failed to fetch folder stats', e);
 			deletedItemCount = 'unknown';
