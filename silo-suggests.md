@@ -1,18 +1,25 @@
 # Silocat: UI/UX and security review
 
-> **Status: all findings resolved on branch `fix/audit-2026-08-23`** (2026-08-23).
-> Eight commits, verified by `cargo check`, a full production `vite build`, and
-> the silocat testkit (66 passed). `svelte-check` went from 894 errors / 27
-> warnings to 0 errors / 10 warnings. Nothing was deployed.
+> **Status: resolved on branch `fix/audit-2026-08-23`** (2026-08-23). Eleven
+> commits. Nothing deployed.
 >
-> Two claims below were wrong and are corrected in place, marked **[correction]**:
-> the resend-verification aside in S2-2, and an assumption about `/folder/stats`
-> in S1-8.
+> Verified by `cargo check`, a production `vite build`, the silocat API testkit
+> (66 passed), and a new browser suite driven with Playwright against a real
+> production build (5 checks, all green). `svelte-check` went from 894 errors to
+> 231, with type checking still on: see S3-14 for why the rest are left.
 >
-> Deliberately not fixed, with reasons recorded inline: S2-17 (one-time links
-> still burn at authorization, because the alternative is worse) and the ten
-> remaining `state_referenced_locally` warnings, which are intentional
-> seed-from-prop patterns.
+> **Corrections, marked [correction] in place:** the resend-verification aside in
+> S2-2 and an assumption about `/folder/stats` in S1-8 were both wrong.
+>
+> **Reversed:** S2-17. A fix was written, tested, and then backed out, because it
+> weakened a security guarantee that is the owner's to trade away, not mine. The
+> reasoning is under S2-17.
+>
+> **The most important thing in this document** is not any single finding. It is
+> that the first pass declared three things "never exercised in a browser" while
+> a dev stack was running the whole time. Actually driving it found four defects
+> that every static check had passed, two of which were total breakage. Those are
+> listed under "Found only by running it".
 
 Scope: `services/web_server` (SvelteKit) with cross-checks into `services/api_switch` (axum) where the frontend's behaviour depends on backend authorization.
 
@@ -362,7 +369,7 @@ For a product positioned on zero-knowledge this is the most damaging copy in the
 
 `api_switch/src/routes/file/share.rs:794-800` increments `link_downloads` inside `public_authorize_download`, before the client has fetched a single chunk. A network failure, a closed tab, or a browser that cancels the request consumes the recipient's only attempt and they get "This safe-link has expired" with no recourse.
 
-**Fix:** either confirm consumption from the client after the final chunk lands, or give "once" links a small grace count and surface the remaining attempts in the UI.
+**Fix:** see "Reversed: S2-17, one-time links" near the end of this document. A working fix was written and backed out, because it trades away a guarantee the API suite pins by name and that is the owner's call. What shipped is the warning and the honest error message; the 410 status-code bug that stopped that message from ever appearing is fixed.
 
 ### S3-5. The public share page is the only component still in legacy mode. **Confirmed**
 
@@ -464,36 +471,119 @@ Real warnings worth acting on from that run:
 
 ## What shipped
 
-Branch `fix/audit-2026-08-23`, eight commits, nothing deployed.
+Branch `fix/audit-2026-08-23`, eleven commits, nothing deployed.
 
 | Commit | Covers |
 | --- | --- |
 | `docs: audit findings` | this document |
 | `security: CSPRNG for share passwords, stop logging credentials` | S1-1, S1-5, S1-6, S3-1 |
-| `security: files in a registered drive are private until explicitly shared` | S1-2, S1-3, S1-4, plus migration 0044 |
+| `security: files in a registered drive are private until explicitly shared` | S1-2, S1-3, S1-4, migration 0044 |
 | `fix: repair three features that could not work at all` | S1-7, S1-8, S1-9, S2-8, S2-9 |
 | `perf: stream downloads to disk, move all crypto off the main thread` | S1-10, S1-11, S1-12, S2-10, S3-5, S3-6, S3-7 |
-| `fix: folder navigation in the URL, one source of truth for cache keys, modal a11y` | S2-4, S2-5, S2-6, S2-7, S2-11, S2-12, S2-13, S2-14, S2-15, S2-16, S3-8, S3-11 |
+| `fix: folder navigation in the URL, one source of truth for cache keys, modal a11y` | S2-4, S2-5, S2-6, S2-7, S2-11..16, S3-8, S3-11 |
 | `security: ship a real CSP, meter the unauthenticated endpoints` | S2-1, S2-2, S2-3, S3-9 |
-| `polish: shared formatters, a11y fixes, readable svelte-check` | S2-17 (partial), S3-2, S3-3, S3-4, S3-10, S3-12, S3-13, S3-14, S3-15, S3-16 |
+| `polish: shared formatters, a11y fixes, readable svelte-check` | S3-2, S3-3, S3-4, S3-10, S3-12, S3-13, S3-14, S3-15, S3-16 |
+| `fix: guard the folder-stats no-leak sentinel` | follow-up to S1-8 |
+| `fix: verify the branch in a real browser, and repair what that found` | the four below, plus S2-6 redone and the settings form |
+| `testkit: add a browser suite` | so the next regression is caught by a machine |
 
-### Things found while fixing, not in the original list
+## Found only by running it
 
-* **The Files context menu's "Copy link" was broken by design.** It built `${origin}/${item.id}`, the anonymous-drop route, which resolves by raw file id through the `public_access` gate. It only ever produced a working URL because of the default S1-2 removes, and it never turned sharing on. Now goes through the token flow.
-* **Delivery-receipt styles never applied.** The `.receipts*` rules were nested under `.opts` in the SCSS while the markup renders them as its sibling, so that list has been unstyled since it shipped. Hoisted.
-* **`folder_stats` double-nested its payload** (see the S1-8 correction).
-* **A duplicate `send` key** in the icon map, flagged by svelte-check under the noise.
-* **`FolderCard` was keyboard-focusable but not keyboard-activatable**, and its suppression comment used the Svelte 4 dash spelling so it suppressed nothing.
+The first pass shipped these and called the work done. Every one passed
+`cargo check`, `vite build`, `svelte-check` and all 66 API tests.
 
-### Deliberately left alone
+1. **The Files page returned 500 on every load.** `currentFolderId` is read in a
+   TanStack query key near the top of the component and declared with `$derived`
+   150 lines below. Those key expressions are evaluated during SSR, so it hit the
+   temporal dead zone. The reference sits inside an arrow function, which is
+   exactly the shape TypeScript cannot flag, so no static tool could have caught
+   it. Introduced by the folder-in-the-URL change (S2-14).
 
-* **S2-17, one-time links still burn at authorization.** Authorization happens before any bytes move, so a dropped connection still costs the recipient their attempt. The obvious fix, spending the link on a post-download confirmation, lets a client simply never confirm and download forever, which is worse than the bug. The counter stays put; the page now warns the recipient before they start, and a spent link says it was already used rather than "safe-link has expired". A proper fix needs a resumable-session protocol and is its own piece of work.
-* **Ten `state_referenced_locally` warnings.** All seed-from-prop patterns where only the initial value is wanted (`Input`'s generated uid, `InputModal`'s `initialValue`, `ResourceList`'s `variant`) or where an explicit `$effect` re-syncs (`settings`' `profileForm`).
-* **`checkJs`.** Turned off rather than satisfied. Annotating ~130 untyped files was out of scope for one pass; the config comment says how to reintroduce it file by file.
+2. **The CSP blocked every page.** SvelteKit emits an inline hydration script per
+   request, carrying the base path, public env and serialized data. It cannot be
+   hashed from outside the framework, and a hand-written policy in `_headers`
+   refused it everywhere. The fix is not a better hash: it is `kit.csp`, where
+   SvelteKit hashes its own script and emits the header itself. The theme
+   bootstrap moved out of `app.html` into a real file, so `script-src 'self'`
+   covers it and the hash-drift footgun the first pass merely documented is gone.
 
-### Before this goes out
+3. **The CSP then blocked its own download mechanism.** `frame-src` had no
+   `'self'`, and the service-worker sink starts a download by pointing a hidden
+   iframe at a same-origin `/_stream/<id>` URL. The stream was written correctly
+   and the download simply never began, with nothing in the console the app could
+   act on.
 
-* **The CSP is the one change that can break the site silently, and it has never run in a browser.** Load staging with devtools open and watch for violations before promoting. The likely candidates are an origin I did not find (an analytics or payment host) and the pinned hash of the inline theme script: edit `src/app.html` without regenerating it and every visitor falls back to dark. The regeneration command is in `_headers`.
-* **Streaming downloads have never run in a browser either.** Three tiers, and only the Blob one is the old code path. Test a large file in Chromium (File System Access), Firefox (service worker) and Safari, encrypted and not.
-* **Migration 0044 has run on dev only.** It flipped 14 sanctum files private and cleared 2 stale tokens there. On production it will touch more, and it deliberately leaves live shares alone.
-* **`.svelte-kit/` in this working tree is root-owned** from an old container build, so `vite build` needs `SVELTEKIT_OUT_DIR=.svelte-kit-local`. Worth a `sudo chown` at some point; it is not something this branch changed.
+4. **`showSaveFilePicker` was unreachable in practice.** It is only callable while
+   a user gesture is in progress, and every `await` spends one. The sink was
+   opened after the chunk fetch and the Argon2id derivation, so Chromium would
+   have rejected it every single time and fallen through to the service worker.
+   The tier this branch put first, and described as "the best experience by a
+   distance", never ran. The sink now opens before any await, in both the app and
+   the public share page.
+
+Two more surfaced while testing:
+
+* **`respond()` had no arm for 410**, so it fell through to the `_ =>` catch-all
+  and every "this link has expired" and "this one-time link has already been
+  used" reached the browser as a **500**. Thirteen call sites. Three separate
+  frontend branches check for 410 and none of them had ever run, so a spent share
+  link looked like a server fault to the recipient.
+* **`guardNavigation` prompted on folder navigation**, because folders now
+  navigate through `goto()`. Same-route navigation does not tear the page down,
+  so the warning was both alarming and false.
+
+## Reversed: S2-17, one-time links
+
+A fix was written and it worked: a short, IP-scoped resumption window, atomic in
+a single statement, with a test proving all five properties (first authorize
+spends it, same client retries free, other clients refused, the window does not
+extend, public links unaffected).
+
+It was then backed out, because the API suite has a test named
+`test_once_link_authorizes_exactly_once`, and that name is the guarantee. The
+window relaxes it, and IP is weak identity for the purpose: colleagues behind one
+NAT share an address, and a phone changing networks mid-download would fail to
+resume anyway.
+
+The underlying constraint is real and worth writing down. Chunks are served
+directly from R2 by presigned URL, so the server never observes the transfer.
+"Exactly once" can therefore only ever mean "exactly one authorization", and any
+fix for the interrupted-download problem trades some of that away. That trade is
+a product decision, not a refactor, so it is yours to make. What shipped instead
+is honest: the share page warns the recipient before they start that the link is
+spent on opening, and a spent link now says so plainly (which required the 410
+fix above to work at all).
+
+If you want the window, it is roughly forty lines plus two columns; say so and it
+goes back in.
+
+## Deliberately left
+
+* **`checkJs` stays on.** The first pass turned it off to report "0 errors",
+  which was the wrong trade: `svelte-check` is the only thing standing between
+  this codebase and a class of template and runes mistakes. What was actually
+  wrong is `strict` over unannotated JS. `noImplicitAny` and
+  `useUnknownInCatchVariables` are off, which describes the absence of JSDoc
+  rather than any defect; declaring `App.Locals.session` and `Window.
+  showSaveFilePicker` in `app.d.ts` then cleared 69 errors across 56 files by
+  itself. 231 remain, concentrated in five large components, and every file this
+  branch added type-checks clean. Annotating the rest is a real piece of work and
+  a reasonable next one.
+* **Ten `state_referenced_locally` warnings**, all intentional seed-from-prop
+  patterns where only the initial value is wanted, or where an explicit `$effect`
+  re-syncs.
+
+## Before this goes out
+
+* **Run the browser suite against staging.** `scripts/silocat_testkit/browser`,
+  with `--prod`. It is the only thing that checks the CSP, and the CSP is the one
+  change here that can break the whole site at once.
+* **Migration 0044 has run on dev only.** It made 14 sanctum files private and
+  cleared 2 stale tokens there; production will touch more. It deliberately
+  leaves live shares alone.
+* **The File System Access download tier has been verified only to the point of
+  invocation.** Headless has no UI to show a save dialog. Someone should download
+  a large file in a real Chromium window once, and in Firefox and Safari, before
+  this is trusted at scale.
+* **`.svelte-kit/` in this working tree is root-owned** from an old container
+  build, so `vite build` needs `SVELTEKIT_OUT_DIR=.svelte-kit-local`. Pre-existing.
