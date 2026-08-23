@@ -82,9 +82,11 @@ export class SinkCancelled extends Error {
 // ---- 1. File System Access ------------------------------------------------
 
 async function fsAccessSink(filename, mime) {
+	const picker = window.showSaveFilePicker;
+	if (!picker) return null;
 	let handle;
 	try {
-		handle = await window.showSaveFilePicker({
+		handle = await picker.call(window, {
 			suggestedName: filename,
 			types: [{ description: 'File', accept: { [mime || 'application/octet-stream']: [] } }]
 		});

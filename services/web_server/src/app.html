@@ -4,27 +4,10 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-		<!-- Apply the theme before first paint (avoids flash + dark-on-refresh).
-		     Falls back to the OS preference rather than hardcoding dark, so a
-		     first-time visitor on a light desktop is not forced into dark.
-		     NOTE: the CSP in _headers pins this script by SHA-256. Edit it and the
-		     hash must be regenerated, or the theme bootstrap is silently blocked
-		     and everyone lands on the :root default. See the comment in _headers. -->
-		<script>
-			try {
-				var __stored = localStorage.getItem('theme');
-				var __theme =
-					__stored ||
-					(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-						? 'light'
-						: 'dark');
-				document.documentElement.setAttribute('data-theme', __theme);
-				document.currentScript.insertAdjacentHTML(
-					'afterend',
-					'<meta name="theme-color" content="' + (__theme === 'light' ? '#fafafa' : '#0b0b0d') + '" />'
-				);
-			} catch (e) {}
-		</script>
+		<!-- Resolves the theme before first paint. External, not inline, so the CSP
+		     covers it with script-src 'self' instead of a hash that silently drifts
+		     out of sync with this file. See static/theme-init.js. -->
+		<script src="/theme-init.js"></script>
 
 		<!-- Icons & PWA -->
 		<link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />

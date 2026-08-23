@@ -18,22 +18,39 @@ import { deriveKey, decryptChunk } from '$lib/cryptoClient.js';
 import { createFileSink, willStruggle, BLOB_SINK_LIMIT } from '$lib/fileSink.js';
 import { holdTransfer } from '$lib/transferGuard.js';
 
-// Each entry: { id, name, loaded, total, status, error, controller }
-// status: 'active' | 'done' | 'error' | 'cancelled'
+/**
+ * One in-flight or recently finished download, as DownloadToasts renders it.
+ * @typedef {{
+ *   id: number,
+ *   name: string,
+ *   loaded: number,
+ *   total: number,
+ *   status: 'active' | 'done' | 'error' | 'cancelled',
+ *   phase?: string,
+ *   error: string | null,
+ *   controller: AbortController
+ * }} DownloadEntry
+ */
+
+/** @type {import('svelte/store').Writable<DownloadEntry[]>} */
 export const downloads = writable([]);
 
 let nextId = 0;
 
+/** @param {DownloadEntry} entry */
 function add(entry) {
 	downloads.update((list) => [...list, entry]);
 }
+/** @param {number} id @param {Partial<DownloadEntry>} p */
 function patch(id, p) {
 	downloads.update((list) => list.map((d) => (d.id === id ? { ...d, ...p } : d)));
 }
+/** @param {number} id */
 function remove(id) {
 	downloads.update((list) => list.filter((d) => d.id !== id));
 }
 
+/** @param {any} e @param {AbortController} controller */
 function isCancel(e, controller) {
 	return (
 		controller.signal.aborted ||
@@ -75,6 +92,23 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 	const release = holdTransfer();
 
 	try {
+		// The sink is opened FIRST, before any await.
+		//
+		// showSaveFilePicker() is only callable while the browser still considers
+		// a user gesture to be in progress, and every await in between spends it.
+		// With the chunk fetch and the Argon2id derivation ahead of it, Chromium
+		// rejects the call with a SecurityError, fileSink quietly falls through to
+		// the service-worker tier, and the best path in the app never runs. All the
+		// metadata the picker needs (name, size, mime) is already on `file`, so
+		// there is no reason to wait.
+		//
+		// It also means a dismissed save dialog costs nothing: no request has been
+		// made yet.
+		sink = await createFileSink(file.name, {
+			size: Number(file.size) || 0,
+			mime: file.mime
+		});
+
 		const chunksRes = await axios.post(chunksUrl, { file_id: file.id }, { signal: controller.signal });
 		const chunks = chunksRes.data?.data?.chunks;
 		if (!chunks || chunks.length === 0) throw new Error('No chunks found');
@@ -93,13 +127,6 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 			patch(id, { phase: 'Deriving key…' });
 			fileKey = await deriveKey(password, saltBytes);
 		}
-
-		// Opened before the first byte so a cancelled save dialog costs nothing,
-		// and so the browser has the filename and total length up front.
-		sink = await createFileSink(file.name, {
-			size: file.encrypted ? Number(file.size) || 0 : total,
-			mime: file.mime
-		});
 
 		patch(id, { phase: file.encrypted ? 'Downloading + decrypting…' : 'Downloading…' });
 
@@ -142,6 +169,7 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 }
 
 /** Turn the failures people actually hit into something they can act on. */
+/** @param {any} e @param {{encrypted?: boolean}} [file] */
 function friendlyError(e, file) {
 	const msg = e?.message || '';
 	if (/decrypt|tag|verification/i.test(msg)) return 'Wrong password for this file';
@@ -161,7 +189,7 @@ function friendlyError(e, file) {
  * callers must check `maxBytes` rather than letting someone preview 4 GB of
  * video into oblivion.
  *
- * @param {{id:string,name:string,mime?:string,encrypted?:boolean}} file
+ * @param {{id:string,name:string,mime?:string,size?:number,encrypted?:boolean}} file
  * @param {{ password?:string|null, chunksUrl?:string, signal?:AbortSignal, onProgress?:(loaded:number,total:number)=>void, maxBytes?:number }} opts
  * @returns {Promise<Blob>}
  */
@@ -214,6 +242,7 @@ export async function fetchDecryptedBlob(
 	return new Blob(parts, { type: file.mime || 'application/octet-stream' });
 }
 
+/** @param {number} id */
 export function cancelDownload(id) {
 	downloads.update((list) => {
 		const d = list.find((x) => x.id === id);
@@ -222,6 +251,7 @@ export function cancelDownload(id) {
 	});
 }
 
+/** @param {number} id */
 export function dismissDownload(id) {
 	remove(id);
 }

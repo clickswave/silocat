@@ -73,16 +73,24 @@ self.addEventListener('fetch', (event) => {
 		'X-Content-Type-Options': 'nosniff'
 	});
 
-	// Deliberately no Content-Length.
+	// Deliberately no Content-Length, for two concrete reasons.
 	//
-	// It would give the browser a real progress bar rather than a spinner, but it
-	// also makes the download fail outright if the byte count we declare and the
-	// bytes we deliver ever disagree. The sizes come from file metadata recorded
-	// at upload; for an encrypted file that is the plaintext length, and the
-	// decrypted stream should match it exactly. "Should" is doing work in that
-	// sentence, and the Blob path this replaces never cared whether it was true,
-	// so setting the header would introduce a new way for downloads to break. The
-	// app draws its own progress from chunk counts anyway.
+	// The exact figure is sum(chunk.size) over the chunks actually returned. That
+	// is right for both cases: stored chunk sizes are PLAINTEXT lengths, and the
+	// 16-byte Poly1305 tag on each encrypted chunk exists only in the R2 object,
+	// not in what gets written here. But the sink has to be opened synchronously
+	// inside the user gesture (showSaveFilePicker is unusable otherwise), which is
+	// before the chunk list has been fetched, so that number is not known yet at
+	// the moment this response has to be constructed.
+	//
+	// And `file.size` is not a safe substitute. fetch_chunks returns only chunks
+	// with uploaded = true, so a partially uploaded file yields fewer bytes than
+	// its recorded size. Today that saves a short file; with a Content-Length it
+	// would instead fail the download outright, which is a worse outcome and a new
+	// one, since the Blob path this replaces never depended on the size at all.
+	//
+	// The cost is the browser's own download UI showing a spinner rather than a
+	// percentage. The app draws its own progress from chunk counts regardless.
 
 	event.respondWith(new Response(entry.stream, { headers }));
 });

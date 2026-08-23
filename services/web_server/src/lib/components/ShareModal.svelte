@@ -36,16 +36,19 @@
 	 * password, say) silently deleted the expiry. The backend supports "leave
 	 * unchanged" by omitting the field; the UI never used it.
 	 */
-	const EXPIRY_CHOICES = ['1', '7', '30', '90'];
+	/**
+	 * The dropdown value that means "leave the stored expiry alone".
+	 *
+	 * A saved expiry almost never lands exactly on one of the offered durations,
+	 * so there is no honest way to show it as "7 days". Snapping to the nearest
+	 * option was tried and is worse: it displays a date that is not the real one.
+	 * Instead the current setting is its own option, selected by default, and the
+	 * durations below it mean "replace it with this".
+	 */
+	const KEEP = 'keep';
 
 	function choiceForExpiry(iso) {
-		if (!iso) return '0';
-		const days = (new Date(iso).getTime() - Date.now()) / 86400_000;
-		if (!Number.isFinite(days) || days <= 0) return '0';
-		// Snap to the nearest offered value at or above what remains, so the
-		// control shows something truthful rather than an arbitrary match.
-		const match = EXPIRY_CHOICES.find((c) => Number(c) >= Math.floor(days));
-		return match ?? EXPIRY_CHOICES[EXPIRY_CHOICES.length - 1];
+		return iso ? KEEP : '0';
 	}
 
 	function expiryLabel(iso) {
@@ -160,7 +163,11 @@
 			// Omit the field entirely when the control still shows what is stored:
 			// the backend reads a present expires_in_days as an instruction, and 0
 			// means "clear". Sending it unconditionally is what wiped expiries.
-			if (expiryChoice !== choiceForExpiry(expiresAt)) {
+			// Omit the field entirely to leave the stored expiry untouched: the
+			// backend treats a present expires_in_days as an instruction, and 0
+			// means "clear". Sending it unconditionally is what silently wiped
+			// expiries whenever any other option was saved.
+			if (expiryChoice !== KEEP) {
 				payload.expires_in_days = parseInt(expiryChoice, 10) || 0;
 			}
 			if (removePassword) payload.clear_password = true;
@@ -344,6 +351,9 @@
 							<label class="opt-field">
 								<span class="opt-label">Link expiry</span>
 								<select bind:value={expiryChoice}>
+									{#if expiresAt}
+										<option value={KEEP}>Keep {expiryLabel(expiresAt)?.toLowerCase()}</option>
+									{/if}
 									<option value="0">Never</option>
 									<option value="1">1 day</option>
 									<option value="7">7 days</option>

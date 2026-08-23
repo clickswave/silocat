@@ -831,6 +831,15 @@ pub async fn public_authorize_download(
         // statement: a "public" link always passes; a "once" link passes only
         // while under its cap. Concurrent requests can't all slip through the
         // old check-then-increment race.
+        //
+        // Note that this spends the link at AUTHORIZATION, before any bytes have
+        // moved, so an interrupted transfer costs the recipient their only
+        // attempt. That is a real problem (silo-suggests.md S2-17) but not one to
+        // fix by loosening this: chunks are served from R2 by presigned URL, so
+        // the server never observes the transfer and "exactly once" can only mean
+        // "exactly one authorization". Anything that lets a second authorize
+        // through weakens a guarantee the product sells, and is the owner's call,
+        // not a refactor. The recipient's way out is a fresh link from the owner.
         let claim = sqlx::query!(
             "UPDATE files SET link_downloads = COALESCE(link_downloads, 0) + 1 \
              WHERE id = $1 AND (share_type <> 'once' OR COALESCE(link_downloads, 0) < COALESCE(link_max_downloads, 1)) \

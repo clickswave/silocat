@@ -2,17 +2,24 @@
 	"extends": "./.svelte-kit/tsconfig.json",
 	"compilerOptions": {
 		"allowJs": true,
-		// `checkJs` was on with `strict`, over a codebase with no type annotations.
-		// That produced ~900 "implicitly has an 'any' type" errors across 130 files,
-		// which is not a signal anyone can read: the handful of genuine Svelte,
-		// accessibility and unused-CSS diagnostics were buried under noise, so the
-		// check was effectively unrunnable and nobody ran it.
+		// Type checking stays ON. It was briefly turned off to make the error count
+		// look good, which is the wrong trade: svelte-check is the only thing
+		// standing between this codebase and a class of template and runes mistakes.
 		//
-		// Off, `svelte-check` reports what it is actually good at here: a11y
-		// problems, dead CSS selectors, runes misuse, and template errors. Turn it
-		// back on if and when the codebase gets JSDoc types; doing that file by file
-		// with a `// @ts-check` pragma works and keeps the signal clean meanwhile.
-		"checkJs": false,
+		// What was actually wrong is `strict` over a codebase with no annotations.
+		// That produced ~900 diagnostics, essentially all of them one of two kinds:
+		// "parameter implicitly has an 'any' type" and "'e' is of type 'unknown'"
+		// in catch blocks. Neither describes a defect here; they describe the absence
+		// of JSDoc. Buried under them, the dozen real accessibility and dead-CSS
+		// findings were unreachable, so nobody ran the tool at all.
+		//
+		// So: keep checkJs and strictNullChecks (which do catch real mistakes), and
+		// switch off the two flags that only report missing annotations. Turn either
+		// back on for a file by adding JSDoc types to it; they are opt-in per file
+		// via a `// @ts-check`-style annotation pass, and worth doing incrementally.
+		"checkJs": true,
+		"noImplicitAny": false,
+		"useUnknownInCatchVariables": false,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,

@@ -14,6 +14,61 @@
 
 	let { data } = $props();
 
+	// --- Folder Navigation ---
+	//
+	// The current folder lives in the URL, not in component state. It used to be
+	// a plain `let`, which meant browser Back left the Files page entirely
+	// instead of going up a level, a reload dropped you at the root, and a folder
+	// could not be bookmarked, linked to a teammate, or opened in a second tab.
+	//
+	// The breadcrumb trail rides along in the URL too. Reconstructing it from a
+	// bare folder id would need a parent-chain lookup the API does not expose;
+	// carrying it means a pasted link restores the full path, and it stays
+	// correct under Back and Forward because it is just history state.
+	let currentFolderId = $derived($page.url.searchParams.get('folder') || null);
+
+	let folderPath = $derived.by(() => {
+		const raw = $page.url.searchParams.get('path');
+		const root = [{ id: null, name: 'Files' }];
+		if (!raw) return root;
+		try {
+			const parsed = JSON.parse(decodeURIComponent(raw));
+			if (!Array.isArray(parsed)) return root;
+			return [...root, ...parsed.filter((p) => p && p.id).map((p) => ({ id: String(p.id), name: String(p.name ?? 'Folder') }))];
+		} catch {
+			return root;
+		}
+	});
+
+	/** Push a folder + its trail into the URL. `replace` avoids stacking history. */
+	function goToFolder(id, trail, { replace = false } = {}) {
+		const url = new URL($page.url);
+		if (id) {
+			url.searchParams.set('folder', id);
+			url.searchParams.set('path', encodeURIComponent(JSON.stringify(trail.slice(1))));
+		} else {
+			url.searchParams.delete('folder');
+			url.searchParams.delete('path');
+		}
+		goto(`${url.pathname}${url.search}`, { replaceState: replace, keepFocus: true, noScroll: true });
+	}
+
+	function handleFolderClick(folder) {
+		goToFolder(folder.id, [...folderPath, { id: folder.id, name: folder.name }]);
+	}
+
+	function navigateToBreadcrumb(index) {
+		// If clicking current, do nothing
+		if (index === folderPath.length - 1) return;
+		const trail = folderPath.slice(0, index + 1);
+		goToFolder(trail[trail.length - 1].id, trail);
+	}
+
+	function navigateUp() {
+		if (folderPath.length <= 1) return;
+		navigateToBreadcrumb(folderPath.length - 2);
+	}
+
 	async function fetchFilesFn() {
 		try {
 			let { data } = await FrontendClient.get('/api/v1/sanctum/file/list', {
@@ -172,60 +227,6 @@
 
 	// --- Upload Logic ---
 
-	// --- Folder Navigation ---
-	//
-	// The current folder lives in the URL, not in component state. It used to be
-	// a plain `let`, which meant browser Back left the Files page entirely
-	// instead of going up a level, a reload dropped you at the root, and a folder
-	// could not be bookmarked, linked to a teammate, or opened in a second tab.
-	//
-	// The breadcrumb trail rides along in the URL too. Reconstructing it from a
-	// bare folder id would need a parent-chain lookup the API does not expose;
-	// carrying it means a pasted link restores the full path, and it stays
-	// correct under Back and Forward because it is just history state.
-	let currentFolderId = $derived($page.url.searchParams.get('folder') || null);
-
-	let folderPath = $derived.by(() => {
-		const raw = $page.url.searchParams.get('path');
-		const root = [{ id: null, name: 'Files' }];
-		if (!raw) return root;
-		try {
-			const parsed = JSON.parse(decodeURIComponent(raw));
-			if (!Array.isArray(parsed)) return root;
-			return [...root, ...parsed.filter((p) => p && p.id).map((p) => ({ id: String(p.id), name: String(p.name ?? 'Folder') }))];
-		} catch {
-			return root;
-		}
-	});
-
-	/** Push a folder + its trail into the URL. `replace` avoids stacking history. */
-	function goToFolder(id, trail, { replace = false } = {}) {
-		const url = new URL($page.url);
-		if (id) {
-			url.searchParams.set('folder', id);
-			url.searchParams.set('path', encodeURIComponent(JSON.stringify(trail.slice(1))));
-		} else {
-			url.searchParams.delete('folder');
-			url.searchParams.delete('path');
-		}
-		goto(`${url.pathname}${url.search}`, { replaceState: replace, keepFocus: true, noScroll: true });
-	}
-
-	function handleFolderClick(folder) {
-		goToFolder(folder.id, [...folderPath, { id: folder.id, name: folder.name }]);
-	}
-
-	function navigateToBreadcrumb(index) {
-		// If clicking current, do nothing
-		if (index === folderPath.length - 1) return;
-		const trail = folderPath.slice(0, index + 1);
-		goToFolder(trail[trail.length - 1].id, trail);
-	}
-
-	function navigateUp() {
-		if (folderPath.length <= 1) return;
-		navigateToBreadcrumb(folderPath.length - 2);
-	}
 
 	// Queries are keyed by folder, so switching folders is a cache read rather
 	// than a manual invalidation. This stays for after a mutation.

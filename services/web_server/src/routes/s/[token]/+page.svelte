@@ -77,7 +77,20 @@
 		downloadProgress = 0;
 		const releaseTransfer = holdTransfer();
 
+		// Opened before the authorize round trip, because showSaveFilePicker() is
+		// only callable while a user gesture is still in progress and an await
+		// spends it. With authorize ahead of it, Chromium rejects the picker and
+		// the app silently drops to the service-worker tier. Folder downloads zip
+		// in memory and have no sink, so they skip this.
+		let presink = null;
 		try {
+			if (file?.type !== 'folder') {
+				presink = await createFileSink(file.name, {
+					size: Number(file.size) || 0,
+					mime: file.mime
+				});
+			}
+
 			// Only send the password to the server when the OWNER set a server-side
 			// link-password gate. For a client-side-ENCRYPTED file with no gate the
 			// password IS the decryption key and must never leave the browser (the
@@ -105,9 +118,11 @@
 					return;
 				}
 
-				await handleFileDownload(file, chunks, password);
+				await handleFileDownload(file, chunks, password, presink);
+				presink = null;
 			}
 		} catch (e) {
+			if (e?.name === 'SinkCancelled') return; // user dismissed the save dialog
 			console.error(e);
 			if (e.response && e.response.status === 401) {
 				// Server-side link password gate rejected the password.
@@ -122,6 +137,7 @@
 				toast.error('Unified download failed.');
 			}
 		} finally {
+			await presink?.abort(new Error('unused')).catch(() => {});
 			downloading = false;
 			releaseTransfer();
 		}
@@ -162,7 +178,7 @@
 		}
 	}
 
-	async function handleFileDownload(fileMeta, chunks, password) {
+	async function handleFileDownload(fileMeta, chunks, password, presink = null) {
 		// Prepare decryption key if needed
 		let fileKey = null;
 		if (fileMeta.encrypted) {
@@ -185,10 +201,12 @@
 		// into an array and hand it to new Blob(), needing roughly twice the file
 		// in memory, so anything of real size killed the tab: recipients could be
 		// sent a file the page could not deliver.
-		const sink = await createFileSink(fileMeta.name, {
-			size: Number(fileMeta.size) || totalBytes,
-			mime: fileMeta.mime
-		});
+		const sink =
+			presink ||
+			(await createFileSink(fileMeta.name, {
+				size: Number(fileMeta.size) || totalBytes,
+				mime: fileMeta.mime
+			}));
 
 		let completedBytes = 0;
 		try {

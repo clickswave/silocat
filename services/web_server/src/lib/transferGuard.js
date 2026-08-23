@@ -70,9 +70,18 @@ export function guardNavigation(
 ) {
 	beforeNavigate((nav) => {
 		if (active <= 0) return;
+
 		// A full-page unload is already covered by beforeunload; double-prompting
 		// is worse than not prompting.
 		if (nav.willUnload) return;
+
+		// Staying on the same route does not tear the page down, so the transfer
+		// survives and there is nothing to warn about. This matters because the
+		// Files page keeps the current folder in the URL: without this check,
+		// opening a folder mid-upload prompts "this will cancel it", which is both
+		// alarming and false. Query-string-only changes are the same page.
+		if (nav.to && nav.from && nav.to.url.pathname === nav.from.url.pathname) return;
+
 		if (!confirm(message)) nav.cancel();
 	});
 }

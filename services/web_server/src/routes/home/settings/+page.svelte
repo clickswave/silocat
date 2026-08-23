@@ -196,11 +196,32 @@
 		applyTheme(newTheme);
 	}
 
+	// Re-seed the form when the SERVER's idea of the user changes, and only then.
+	//
+	// This used to assign all four fields whenever the effect re-ran, which is
+	// every time `user` was re-created: a save, an avatar change, any
+	// invalidation. Anything typed and not yet saved was silently reverted to the
+	// stored value mid-edit. Tracking the incoming values and writing only when
+	// they actually differ from what was last seeded keeps the post-save refresh
+	// working without touching a field the user is in the middle of.
+	// Starts empty on purpose: the effect below sees every field as changed on its
+	// first run and performs the initial seed, so there is no second copy of the
+	// same initializer to drift.
+	let seeded = $state({ username: null, email: null, bio: null, country: null });
+
 	$effect(() => {
-		profileForm.username = user.username;
-		profileForm.email = user.email;
-		profileForm.bio = user.bio || '';
-		profileForm.country = user.country || '';
+		const incoming = {
+			username: user.username,
+			email: user.email,
+			bio: user.bio || '',
+			country: user.country || ''
+		};
+		for (const key of /** @type {const} */ (['username', 'email', 'bio', 'country'])) {
+			if (incoming[key] !== seeded[key]) {
+				profileForm[key] = incoming[key];
+				seeded[key] = incoming[key];
+			}
+		}
 	});
 
 	// Use enhance for progressive enhancement handling

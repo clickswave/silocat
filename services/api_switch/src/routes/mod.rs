@@ -45,6 +45,12 @@ pub fn respond(
         403 => status_code = StatusCode::FORBIDDEN,
         404 => status_code = StatusCode::NOT_FOUND,
         409 => status_code = StatusCode::CONFLICT,
+        // 410 was missing, so every "this link has expired" and "this one-time
+        // link has already been used" left the share code as a 410 and reached
+        // the browser as a 500. Both the proxy and the /s/<token> page branch on
+        // status === 410 to show the right message, so none of that ever ran and
+        // a spent link looked like a server fault.
+        410 => status_code = StatusCode::GONE,
         413 => status_code = StatusCode::PAYLOAD_TOO_LARGE,
         429 => status_code = StatusCode::TOO_MANY_REQUESTS,
         // server error
