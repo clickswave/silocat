@@ -1,11 +1,9 @@
 <script>
-	import { onMount } from 'svelte';
 	import Icon from '$lib/ui/Icon.svelte';
 	import { countries, getCountryName } from '$lib/countries';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import CountrySelect from '$lib/components/CountrySelect.svelte';
-	import { browser } from '$app/environment';
 	import { toast } from '$lib/toast.js';
 	import { theme as themeStore, setTheme as applyTheme } from '$lib/theme.js';
 
@@ -35,7 +33,11 @@
 		}
 	}
 
-	let theme = $state('dark');
+	// Read through the shared store rather than keeping a private copy. The old
+	// local `theme` was seeded once in onMount and never heard about changes made
+	// through the rail's ThemeToggle, so toggling there left these radios showing
+	// the previous value.
+	let theme = $derived($themeStore);
 	let saving = $state(false);
 
 	// --- Email change (inline verify) ---
@@ -190,14 +192,7 @@
 		country: user.country || ''
 	});
 
-	onMount(() => {
-		if (browser) {
-			theme = localStorage.getItem('theme') || 'dark';
-		}
-	});
-
 	function setTheme(newTheme) {
-		theme = newTheme;
 		applyTheme(newTheme);
 	}
 
@@ -229,8 +224,13 @@
 	// One key per account, and it is the credential for the whole programmatic
 	// surface. Hidden by default so it is not shoulder-surfed or captured in a
 	// screen share while someone is looking at unrelated settings.
-	let apiKey = $state(data.user?.api_key || '');
+	// The key is NOT in `data.user`: the root layout strips it so it never lands
+	// in the hydration payload. It is fetched on demand, once, when the user first
+	// asks to see or copy it. Reading it off `data.user` was why this field was
+	// always blank and Copy was a no-op.
+	let apiKey = $state('');
 	let apiKeyVisible = $state(false);
+	let apiKeyLoading = $state(false);
 	let rotating = $state(false);
 	let confirmRotate = $state(false);
 
@@ -238,9 +238,37 @@
 		apiKey ? `${apiKey.slice(0, 8)}${'•'.repeat(Math.max(0, apiKey.length - 12))}${apiKey.slice(-4)}` : ''
 	);
 
-	function copyApiKey() {
-		if (!apiKey) return;
-		navigator.clipboard.writeText(apiKey);
+	/** Fetch the key if we do not have it yet. Returns it, or '' on failure. */
+	async function ensureApiKey() {
+		if (apiKey) return apiKey;
+		if (apiKeyLoading) return '';
+		apiKeyLoading = true;
+		try {
+			const res = await fetch('/api/v1/user/reveal-api-key', { method: 'POST' });
+			const body = await res.json();
+			if (!res.ok || !body?.success?.api_key) throw new Error(body?.error || 'Failed');
+			apiKey = body.success.api_key;
+			return apiKey;
+		} catch (e) {
+			toast.error('Could not load your API key', 'Try again in a moment.');
+			return '';
+		} finally {
+			apiKeyLoading = false;
+		}
+	}
+
+	async function toggleApiKeyVisible() {
+		if (apiKeyVisible) {
+			apiKeyVisible = false;
+			return;
+		}
+		if (await ensureApiKey()) apiKeyVisible = true;
+	}
+
+	async function copyApiKey() {
+		const key = await ensureApiKey();
+		if (!key) return;
+		await navigator.clipboard.writeText(key);
 		toast.success('API key copied', 'Treat it like a password.');
 	}
 
@@ -554,19 +582,27 @@
 						class="mono"
 						type="text"
 						readonly
-						value={apiKeyVisible ? apiKey : maskedKey}
+						value={apiKeyVisible ? apiKey : maskedKey || '••••••••••••••••'}
 						onclick={(e) => e.target.select()}
 					/>
 					<button
 						type="button"
 						class="ghost icon"
+						disabled={apiKeyLoading}
 						aria-label={apiKeyVisible ? 'Hide API key' : 'Show API key'}
 						title={apiKeyVisible ? 'Hide' : 'Show'}
-						onclick={() => (apiKeyVisible = !apiKeyVisible)}
+						onclick={toggleApiKeyVisible}
 					>
-						<Icon name="eye" size={15} />
+						<Icon name={apiKeyLoading ? 'spinner' : 'eye'} size={15} />
 					</button>
-					<button type="button" class="ghost icon" aria-label="Copy API key" title="Copy" onclick={copyApiKey}>
+					<button
+						type="button"
+						class="ghost icon"
+						disabled={apiKeyLoading}
+						aria-label="Copy API key"
+						title="Copy"
+						onclick={copyApiKey}
+					>
 						<Icon name="copy" size={15} />
 					</button>
 				</div>

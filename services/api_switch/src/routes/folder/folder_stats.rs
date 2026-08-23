@@ -71,12 +71,15 @@ pub async fn handle(
                 200,
                 "Stats calculated",
                 vec![],
+                // Flat, like every other handler: `respond` already wraps this in
+                // the envelope's `data` field, so nesting a second `data` here
+                // put the numbers at res.data.data.data and nothing could read
+                // them. No client consumed this successfully before, because the
+                // proxy route it needs did not exist.
                 json!({
-                    "data": {
-                        "total_items": total_items,
-                        "folders": folders,
-                        "files": files
-                    }
+                    "total_items": total_items,
+                    "folders": folders,
+                    "files": files
                 }),
             )
         }

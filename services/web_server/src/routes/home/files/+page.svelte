@@ -204,11 +204,14 @@
 				params: { folder_id: folder.id }
 			});
 
-			if (!data?.success?.data?.files) {
+			// The list proxy returns api_switch's envelope verbatim: {status, data}.
+			// This read it as {success:{data}}, which no response ever has, so the
+			// throw below fired every single time and folder zip download never
+			// worked. fetchFilesFn 190 lines up reads the same endpoint correctly.
+			const folderFiles = data?.status === 200 ? data?.data?.files : null;
+			if (!folderFiles) {
 				throw new Error('Failed to fetch folder contents');
 			}
-
-			const folderFiles = data.success.data.files;
 
 			if (folderFiles.length === 0) {
 				toast.error('Folder is empty');
@@ -371,9 +374,8 @@
 	async function fetchDeletionStats(folderId) {
 		try {
 			const res = await axios.post('/api/v1/sanctum/folder/stats', { folder_id: folderId });
-			if (res.data?.data) {
-				deletedItemCount = res.data.data.total_items;
-			}
+			const stats = res.data?.success?.data;
+			deletedItemCount = typeof stats?.total_items === 'number' ? stats.total_items : 'unknown';
 		} catch (e) {
 			console.error('Failed to fetch folder stats', e);
 			deletedItemCount = 'unknown';
