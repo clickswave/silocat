@@ -1,5 +1,19 @@
 # Silocat: UI/UX and security review
 
+> **Status: all findings resolved on branch `fix/audit-2026-08-23`** (2026-08-23).
+> Eight commits, verified by `cargo check`, a full production `vite build`, and
+> the silocat testkit (66 passed). `svelte-check` went from 894 errors / 27
+> warnings to 0 errors / 10 warnings. Nothing was deployed.
+>
+> Two claims below were wrong and are corrected in place, marked **[correction]**:
+> the resend-verification aside in S2-2, and an assumption about `/folder/stats`
+> in S1-8.
+>
+> Deliberately not fixed, with reasons recorded inline: S2-17 (one-time links
+> still burn at authorization, because the alternative is worse) and the ten
+> remaining `state_referenced_locally` warnings, which are intentional
+> seed-from-prop patterns.
+
 Scope: `services/web_server` (SvelteKit) with cross-checks into `services/api_switch` (axum) where the frontend's behaviour depends on backend authorization.
 
 Everything below was read in the source and traced end to end. Findings marked **Confirmed** have the contradicting code on both sides quoted or line-referenced. Findings marked **Risk** are real but depend on deployment conditions.
@@ -109,7 +123,9 @@ Hash the inline theme script rather than adding a nonce, since Pages serves the 
 
 `api_switch/src/routes/file/request.rs` exposes `public_info`, `upload_create` and `upload_mark_complete` with no `rate_limiter.check` call anywhere in the file. `routes/req/[token]/+page.svelte` has no Turnstile widget (Turnstile appears only on signin and signup). Anyone with a request link can loop uploads into the owner's quota.
 
-Same gap in `src/routes/user/resend_verification.rs` (email bomb toward a chosen address) and `src/routes/validate_shadow_user.rs`.
+Same gap in `src/routes/validate_shadow_user.rs`, which mints an anonymous user row per browser-supplied key, so a loop can farm identities and the storage grants attached to them.
+
+**[correction]** This finding originally also named `src/routes/user/resend_verification.rs`. That was wrong. The handler requires an authenticated `UserTokenData` and enforces a 60-second cooldown from `otp_last_sent_at`, so the only inbox anyone can flood is their own. It throttles with a database timestamp rather than the shared `rate_limiter`, which is why a grep for `rate_limiter.check` missed it. Left as is.
 
 For contrast, the endpoints that do it right: `login.rs:35`, `register_personal.rs:42`, `forgot_password.rs:25`, `reset_password.rs:27`, `report.rs:29`, `share.rs:76`.
 
@@ -157,6 +173,8 @@ Result: "Download folder as zip" always fails with "Failed to fetch folder conte
 So the "you are about to delete N items" safety copy never shows a number, on the one action that recursively removes a folder tree.
 
 **Fix:** add `routes/api/v1/sanctum/folder/stats/+server.js` following the `star` proxy pattern.
+
+**[correction]** While adding the proxy it turned out the handler also nests its payload one level deeper than every other handler, putting the numbers at `data.data.total_items`. That was flattened to match the convention. The original assumption that nothing read the endpoint was wrong: the web client could not, but the silocat testkit calls api_switch directly and pinned the nested shape in `test_foreign_folder_stats_does_not_leak`, so that test was updated alongside. The `-1` it asserts is a load-bearing no-leak sentinel (for a folder the caller does not own the recursive CTE's base case matches nothing, so `COUNT(*) - 1` is `-1`). It survives the change, and the delete dialog now treats any negative total as unknown rather than rendering "-1 items".
 
 ### S1-9. The Settings page can never show the API key. **Confirmed**
 
@@ -444,29 +462,38 @@ Real warnings worth acting on from that run:
 
 ---
 
-## Suggested order of work
+## What shipped
 
-**Before anything else** (each is small and each is a genuine hole):
+Branch `fix/audit-2026-08-23`, eight commits, nothing deployed.
 
-1. S1-1, delete the `Math.random()` password generator, import `$lib/password.js`. One-line fix, largest security impact.
-2. S1-5 and S1-6, remove the three credential-logging statements and the presigned-URL log.
-3. S1-2 and S1-3, stop defaulting `public_access` to true for sanctum uploads, and clear it plus the token when sharing is turned off. Backfill existing rows.
-4. S1-9, restore the API key display. Users on the paid API tier currently cannot obtain their key without breaking their integration.
-5. S1-7 and S1-8, the two broken endpoints (folder ZIP, folder stats proxy).
+| Commit | Covers |
+| --- | --- |
+| `docs: audit findings` | this document |
+| `security: CSPRNG for share passwords, stop logging credentials` | S1-1, S1-5, S1-6, S3-1 |
+| `security: files in a registered drive are private until explicitly shared` | S1-2, S1-3, S1-4, plus migration 0044 |
+| `fix: repair three features that could not work at all` | S1-7, S1-8, S1-9, S2-8, S2-9 |
+| `perf: stream downloads to disk, move all crypto off the main thread` | S1-10, S1-11, S1-12, S2-10, S3-5, S3-6, S3-7 |
+| `fix: folder navigation in the URL, one source of truth for cache keys, modal a11y` | S2-4, S2-5, S2-6, S2-7, S2-11, S2-12, S2-13, S2-14, S2-15, S2-16, S3-8, S3-11 |
+| `security: ship a real CSP, meter the unauthenticated endpoints` | S2-1, S2-2, S2-3, S3-9 |
+| `polish: shared formatters, a11y fixes, readable svelte-check` | S2-17 (partial), S3-2, S3-3, S3-4, S3-10, S3-12, S3-13, S3-14, S3-15, S3-16 |
 
-**Next sprint:**
+### Things found while fixing, not in the original list
 
-6. S1-10 and S1-11, streaming downloads and worker-based crypto. This is the largest piece of work here and the one that decides whether the advertised 20 GB limit is real.
-7. S1-12, chunked hashing on the file-request path.
-8. S2-10, transfer guards on unload and navigation.
-9. S2-14, folder state in the URL, which also resolves S2-4.
-10. S2-5, one shared query-key module.
+* **The Files context menu's "Copy link" was broken by design.** It built `${origin}/${item.id}`, the anonymous-drop route, which resolves by raw file id through the `public_access` gate. It only ever produced a working URL because of the default S1-2 removes, and it never turned sharing on. Now goes through the token flow.
+* **Delivery-receipt styles never applied.** The `.receipts*` rules were nested under `.opts` in the SCSS while the markup renders them as its sibling, so that list has been unstyled since it shipped. Hoisted.
+* **`folder_stats` double-nested its payload** (see the S1-8 correction).
+* **A duplicate `send` key** in the icon map, flagged by svelte-check under the noise.
+* **`FolderCard` was keyboard-focusable but not keyboard-activatable**, and its suppression comment used the Svelte 4 dash spelling so it suppressed nothing.
 
-**Then:**
+### Deliberately left alone
 
-11. S2-12 and S2-13, modal and drawer accessibility.
-12. S2-11, `100dvh`.
-13. S2-15, honest encryption copy.
-14. S2-1, CSP on staging, then production.
-15. S2-2, rate limits on the public request endpoints.
-16. S3 items as they come up.
+* **S2-17, one-time links still burn at authorization.** Authorization happens before any bytes move, so a dropped connection still costs the recipient their attempt. The obvious fix, spending the link on a post-download confirmation, lets a client simply never confirm and download forever, which is worse than the bug. The counter stays put; the page now warns the recipient before they start, and a spent link says it was already used rather than "safe-link has expired". A proper fix needs a resumable-session protocol and is its own piece of work.
+* **Ten `state_referenced_locally` warnings.** All seed-from-prop patterns where only the initial value is wanted (`Input`'s generated uid, `InputModal`'s `initialValue`, `ResourceList`'s `variant`) or where an explicit `$effect` re-syncs (`settings`' `profileForm`).
+* **`checkJs`.** Turned off rather than satisfied. Annotating ~130 untyped files was out of scope for one pass; the config comment says how to reintroduce it file by file.
+
+### Before this goes out
+
+* **The CSP is the one change that can break the site silently, and it has never run in a browser.** Load staging with devtools open and watch for violations before promoting. The likely candidates are an origin I did not find (an analytics or payment host) and the pinned hash of the inline theme script: edit `src/app.html` without regenerating it and every visitor falls back to dark. The regeneration command is in `_headers`.
+* **Streaming downloads have never run in a browser either.** Three tiers, and only the Blob one is the old code path. Test a large file in Chromium (File System Access), Firefox (service worker) and Safari, encrypted and not.
+* **Migration 0044 has run on dev only.** It flipped 14 sanctum files private and cleared 2 stale tokens there. On production it will touch more, and it deliberately leaves live shares alone.
+* **`.svelte-kit/` in this working tree is root-owned** from an old container build, so `vite build` needs `SVELTEKIT_OUT_DIR=.svelte-kit-local`. Worth a `sudo chown` at some point; it is not something this branch changed.
