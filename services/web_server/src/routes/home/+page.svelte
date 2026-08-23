@@ -5,12 +5,13 @@
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { glyphForMime } from '$lib/ui/icons.js';
 	import { copyShareLink } from '$lib/share.js';
+	import { qk } from '$lib/queryKeys.js';
 
 	let { data } = $props();
 
 	// --- data ---------------------------------------------------------------
 	const fetchFiles = createQuery(() => ({
-		queryKey: ['fetchRecentFiles'],
+		queryKey: qk.recentFiles,
 		queryFn: async () => {
 			try {
 				const res = await FrontendClient.get('/api/v1/sanctum/file/list');
@@ -24,7 +25,7 @@
 	}));
 
 	const fetchFolders = createQuery(() => ({
-		queryKey: ['fetchRootFolders'],
+		queryKey: qk.rootFolders,
 		queryFn: async () => {
 			try {
 				const res = await FrontendClient.post('/api/v1/sanctum/folder/list', { parent_id: null });
@@ -38,7 +39,7 @@
 	}));
 
 	const fetchStorageStats = createQuery(() => ({
-		queryKey: ['fetchStorageStats'],
+		queryKey: qk.storage,
 		queryFn: async () => {
 			try {
 				const { data: d } = await FrontendClient.get('/api/v1/sanctum/user/storage');
@@ -55,8 +56,8 @@
 
 	/** Re-read the dashboard's own lists after a share toggle changes an item. */
 	function refreshResources() {
-		queryClient.invalidateQueries({ queryKey: ['fetchRecentFiles'] });
-		queryClient.invalidateQueries({ queryKey: ['fetchRootFolders'] });
+		queryClient.invalidateQueries({ queryKey: qk.recentFiles });
+		queryClient.invalidateQueries({ queryKey: qk.rootFolders });
 	}
 
 	let loading = $derived(fetchFiles.isLoading || fetchFolders.isLoading);

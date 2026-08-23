@@ -2,6 +2,9 @@
 	import FolderCard from '$lib/components/FolderCard.svelte';
 	import { CHUNK_SIZE } from '$lib/chunking.js';
 	import { holdTransfer } from '$lib/transferGuard.js';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { qk, invalidateResources } from '$lib/queryKeys.js';
 	import FileCard from '$lib/components/FileCard.svelte';
 	import { flip } from 'svelte/animate'; // Add flip import for smooth list reordering animation
 	import { FrontendClient } from '$lib/frontendClient.js';
@@ -37,7 +40,7 @@
 	}
 
 	const fetchFiles = createQuery(() => ({
-		queryKey: ['fetchFiles'],
+		queryKey: qk.files(currentFolderId),
 		queryFn: fetchFilesFn,
 		enabled: browser
 	}));
@@ -60,7 +63,7 @@
 	}
 
 	const fetchFolders = createQuery(() => ({
-		queryKey: ['fetchFolders'],
+		queryKey: qk.folders(currentFolderId),
 		queryFn: fetchFoldersFn,
 		enabled: browser
 	}));
@@ -79,7 +82,7 @@
 	}
 
 	const fetchStorageStats = createQuery(() => ({
-		queryKey: ['fetchStorageStats'],
+		queryKey: qk.storage,
 		queryFn: fetchStorageStatsFn,
 		enabled: browser
 	}));
@@ -105,10 +108,7 @@
 				starred: newStatus
 			});
 			toast.success(newStatus ? 'Added to starred' : 'Removed from starred');
-			queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
-			queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
-			queryClient.invalidateQueries({ queryKey: ['fetchStarredFiles'] });
-			queryClient.invalidateQueries({ queryKey: ['fetchStarredFolders'] });
+			refreshView();
 		} catch (e) {
 			console.error('Star failed:', e);
 			toast.error('Failed to update star status');
@@ -145,6 +145,7 @@
 	import InputModal from '$lib/components/InputModal.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import ShareModal from '$lib/components/ShareModal.svelte';
+	import Modal from '$lib/ui/Modal.svelte';
 
 	// ... existing imports ...
 
@@ -170,24 +171,54 @@
 
 	// --- Upload Logic ---
 
-	// --- Folder Navigation State ---
-	let currentFolderId = $state(null);
-	let folderPath = $state([{ id: null, name: 'Files' }]);
+	// --- Folder Navigation ---
+	//
+	// The current folder lives in the URL, not in component state. It used to be
+	// a plain `let`, which meant browser Back left the Files page entirely
+	// instead of going up a level, a reload dropped you at the root, and a folder
+	// could not be bookmarked, linked to a teammate, or opened in a second tab.
+	//
+	// The breadcrumb trail rides along in the URL too. Reconstructing it from a
+	// bare folder id would need a parent-chain lookup the API does not expose;
+	// carrying it means a pasted link restores the full path, and it stays
+	// correct under Back and Forward because it is just history state.
+	let currentFolderId = $derived($page.url.searchParams.get('folder') || null);
+
+	let folderPath = $derived.by(() => {
+		const raw = $page.url.searchParams.get('path');
+		const root = [{ id: null, name: 'Files' }];
+		if (!raw) return root;
+		try {
+			const parsed = JSON.parse(decodeURIComponent(raw));
+			if (!Array.isArray(parsed)) return root;
+			return [...root, ...parsed.filter((p) => p && p.id).map((p) => ({ id: String(p.id), name: String(p.name ?? 'Folder') }))];
+		} catch {
+			return root;
+		}
+	});
+
+	/** Push a folder + its trail into the URL. `replace` avoids stacking history. */
+	function goToFolder(id, trail, { replace = false } = {}) {
+		const url = new URL($page.url);
+		if (id) {
+			url.searchParams.set('folder', id);
+			url.searchParams.set('path', encodeURIComponent(JSON.stringify(trail.slice(1))));
+		} else {
+			url.searchParams.delete('folder');
+			url.searchParams.delete('path');
+		}
+		goto(`${url.pathname}${url.search}`, { replaceState: replace, keepFocus: true, noScroll: true });
+	}
 
 	function handleFolderClick(folder) {
-		currentFolderId = folder.id;
-		folderPath = [...folderPath, { id: folder.id, name: folder.name }];
-		refreshView();
+		goToFolder(folder.id, [...folderPath, { id: folder.id, name: folder.name }]);
 	}
 
 	function navigateToBreadcrumb(index) {
 		// If clicking current, do nothing
 		if (index === folderPath.length - 1) return;
-
-		const target = folderPath[index];
-		currentFolderId = target.id;
-		folderPath = folderPath.slice(0, index + 1);
-		refreshView();
+		const trail = folderPath.slice(0, index + 1);
+		goToFolder(trail[trail.length - 1].id, trail);
 	}
 
 	function navigateUp() {
@@ -195,9 +226,10 @@
 		navigateToBreadcrumb(folderPath.length - 2);
 	}
 
+	// Queries are keyed by folder, so switching folders is a cache read rather
+	// than a manual invalidation. This stays for after a mutation.
 	function refreshView() {
-		queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
-		queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
+		invalidateResources(queryClient, { folderId: currentFolderId });
 	}
 
 	// --- Folder Logic ---
@@ -328,7 +360,7 @@
 
 			if (res.data && res.data.data && res.data.data.id) {
 				toast.success('Folder created');
-				queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
+				refreshView();
 			} else {
 				console.error('Invalid response structure:', res.data);
 				throw new Error('Invalid response from server');
@@ -355,7 +387,7 @@
 				new_name: newName
 			});
 			toast.success('Folder renamed');
-			queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
+			refreshView();
 		} catch (e) {
 			console.error('Rename failed:', e);
 			toast.error('Failed to rename folder');
@@ -395,7 +427,7 @@
 		try {
 			await axios.post('/api/v1/sanctum/folder/delete', { folder_id: folderToDelete.id });
 			toast.success('Folder deleted');
-			queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
+			refreshView();
 		} catch (e) {
 			console.error('Delete failed:', e);
 			toast.error('Failed to delete folder');
@@ -1036,9 +1068,7 @@
 
 			if (successCount > 0) {
 				toast.success(`Upload complete! (${successCount} files)`);
-				queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
-				queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
-				queryClient.invalidateQueries({ queryKey: ['fetchFolders'] }); // Also refresh folders!
+				refreshView();
 				files = [];
 				showUploadModal = false;
 			} else if (failCount > 0) {
@@ -1055,9 +1085,6 @@
 						: 'Upload halted.'
 				);
 				if (successCount > 0) {
-					queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
-					queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
-					queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
 				}
 				files = [];
 				showUploadModal = false;
@@ -1113,8 +1140,7 @@
 				file_id: fileToDelete.id
 			});
 			toast.success('File deleted');
-			queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
-			queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
+			refreshView();
 		} catch (e) {
 			console.error('[Delete] Failed:', e);
 			toast.error('Delete failed: ' + (e.response?.data?.message || e.message));
@@ -1300,10 +1326,8 @@
 			}
 		}
 		toast.success(`Moved ${ok} item${ok === 1 ? '' : 's'} to trash`);
+		refreshView();
 		clearSelection();
-		queryClient.invalidateQueries({ queryKey: ['fetchFiles'] });
-		queryClient.invalidateQueries({ queryKey: ['fetchFolders'] });
-		queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
 	}
 
 	async function bulkStar(starred) {
@@ -1321,8 +1345,6 @@
 		toast.success(starred ? 'Added to starred' : 'Removed from starred');
 		clearSelection();
 		refreshView();
-		queryClient.invalidateQueries({ queryKey: ['fetchStarredFiles'] });
-		queryClient.invalidateQueries({ queryKey: ['fetchStarredFolders'] });
 	}
 
 	// Bulk download (zip of selected files). Encrypted files prompt for a
@@ -2201,59 +2223,41 @@
 	/>
 {/if}
 
-{#if showBulkPwModal}
-	<div
-		class="modal-backdrop"
-		transition:fade={{ duration: 150 }}
-		role="presentation"
-		onclick={(e) => {
-			if (e.target === e.currentTarget) showBulkPwModal = false;
-		}}
-	>
-		<div class="modal-content upload-modal" transition:scale={{ duration: 200, start: 0.96 }}>
-			<header class="modal-header">
-				<div class="modal-title">
-					<Icon icon="ri:lock-2-line" width="20" />
-					<span>Enter passwords</span>
+<Modal
+	open={showBulkPwModal}
+	title="Enter passwords"
+	icon="lock"
+	size="md"
+	onclose={() => (showBulkPwModal = false)}
+>
+	<p class="bulkpw-intro">
+		{bulkPwEncrypted.length} of the selected files {bulkPwEncrypted.length === 1 ? 'is' : 'are'} encrypted.
+		Enter each password to include them in the download.
+	</p>
+	<div class="bulkpw-list">
+		{#each bulkPwEncrypted as f (f.id)}
+			<div class="bulkpw-row">
+				<div class="bulkpw-file" title={f.name}>
+					<Icon icon="ri:lock-fill" width="16" />
+					<span>{f.name}</span>
 				</div>
-				<button class="close-btn" onclick={() => (showBulkPwModal = false)} aria-label="Close">
-					<Icon icon="ri:close-line" width="22" />
-				</button>
-			</header>
-
-			<div class="modal-body">
-				<p class="bulkpw-intro">
-					{bulkPwEncrypted.length} of the selected files {bulkPwEncrypted.length === 1
-						? 'is'
-						: 'are'} encrypted. Enter each password to include them in the download.
-				</p>
-				<div class="bulkpw-list">
-					{#each bulkPwEncrypted as f (f.id)}
-						<div class="bulkpw-row">
-							<div class="bulkpw-file" title={f.name}>
-								<Icon icon="ri:lock-fill" width="16" />
-								<span>{f.name}</span>
-							</div>
-							<input
-								type="password"
-								placeholder="Password"
-								autocomplete="off"
-								bind:value={bulkPwValues[f.id]}
-							/>
-						</div>
-					{/each}
-				</div>
+				<input
+					type="password"
+					placeholder="Password"
+					autocomplete="off"
+					bind:value={bulkPwValues[f.id]}
+				/>
 			</div>
-
-			<footer class="modal-footer">
-				<button class="btn btn-ghost" onclick={() => (showBulkPwModal = false)}>Cancel</button>
-				<button class="btn btn-primary" disabled={!bulkPwReady} onclick={confirmBulkPw}>
-					Download {bulkPwAll.length} file{bulkPwAll.length === 1 ? '' : 's'}
-				</button>
-			</footer>
-		</div>
+		{/each}
 	</div>
-{/if}
+
+	{#snippet footer()}
+		<button class="btn btn-ghost" onclick={() => (showBulkPwModal = false)}>Cancel</button>
+		<button class="btn btn-primary" disabled={!bulkPwReady} onclick={confirmBulkPw}>
+			Download {bulkPwAll.length} file{bulkPwAll.length === 1 ? '' : 's'}
+		</button>
+	{/snippet}
+</Modal>
 
 {#if bulkConfirmDelete}
 	<ConfirmModal
@@ -2337,35 +2341,19 @@
 	<ShareModal item={itemToShare} onclose={() => (showShareModal = false)} />
 {/if}
 
-{#if showUploadModal}
-	<div
-		class="modal-backdrop"
-		transition:fade={{ duration: 150 }}
-		role="presentation"
-		onclick={(e) => {
-			if (e.target === e.currentTarget && !isUploading) {
-				showUploadModal = false;
-				files = [];
-			}
-		}}
-	>
-		<div class="modal-content upload-modal" transition:scale={{ duration: 200, start: 0.96 }}>
-			<header class="modal-header">
-				<div class="modal-title">
-					<Icon icon="ri:upload-cloud-2-line" width="20" />
-					<span>Upload files</span>
-				</div>
-				<!-- During an upload the cross halts it rather than closing behind a
-				     transfer that keeps running unseen. -->
-				<button
-					class="close-btn"
-					onclick={() => (isUploading ? cancelUpload() : (showUploadModal = false))}
-					aria-label={isUploading ? 'Halt upload' : 'Close'}
-					title={isUploading ? 'Halt upload' : 'Close'}
-				>
-					<Icon icon="ri:close-line" width="22" />
-				</button>
-			</header>
+<!-- `dismissible` is false mid-upload, so Escape and the scrim cannot close the
+     dialog out from under a running transfer; the cross becomes Halt instead. -->
+<Modal
+	open={showUploadModal}
+	title="Upload files"
+	icon="upload"
+	size="md"
+	dismissible={!isUploading}
+	onclose={() => {
+		showUploadModal = false;
+		files = [];
+	}}
+>
 
 			<div class="modal-body">
 				{#if !isUploading}
@@ -2376,7 +2364,12 @@
 						ondrop={handleDrop}
 						role="button"
 						tabindex="0"
-						onkeydown={(e) => e.key === 'Enter' && fileInput?.click()}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								fileInput?.click();
+							}
+						}}
 						onclick={() => fileInput?.click()}
 					>
 						<!-- File upload input -->
@@ -2395,7 +2388,15 @@
 							<Icon icon="ri:upload-cloud-2-line" width="28" />
 						</span>
 						<p>Drop files here, or <span class="link">browse</span></p>
-						<span class="sub-text">Any file type, encrypted in your browser</span>
+						<!-- This said "encrypted in your browser" unconditionally, while the
+						     toggle below it defaults to off. It claimed encryption at the
+						     exact moment there was none, which is the worst possible place
+						     for that particular lie. -->
+						<span class="sub-text">
+							{encryptionEnabled
+								? 'Any file type, encrypted in your browser before it leaves'
+								: 'Any file type. Turn on encryption below to protect the contents.'}
+						</span>
 					</div>
 
 					<button
@@ -2507,30 +2508,30 @@
 				{/if}
 			</div>
 
-			{#if !isUploading}
-				<footer class="modal-footer">
-					<button
-						class="btn btn-ghost"
-						onclick={() => {
-							showUploadModal = false;
-							files = [];
-						}}>Cancel</button
-					>
-					<button
-						class="btn btn-primary"
-						disabled={files.length === 0 || (encryptionEnabled && !password)}
-						onclick={startUpload}
-					>
-						{encryptionEnabled ? 'Encrypt & upload' : 'Upload'}
-						{#if files.length > 0}
-							<span class="count-pill">{files.length}</span>
-						{/if}
-					</button>
-				</footer>
-			{/if}
-		</div>
-	</div>
-{/if}
+	{#snippet footer()}
+		{#if !isUploading}
+			<button
+				class="btn btn-ghost"
+				onclick={() => {
+					showUploadModal = false;
+					files = [];
+				}}>Cancel</button
+			>
+			<button
+				class="btn btn-primary"
+				disabled={files.length === 0 || (encryptionEnabled && !password)}
+				onclick={startUpload}
+			>
+				{encryptionEnabled ? 'Encrypt & upload' : 'Upload'}
+				{#if files.length > 0}
+					<span class="count-pill">{files.length}</span>
+				{/if}
+			</button>
+		{:else}
+			<button class="btn btn-ghost" onclick={cancelUpload}>Halt upload</button>
+		{/if}
+	{/snippet}
+</Modal>
 
 <style lang="scss">
 	/* =====================================================================
@@ -3370,85 +3371,13 @@
 		pointer-events: none;
 	}
 
-	/* =====================================================================
-	   Overlays that are still hand-rolled in this file (upload, bulk
-	   passwords). Same shell tokens as `ui/Modal`, so they read identically.
-	   ===================================================================== */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-5);
-		background: var(--scrim);
-	}
-
-	.modal-content {
-		width: 100%;
-		max-width: 480px;
-		display: flex;
-		flex-direction: column;
-		background: var(--raised);
-		border: 1px solid var(--edge);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		overflow: hidden;
-		max-height: min(84vh, 760px);
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: center;
-		gap: 0.625rem;
-		padding: 1rem 1rem 0.875rem;
-	}
-
-	.modal-title {
-		display: flex;
-		align-items: center;
-		gap: 0.625rem;
-		flex: 1;
-		min-width: 0;
-		font-size: 0.9375rem;
-		font-weight: var(--fw-semibold);
-		letter-spacing: var(--tracking-tight);
-		color: var(--ink);
-	}
-
-	.close-btn {
-		width: 28px;
-		height: 28px;
-		border: 0;
-		background: none;
-		border-radius: var(--radius-sm);
-		display: grid;
-		place-items: center;
-		color: var(--ink-faint);
-		cursor: pointer;
-
-		&:hover {
-			background: var(--tint-soft);
-			color: var(--ink);
-		}
-	}
-
+	/* The upload and bulk-password overlays now use `ui/Modal`, which owns the
+	   scrim, shell, header and footer. Only the inner layout is left here. */
 	.modal-body {
 		display: flex;
 		flex-direction: column;
 		gap: 0.875rem;
-		padding: 0 1rem 1rem;
 		overflow-y: auto;
-	}
-
-	.modal-footer {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		padding: 0.875rem 1rem;
-		border-top: 1px solid var(--edge);
 	}
 
 	.upload-area {

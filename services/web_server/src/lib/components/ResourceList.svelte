@@ -17,6 +17,7 @@
 	import { copyShareLink } from '$lib/share.js';
 	import Prompt from '$lib/ui/Prompt.svelte';
 	import ShareModal from '$lib/components/ShareModal.svelte';
+	import { qk, invalidateResources } from '$lib/queryKeys.js';
 
 	let { variant = 'shared' } = $props();
 
@@ -48,7 +49,7 @@
 	const filterKey = variant === 'shared' ? 'shared' : 'starred';
 
 	const filesQuery = createQuery(() => ({
-		queryKey: [`${filterKey}Files`],
+		queryKey: qk[`${filterKey}Files`],
 		queryFn: async () => {
 			try {
 				const { data } = await FrontendClient.get('/api/v1/sanctum/file/list', {
@@ -64,7 +65,7 @@
 	}));
 
 	const foldersQuery = createQuery(() => ({
-		queryKey: [`${filterKey}Folders`],
+		queryKey: qk[`${filterKey}Folders`],
 		queryFn: async () => {
 			try {
 				const { data } = await FrontendClient.post('/api/v1/sanctum/folder/list', {
@@ -80,9 +81,7 @@
 	}));
 
 	function invalidate() {
-		queryClient.invalidateQueries({ queryKey: [`${filterKey}Files`] });
-		queryClient.invalidateQueries({ queryKey: [`${filterKey}Folders`] });
-		queryClient.invalidateQueries({ queryKey: ['fetchRecentFiles'] });
+		invalidateResources(queryClient);
 	}
 
 	let loading = $derived(filesQuery.isLoading || foldersQuery.isLoading);

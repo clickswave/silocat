@@ -7,6 +7,7 @@
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { theme, toggleTheme } from '$lib/theme.js';
 	import { sidebarCollapsed, toggleSidebar } from '$lib/stores/sidebar.js';
+	import { qk } from '$lib/queryKeys.js';
 
 	// `open` only matters on mobile, where the sidebar is an off-canvas drawer.
 	let { open = false, onclose } = $props();
@@ -31,11 +32,11 @@
 	// the rail is in flow.
 	let collapsed = $derived($sidebarCollapsed && !open);
 
-	// Shared query key with the files page + dashboard: uploads/deletes there call
-	// queryClient.invalidateQueries(['fetchStorageStats']), which refetches this and
-	// keeps the sidebar meter live without a manual page refresh.
+	// Shared query key with the Files page and dashboard, via $lib/queryKeys.js:
+	// their mutations run invalidateResources(), which refetches this and keeps
+	// the meter live without a manual page refresh.
 	const storageQuery = createQuery(() => ({
-		queryKey: ['fetchStorageStats'],
+		queryKey: qk.storage,
 		queryFn: async () => {
 			const { data } = await FrontendClient.get('/api/v1/sanctum/user/storage');
 			return data?.success || { used: 0, total: 0 };
@@ -191,7 +192,7 @@
 		flex-direction: column;
 		width: 240px;
 		flex: 0 0 auto;
-		height: 100vh;
+		height: 100dvh;
 		background: var(--surface);
 		border-right: 1px solid var(--edge);
 		overflow: hidden;

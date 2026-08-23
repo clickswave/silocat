@@ -7,13 +7,15 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { glyphForMime } from '$lib/ui/icons.js';
 	import { TRASH_TTL_DAYS, autoDeleteIn } from '$lib/retention.js';
+	import { invalidateResources } from '$lib/queryKeys.js';
 
 	const queryClient = useQueryClient();
 
-	// Restore/permanent-delete change quota usage; refresh the shared storage
-	// query so the sidebar + dashboard meters update without a manual reload.
+	// Restoring or permanently deleting changes both quota usage and what the
+	// file lists should show, so sweep the lot: a restored file reappearing in
+	// Files is the whole point of the action, and only the meter was refreshed.
 	function refreshStorage() {
-		queryClient.invalidateQueries({ queryKey: ['fetchStorageStats'] });
+		invalidateResources(queryClient);
 	}
 
 	let trashItems = $state([]);

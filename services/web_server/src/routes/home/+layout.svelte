@@ -22,7 +22,25 @@
 	// Mobile-only off-canvas nav. Close it after navigating to a new page.
 	let navOpen = $state(false);
 	afterNavigate(() => (navOpen = false));
+
+	// The drawer covers the page, so Escape has to dismiss it: the scrim was
+	// pointer-only, leaving keyboard users with no way out.
+	function onkeydown(e) {
+		if (e.key === 'Escape' && navOpen) navOpen = false;
+	}
+
+	// Lock the page behind the drawer, otherwise scrolling the overlay scrolls
+	// the content underneath it.
+	$effect(() => {
+		if (!navOpen) return;
+		document.body.style.overflow = 'hidden';
+		return () => {
+			document.body.style.overflow = '';
+		};
+	});
 </script>
+
+<svelte:window {onkeydown} />
 
 <svelte:head>
 	<title>Silocat</title>
@@ -69,7 +87,7 @@
 		display: flex;
 		gap: 0;
 		padding: 0;
-		height: 100vh;
+		height: 100dvh;
 		width: 100%;
 		overflow: hidden;
 		background: var(--bg);

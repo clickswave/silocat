@@ -1,8 +1,9 @@
 <script>
 	import { slide } from 'svelte/transition';
 	import Icon from '$lib/ui/Icon.svelte';
+	import Modal from '$lib/ui/Modal.svelte';
 	import axios from 'axios';
-	import { toast } from 'svelte-sonner';
+	import { toast } from '$lib/toast.js';
 
 	// item: the file or folder object { id, name, type, ... }. onclose: called to
 	// dismiss the modal (was a `close` event dispatch before the runes migration).
@@ -26,6 +27,27 @@
 	let removePassword = $state(false);
 	let savingOptions = $state(false);
 
+	/**
+	 * Map a stored expiry back onto the dropdown.
+	 *
+	 * The control was hardcoded to '0' ("never") and never synced from the loaded
+	 * value, so a link that expired in 7 days displayed as "Never", and because
+	 * applyOptions always sends expires_in_days, saving any unrelated change (a
+	 * password, say) silently deleted the expiry. The backend supports "leave
+	 * unchanged" by omitting the field; the UI never used it.
+	 */
+	const EXPIRY_CHOICES = ['1', '7', '30', '90'];
+
+	function choiceForExpiry(iso) {
+		if (!iso) return '0';
+		const days = (new Date(iso).getTime() - Date.now()) / 86400_000;
+		if (!Number.isFinite(days) || days <= 0) return '0';
+		// Snap to the nearest offered value at or above what remains, so the
+		// control shows something truthful rather than an arbitrary match.
+		const match = EXPIRY_CHOICES.find((c) => Number(c) >= Math.floor(days));
+		return match ?? EXPIRY_CHOICES[EXPIRY_CHOICES.length - 1];
+	}
+
 	function expiryLabel(iso) {
 		if (!iso) return null;
 		const d = new Date(iso);
@@ -42,11 +64,9 @@
 			return;
 		}
 		try {
-			const res = await axios.get(
-				`/api/v1/sanctum/file/share/info/${item.id}?user_id=${window.currentUser?.id || ''}`
-			);
-			// Note: user_id might be needed if not in session?
-			// My proxy `info/[id]/+server.js` forwarding logic might need checking if it passes user_id?
+			// No user_id param: window.currentUser is set nowhere in the app, so this
+			// always sent an empty value. The proxy supplies the id from the session.
+			const res = await axios.get(`/api/v1/sanctum/file/share/info/${item.id}`);
 
 			if (res.data.success) {
 				const data = res.data.success.data;
@@ -56,6 +76,7 @@
 				downloads = data.link_downloads || 0;
 				maxDownloads = data.link_max_downloads || 1;
 				expiresAt = data.expires_at || null;
+				expiryChoice = choiceForExpiry(expiresAt);
 				passwordProtected = !!data.password_protected;
 				updateLink();
 			}
@@ -86,8 +107,13 @@
 		}
 	}
 
+	// `item.name === 'Folder'` used to stand in for a missing `type`, which meant
+	// any FILE literally named "Folder" was addressed as a folder and 404'd. Every
+	// call site passes `type`; `kind` is the spelling ResourceList uses.
+	let isFolder = $derived(item?.type === 'folder' || item?.kind === 'folder');
+
 	function targetField(payload) {
-		if (item.type === 'folder' || item.name === 'Folder') payload.folder_id = item.id;
+		if (isFolder) payload.folder_id = item.id;
 		else payload.file_id = item.id;
 		return payload;
 	}
@@ -131,7 +157,12 @@
 		savingOptions = true;
 		try {
 			const payload = targetField({ share_type: shareType });
-			payload.expires_in_days = parseInt(expiryChoice, 10) || 0;
+			// Omit the field entirely when the control still shows what is stored:
+			// the backend reads a present expires_in_days as an instruction, and 0
+			// means "clear". Sending it unconditionally is what wiped expiries.
+			if (expiryChoice !== choiceForExpiry(expiresAt)) {
+				payload.expires_in_days = parseInt(expiryChoice, 10) || 0;
+			}
 			if (removePassword) payload.clear_password = true;
 			else if (newPassword.trim()) payload.password = newPassword.trim();
 
@@ -152,15 +183,25 @@
 		}
 	}
 
+	let confirmRegen = $state(false);
+
+	/**
+	 * Regenerating kills the URL the owner has already sent to people, and there
+	 * is no undo. It was a single unconfirmed click, so this asks first, and the
+	 * prompt says how many opens the current link has had: the access log is
+	 * already loaded, and "12 people have opened this" is the fact that decides
+	 * whether regenerating is a good idea.
+	 */
+	function requestRegenerate() {
+		if (!shareToken) return;
+		confirmRegen = true;
+	}
+
 	async function handleRegenerate() {
 		if (!shareToken) return;
+		confirmRegen = false;
 		try {
-			const payload = {};
-			if (item.type === 'folder' || item.name === 'Folder') {
-				payload.folder_id = item.id;
-			} else {
-				payload.file_id = item.id;
-			}
+			const payload = targetField({});
 
 			const res = await axios.post('/api/v1/sanctum/file/share/regenerate', payload);
 			if (res.data.success) {
@@ -184,19 +225,11 @@
 	}
 </script>
 
-<div class="modal-backdrop" onclick={close}>
-	<div class="modal" onclick={(e) => e.stopPropagation()}>
-		<div class="modal-header">
-			<div class="head-title">
-				<span class="title-icon"><Icon icon="ri:share-forward-line" width="20" /></span>
-				<h3>Share “{item.name}”</h3>
-			</div>
-			<button class="close-btn" onclick={close} aria-label="Close">
-				<Icon icon="ri:close-line" width="22" />
-			</button>
-		</div>
-
-		<div class="modal-body">
+<!-- Was a hand-rolled .modal-backdrop: no Escape, no role="dialog", no
+     aria-modal, no body scroll lock (the page scrolled behind it) and no focus
+     management, while $lib/ui/Modal.svelte next door already did all of that. -->
+<Modal open={true} title={`Share “${item.name}”`} icon="share" size="md" onclose={close}>
+	<div class="modal-body">
 			{#if loading}
 				<div class="loading">
 					<Icon icon="ri:loader-4-line" class="spinner" width="32" />
@@ -241,12 +274,29 @@
 								</button>
 								<button
 									class="action-btn regen"
-									onclick={handleRegenerate}
+									onclick={requestRegenerate}
 									title="Regenerate Link"
 								>
 									<Icon icon="ri:refresh-line" width="20" />
 								</button>
 							</div>
+							{#if confirmRegen}
+								<div class="regen-confirm">
+									<span class="rc-title">Replace this link?</span>
+									<span class="rc-line">
+										The current link stops working immediately and cannot be brought back.
+										{#if downloads > 0}
+											It has been opened {downloads}
+											{downloads === 1 ? 'time' : 'times'}.
+										{/if}
+										Anyone you already sent it to will need the new one.
+									</span>
+									<div class="rc-actions">
+										<button class="rc-cancel" onclick={() => (confirmRegen = false)}>Keep it</button>
+										<button class="rc-go" onclick={handleRegenerate}>Replace link</button>
+									</div>
+								</div>
+							{/if}
 						</div>
 						<div class="stats">
 							<Icon icon="ri:bar-chart-box-line" width="16" />
@@ -336,95 +386,10 @@
 					</div>
 				{/if}
 			{/if}
-		</div>
 	</div>
-</div>
+</Modal>
 
 <style lang="scss">
-	.modal-backdrop {
-		position: fixed;
-		top: 0;
-		left: 0;
-		width: 100vw;
-		height: 100vh;
-		background: var(--scrim);
-		/* No blur: backdrop-filter is on the design's kill list, and it makes
-		   the scrim read as frosted glass instead of a flat scrim. */
-		z-index: 1000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--gutter);
-	}
-
-	.modal {
-		background: var(--bg-elevated);
-		border: 1px solid var(--edge);
-		border-radius: var(--radius-lg);
-		width: 100%;
-		max-width: 480px;
-		max-height: 90vh;
-		display: flex;
-		flex-direction: column;
-		box-shadow: var(--shadow-lg);
-		overflow: hidden;
-		animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-	}
-
-	.modal-header {
-		/* Matches ui/Modal: no divider under the header, tighter padding. */
-		padding: 1rem 1rem 0.875rem;
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: var(--space-3);
-		flex-shrink: 0;
-
-		.head-title {
-			display: flex;
-			align-items: center;
-			gap: var(--space-3);
-			min-width: 0;
-		}
-		.title-icon {
-			display: grid;
-			place-items: center;
-			width: 28px;
-			height: 28px;
-			flex-shrink: 0;
-			border-radius: 8px;
-			background: var(--tint-soft);
-			/* Neutral: the chip labels the dialog, it is not an action. */
-			color: var(--ink-mute);
-		}
-
-		h3 {
-			margin: 0;
-			font-size: 0.9375rem;
-			font-weight: var(--fw-semibold);
-			color: var(--ink);
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-
-		.close-btn {
-			background: transparent;
-			border: none;
-			color: var(--ink-faint);
-			cursor: pointer;
-			padding: var(--space-1);
-			border-radius: var(--radius-sm);
-			display: flex;
-			transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
-
-			&:hover {
-				color: var(--ink);
-				background: var(--tint-softer);
-			}
-		}
-	}
-
 	.modal-body {
 		padding: 0 1rem 1rem;
 		display: flex;
@@ -746,26 +711,48 @@
 		}
 	}
 
-	@keyframes slideUp {
-		from {
-			transform: translateY(20px);
-			opacity: 0;
-		}
-		to {
-			transform: translateY(0);
-			opacity: 1;
-		}
+	.regen-confirm {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
+		padding: 0.75rem;
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-md);
+		background: var(--danger-soft);
+	}
+	.rc-title {
+		font-size: 0.8125rem;
+		font-weight: var(--fw-semibold);
+		color: var(--ink);
+	}
+	.rc-line {
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--ink-mute);
+	}
+	.rc-actions {
+		display: flex;
+		gap: var(--space-2);
+		justify-content: flex-end;
+	}
+	.rc-cancel,
+	.rc-go {
+		padding: 0.35rem 0.7rem;
+		border-radius: var(--radius-sm);
+		font-size: 0.75rem;
+		font-weight: var(--fw-medium);
+		cursor: pointer;
+		border: 1px solid var(--edge);
+		background: transparent;
+		color: var(--ink);
+	}
+	.rc-go {
+		border-color: var(--danger);
+		background: var(--danger);
+		color: var(--on-danger, #fff);
 	}
 
-	@media (max-width: 600px) {
-		.modal-backdrop {
-			align-items: flex-end;
-			padding: 0;
-		}
-		.modal {
-			max-width: 100%;
-			max-height: 92vh;
-			border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-		}
-	}
+	/* The mobile bottom-sheet treatment lives in ui/Modal.svelte now, along with
+	   the scrim and shell this component used to duplicate. */
 </style>

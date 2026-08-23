@@ -8,6 +8,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { loadRazorpay } from '$lib/loadRazorpay.js';
 	import { PRICES, SYMBOL, formatPrice, formatMinor, currencyForCountry } from '$lib/pricing.js';
+	import { qk } from '$lib/queryKeys.js';
 
 	let { data } = $props();
 
@@ -47,7 +48,7 @@
 
 	// --- usage ---------------------------------------------------------------
 	const storageQuery = createQuery(() => ({
-		queryKey: ['fetchStorageStats'],
+		queryKey: qk.storage,
 		queryFn: async () => {
 			const { data: d } = await FrontendClient.get('/api/v1/sanctum/user/storage');
 			return d?.success || { used: 0, total: 0 };

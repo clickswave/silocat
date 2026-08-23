@@ -4,6 +4,7 @@
 	import axios from 'axios';
 	import { uploadToRequest } from '$lib/requestUpload.js';
 	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
+	import { generatePassword } from '$lib/password.js';
 
 	const token = $page.params.token;
 
@@ -34,8 +35,43 @@
 		}
 	});
 
+	// Matches the anonymous ceiling enforced in the shadow upload route.
+	const MAX_UPLOAD_BYTES = 20 * 1024 * 1024 * 1024;
+
+	let isDragging = $state(false);
+
+	function formatSize(bytes) {
+		if (!bytes) return '0 B';
+		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+		return `${parseFloat((bytes / 1024 ** i).toFixed(1))} ${units[i]}`;
+	}
+
+	/** Accept a file, refusing oversize ones here rather than after the upload. */
+	function accept(candidate) {
+		if (!candidate) return;
+		if (candidate.size > MAX_UPLOAD_BYTES) {
+			error = `That file is ${formatSize(candidate.size)}. The limit is ${formatSize(MAX_UPLOAD_BYTES)}.`;
+			return;
+		}
+		error = '';
+		file = candidate;
+	}
+
 	function pick(e) {
-		file = e.target.files?.[0] || null;
+		accept(e.target.files?.[0] || null);
+	}
+
+	function onDrop(e) {
+		e.preventDefault();
+		isDragging = false;
+		accept(e.dataTransfer?.files?.[0] || null);
+	}
+
+	// The rest of the app offers a generated password wherever one is required;
+	// this page asked a stranger to invent one with no help.
+	function makePassword() {
+		password = generatePassword();
 	}
 
 	async function submit() {
@@ -94,9 +130,27 @@
 					<input type="text" bind:value={uploaderName} placeholder="So they know who it's from" />
 				</label>
 
-				<label class="drop">
+				<!-- Drag and drop, like every other upload surface in the product. This
+				     page is the first thing an outside recipient sees of Silocat and it
+				     was a bare file input. -->
+				<label
+					class="drop"
+					class:dragging={isDragging}
+					ondragover={(e) => {
+						e.preventDefault();
+						isDragging = true;
+					}}
+					ondragleave={() => (isDragging = false)}
+					ondrop={onDrop}
+				>
 					<input type="file" onchange={pick} />
-					<span>{file ? file.name : 'Choose a file to send'}</span>
+					{#if file}
+						<span class="drop-name">{file.name}</span>
+						<span class="drop-sub">{formatSize(file.size)}: click to choose a different file</span>
+					{:else}
+						<span class="drop-name">Drop a file here, or click to choose</span>
+						<span class="drop-sub">Up to {formatSize(MAX_UPLOAD_BYTES)}</span>
+					{/if}
 				</label>
 
 				<label class="check-row">
@@ -104,10 +158,25 @@
 					<span>Encrypt end to end (they'll need the password below to open it)</span>
 				</label>
 				{#if encrypt}
-					<label class="field">
+					<div class="field">
 						<span>Password</span>
-						<input type="password" bind:value={password} placeholder="Share this with the recipient" autocomplete="new-password" />
-					</label>
+						<div class="pw-row">
+							<input
+								type="text"
+								bind:value={password}
+								placeholder="Share this with the recipient"
+								autocomplete="off"
+							/>
+							<button type="button" class="gen" onclick={makePassword}>Generate</button>
+						</div>
+						<!-- The sender has to get this to the recipient themselves, and
+						     nothing on the page used to say so. Losing it means the file is
+						     unrecoverable, which is worth one sentence. -->
+						<span class="hint">
+							Send this to them separately, not in the same message as the link. Nobody,
+							including us, can recover the file without it.
+						</span>
+					</div>
 				{/if}
 
 				{#if error}<p class="err">{error}</p>{/if}
@@ -119,7 +188,12 @@
 					<button class="send" onclick={submit} disabled={!file}>Send securely</button>
 				{/if}
 
-				<p class="foot">Powered by Silocat · files are stored encrypted at rest.</p>
+				<p class="foot">
+					Powered by Silocat ·
+					{encrypt
+						? 'encrypted in this browser before it is sent'
+						: 'encrypted in transit and at rest'}
+				</p>
 			{/if}
 		{/if}
 	</div>
@@ -180,7 +254,9 @@
 		color: var(--ink, #e8e8ea);
 	}
 	.drop {
-		display: block;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
 		border: 1px dashed var(--border, #33333a);
 		border-radius: 10px;
 		padding: 1.1rem;
@@ -188,9 +264,53 @@
 		cursor: pointer;
 		margin: 0.9rem 0;
 		color: var(--ink-mute, #b6b6bd);
+		transition: border-color 0.15s ease, background 0.15s ease;
+	}
+	.drop:hover,
+	.drop.dragging {
+		border-color: var(--accent, #6ea8fe);
+		background: rgba(110, 168, 254, 0.06);
 	}
 	.drop input {
 		display: none;
+	}
+	.drop-name {
+		font-size: 0.9rem;
+		color: var(--ink, #e8e8ea);
+		word-break: break-word;
+	}
+	.drop-sub {
+		font-size: 0.75rem;
+		color: var(--ink-mute, #b6b6bd);
+	}
+	.pw-row {
+		display: flex;
+		gap: 0.4rem;
+	}
+	.pw-row input {
+		flex: 1;
+		min-width: 0;
+	}
+	.gen {
+		flex: 0 0 auto;
+		padding: 0 0.7rem;
+		border-radius: 8px;
+		border: 1px solid var(--border, #33333a);
+		background: transparent;
+		color: var(--ink, #e8e8ea);
+		font-size: 0.78rem;
+		cursor: pointer;
+	}
+	.gen:hover {
+		border-color: var(--accent, #6ea8fe);
+		color: var(--accent, #6ea8fe);
+	}
+	.hint {
+		display: block;
+		margin-top: 0.35rem;
+		font-size: 0.72rem;
+		line-height: 1.45;
+		color: var(--ink-mute, #b6b6bd);
 	}
 	.check-row {
 		display: flex;

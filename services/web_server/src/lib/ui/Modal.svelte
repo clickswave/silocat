@@ -17,19 +17,66 @@
 		footer = undefined
 	} = $props();
 
+	let dialogEl = $state(null);
+
 	function requestClose() {
 		if (dismissible) onclose?.();
 	}
 
+	const FOCUSABLE =
+		'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+	function focusables() {
+		if (!dialogEl) return [];
+		return [...dialogEl.querySelectorAll(FOCUSABLE)].filter(
+			(el) => el.offsetParent !== null || el === document.activeElement
+		);
+	}
+
 	function onkeydown(e) {
-		if (e.key === 'Escape' && open) requestClose();
+		if (!open) return;
+		if (e.key === 'Escape') {
+			requestClose();
+			return;
+		}
+		// Trap Tab inside the dialog. Without this the dialog is announced as modal
+		// while tabbing walks straight out into the page behind it, which is worse
+		// than not claiming to be modal at all.
+		if (e.key !== 'Tab') return;
+		const items = focusables();
+		if (items.length === 0) {
+			e.preventDefault();
+			dialogEl?.focus();
+			return;
+		}
+		const first = items[0];
+		const last = items[items.length - 1];
+		const active = document.activeElement;
+		if (e.shiftKey && (active === first || !dialogEl?.contains(active))) {
+			e.preventDefault();
+			last.focus();
+		} else if (!e.shiftKey && (active === last || !dialogEl?.contains(active))) {
+			e.preventDefault();
+			first.focus();
+		}
 	}
 
 	$effect(() => {
 		if (!open) return;
 		document.body.style.overflow = 'hidden';
+
+		// Send focus into the dialog, and put it back where it came from on close,
+		// so keyboard and screen-reader users are not dropped at the top of the
+		// document every time a dialog opens and closes.
+		const previous = document.activeElement;
+		queueMicrotask(() => {
+			const items = focusables();
+			(items[0] ?? dialogEl)?.focus?.();
+		});
+
 		return () => {
 			document.body.style.overflow = '';
+			if (previous instanceof HTMLElement && document.contains(previous)) previous.focus();
 		};
 	});
 </script>
@@ -46,6 +93,8 @@
 	<div class="holder" role="dialog" aria-modal="true" aria-label={title}>
 		<div
 			class="dialog {size}"
+			bind:this={dialogEl}
+			tabindex="-1"
 			transition:scale={{ duration: 190, start: 0.96, easing: cubicOut }}
 		>
 			{#if title}
