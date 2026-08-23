@@ -6,6 +6,7 @@
 
 	const status = $derived($page.status);
 	const message = $derived($page.error?.message || 'Something went wrong');
+	const signedIn = $derived(!!$page.data?.user);
 </script>
 
 <svelte:head>
@@ -25,8 +26,15 @@
 				: message}
 		</p>
 		<div class="actions">
-			<Button href="/">Back to home</Button>
-			<Button variant="ghost" href="/pricing">See pricing</Button>
+			<!-- A signed-in user who hits a bad /home URL wants the app back, not the
+			     marketing homepage and certainly not a pricing page. -->
+			{#if signedIn}
+				<Button href="/home">Back to your files</Button>
+				<Button variant="ghost" href="/home/support">Get help</Button>
+			{:else}
+				<Button href="/">Back to home</Button>
+				<Button variant="ghost" href="/pricing">See pricing</Button>
+			{/if}
 		</div>
 	</div>
 </main>

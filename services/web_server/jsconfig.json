@@ -2,7 +2,17 @@
 	"extends": "./.svelte-kit/tsconfig.json",
 	"compilerOptions": {
 		"allowJs": true,
-		"checkJs": true,
+		// `checkJs` was on with `strict`, over a codebase with no type annotations.
+		// That produced ~900 "implicitly has an 'any' type" errors across 130 files,
+		// which is not a signal anyone can read: the handful of genuine Svelte,
+		// accessibility and unused-CSS diagnostics were buried under noise, so the
+		// check was effectively unrunnable and nobody ran it.
+		//
+		// Off, `svelte-check` reports what it is actually good at here: a11y
+		// problems, dead CSS selectors, runes misuse, and template errors. Turn it
+		// back on if and when the codebase gets JSDoc types; doing that file by file
+		// with a `// @ts-check` pragma works and keeps the signal clean meanwhile.
+		"checkJs": false,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,

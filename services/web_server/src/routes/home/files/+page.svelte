@@ -1,5 +1,6 @@
 <script>
 	import FolderCard from '$lib/components/FolderCard.svelte';
+	import { formatSize, relativeTime as formatTime } from '$lib/format.js';
 	import { CHUNK_SIZE } from '$lib/chunking.js';
 	import { holdTransfer } from '$lib/transferGuard.js';
 	import { page } from '$app/stores';
@@ -434,35 +435,6 @@
 		}
 	}
 
-	// Helper to format bytes
-	function formatSize(bytes) {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-	}
-
-	// Helper for relative time
-	function formatTime(dateString) {
-		const date = new Date(dateString);
-		const now = new Date();
-		const diffInSeconds = Math.floor((now - date) / 1000);
-
-		if (diffInSeconds < 60) return 'Just now';
-		if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} min ago`;
-		if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hour ago`;
-		return `${Math.floor(diffInSeconds / 86400)} days ago`;
-	}
-
-	// Helper to determine icon type from mime
-	function getFileType(mime) {
-		if (mime.includes('image')) return 'image';
-		if (mime.includes('video')) return 'video';
-		if (mime.includes('audio')) return 'audio';
-		if (mime.includes('pdf') || mime.includes('document')) return 'doc';
-		return 'file';
-	}
 
 	const queryClient = useQueryClient();
 
@@ -1151,7 +1123,7 @@
 	let recentFiles = $derived(
 		fetchFiles?.data?.map((file) => ({
 			...file,
-			type: getFileType(file.mime)
+			type: glyphForMime(file.mime, file.name)
 		})) || []
 	);
 

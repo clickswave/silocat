@@ -406,10 +406,6 @@
 			justify-content: center;
 			padding: var(--space-5);
 
-			.spinner {
-				animation: spin 1s linear infinite;
-				color: var(--accent);
-			}
 		}
 	}
 
@@ -646,33 +642,6 @@
 			line-height: 1.45;
 			color: var(--ink-faint);
 		}
-		.receipts {
-			margin-top: var(--space-2);
-			font-size: var(--fs-xs, 0.72rem);
-			color: var(--ink-mute);
-		}
-		.receipts-head {
-			display: flex;
-			align-items: center;
-			gap: var(--space-1);
-			color: var(--ink-faint);
-			margin-bottom: var(--space-1);
-		}
-		.receipts ul {
-			list-style: none;
-			margin: 0;
-			padding: 0;
-		}
-		.receipts li {
-			display: flex;
-			justify-content: space-between;
-			gap: var(--space-2);
-			padding: 2px 0;
-		}
-		.receipts .ev-ip {
-			color: var(--ink-faint);
-			font-family: var(--font-mono, monospace);
-		}
 		.opt-remove {
 			display: flex;
 			align-items: center;
@@ -709,6 +678,38 @@
 		to {
 			transform: rotate(360deg);
 		}
+	}
+
+	/* Delivery receipts.
+	   These rules were nested inside `.opts` while the markup renders them as a
+	   sibling of it, so none of them ever applied and the list has been showing
+	   unstyled this whole time. Hoisted to match the DOM. */
+	.receipts {
+		margin-top: var(--space-2);
+		font-size: var(--fs-xs, 0.72rem);
+		color: var(--ink-mute);
+	}
+	.receipts-head {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		color: var(--ink-faint);
+		margin-bottom: var(--space-1);
+	}
+	.receipts ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.receipts li {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 2px 0;
+	}
+	.receipts .ev-ip {
+		color: var(--ink-faint);
+		font-family: var(--font-mono, monospace);
 	}
 
 	.regen-confirm {

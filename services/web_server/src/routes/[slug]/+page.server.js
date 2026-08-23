@@ -1,12 +1,6 @@
 import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { formatSize } from '$lib/format.js';
 
-function formatSize(bytes) {
-	if (!bytes || bytes < 0) return '0 B';
-	const k = 1024;
-	const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-	const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
-	return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
 
 // Server-side fetch of the shared resource's metadata so social/link-preview
 // crawlers (which do not run JS) get real Open Graph tags describing the file.

@@ -6,7 +6,10 @@
 	let { x = 0, y = 0, items = [], onclose = () => {} } = $props();
 
 	let menuEl = $state(null);
-	let pos = $state({ left: x, top: y });
+	// Starts offscreen rather than at the initial x/y: the effect below measures
+	// the menu and clamps it into the viewport before it is visible, and seeding
+	// from the props captured only their first value anyway.
+	let pos = $state({ left: -9999, top: -9999 });
 
 	async function place() {
 		await tick();
@@ -30,10 +33,23 @@
 	function handleWindowClick() {
 		onclose();
 	}
+
+	function handleKeydown(e) {
+		if (e.key === 'Escape') onclose();
+	}
 </script>
 
-<svelte:window onclick={handleWindowClick} oncontextmenu={handleWindowClick} onresize={() => onclose()} />
+<svelte:window
+	onclick={handleWindowClick}
+	oncontextmenu={handleWindowClick}
+	onkeydown={handleKeydown}
+	onresize={() => onclose()}
+/>
 
+<!-- The handlers here only stop the window-level listeners from closing the menu
+     the instant it opens; the real targets are the role="menuitem" buttons
+     inside, which are keyboard-reachable on their own. Escape closes. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
 	class="ctx-menu"
 	bind:this={menuEl}

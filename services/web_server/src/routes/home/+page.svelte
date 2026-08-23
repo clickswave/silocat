@@ -1,5 +1,6 @@
 <script>
 	import Icon from '$lib/ui/Icon.svelte';
+	import { formatSize, shortTime as relativeTime } from '$lib/format.js';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { browser } from '$app/environment';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -124,24 +125,7 @@
 	let showOnboarding = $derived(!dismissed && !loading && doneCount < steps.length);
 
 	// --- helpers ------------------------------------------------------------
-	function formatSize(bytes) {
-		if (!bytes) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-	}
 
-	function relativeTime(dateString) {
-		const then = new Date(dateString).getTime();
-		if (!then) return '';
-		const s = Math.max(0, (Date.now() - then) / 1000);
-		if (s < 60) return 'now';
-		if (s < 3600) return `${Math.floor(s / 60)}m`;
-		if (s < 86400) return `${Math.floor(s / 3600)}h`;
-		if (s < 86400 * 7) return `${Math.floor(s / 86400)}d`;
-		return new Date(dateString).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-	}
 
 	let greeting = $derived.by(() => {
 		const h = new Date().getHours();

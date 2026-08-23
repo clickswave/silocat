@@ -1,8 +1,14 @@
 # SiloCat robots policy
+#
+# Every path below also carries <meta name="robots" content="noindex"> on the
+# page itself; this file is the belt to those braces, and the two lists have to
+# agree. /req/ and the bare-slug drop pages were missing here.
 User-agent: *
 Disallow: /home
 Disallow: /auth
 Disallow: /s/
+Disallow: /req/
 Disallow: /api/v1/
+Disallow: /_stream/
 
 Sitemap: https://silo.cat/sitemap.xml

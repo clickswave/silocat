@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { formatSize } from '$lib/format.js';
 	import { page } from '$app/stores';
 	import axios from 'axios';
 	import { uploadToRequest } from '$lib/requestUpload.js';
@@ -40,12 +41,6 @@
 
 	let isDragging = $state(false);
 
-	function formatSize(bytes) {
-		if (!bytes) return '0 B';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-		return `${parseFloat((bytes / 1024 ** i).toFixed(1))} ${units[i]}`;
-	}
 
 	/** Accept a file, refusing oversize ones here rather than after the upload. */
 	function accept(candidate) {

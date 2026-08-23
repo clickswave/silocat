@@ -1,5 +1,6 @@
 <script>
 	import { page } from '$app/stores';
+	import { formatSize } from '$lib/format.js';
 	import { browser } from '$app/environment';
 	import { createQuery } from '@tanstack/svelte-query';
 	import Icon from '$lib/ui/Icon.svelte';
@@ -51,13 +52,6 @@
 
 	let usedPct = $derived(storage.total ? Math.min((storage.used / storage.total) * 100, 100) : 0);
 
-	function formatSize(bytes) {
-		if (!bytes) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-	}
 
 	let isActive = (href) =>
 		href === '/home' ? $page.url.pathname === '/home' : $page.url.pathname.startsWith(href);

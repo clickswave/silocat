@@ -943,9 +943,12 @@
 				background: var(--tint-soft);
 				color: var(--ink-faint);
 			}
-			&.mono {
-				font-family: var(--font-mono);
-			}
+		}
+
+		/* Only the API key field uses this. Left on the shared `input, textarea`
+		   rule it expanded to a textarea.mono that matches nothing. */
+		input.mono {
+			font-family: var(--font-mono);
 		}
 
 		textarea {

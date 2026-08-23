@@ -1,10 +1,8 @@
 import axios from 'axios';
 
-
-let PublicApiRoutes = {
-	// post - create a file
-	// get - get file metadata
-	file: "/api/v1/shadow/file",
-};
-export const FrontendClient = axios.create({
-});
+/**
+ * Browser-side axios instance. No baseURL: every call is same-origin against the
+ * /api/v1 proxy, which attaches the account credential server-side so it never
+ * has to reach the browser.
+ */
+export const FrontendClient = axios.create({});

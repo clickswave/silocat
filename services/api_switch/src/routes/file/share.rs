@@ -553,7 +553,7 @@ pub async fn public_get_info(
                 let downloads = r.link_downloads.unwrap_or(0);
                 let max = r.link_max_downloads.unwrap_or(1);
                 if downloads >= max {
-                    return respond(410, "This safe-link has expired.", vec!["Link limit reached".to_string()], json!({}));
+                    return respond(410, "This one-time link has already been used.", vec!["Link limit reached".to_string()], json!({}));
                 }
             }
 
@@ -561,10 +561,25 @@ pub async fn public_get_info(
             // supplied. Filenames and sizes are frequently the sensitive part of
             // a share, so reporting `password_required` alongside the metadata
             // (as this used to) defeated the point of setting a password.
+            // Authorization is what spends a one-time link, and it happens before
+            // a single byte is transferred, so a dropped connection or a closed
+            // tab consumes the recipient's only attempt. Moving the spend to a
+            // post-download confirmation would let a client simply never confirm
+            // and download forever, so the counter stays where it is and the page
+            // warns instead: the recipient can at least make sure they are ready.
+            let one_shot = r.share_type.as_deref() == Some("once");
+            let remaining = if one_shot {
+                Some((r.link_max_downloads.unwrap_or(1) - r.link_downloads.unwrap_or(0)).max(0))
+            } else {
+                None
+            };
+
             if r.share_password_hash.is_some() {
                 return respond(200, "Password required", vec![], json!({
                     "type": "file",
-                    "password_required": true
+                    "password_required": true,
+                    "one_time": one_shot,
+                    "remaining": remaining
                 }));
             }
 
@@ -576,6 +591,8 @@ pub async fn public_get_info(
                 "mime": r.mime,
                 "encrypted": r.encrypted, // Expose encrypted status
                 "password_required": false,
+                "one_time": one_shot,
+                "remaining": remaining,
                 "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },
@@ -824,7 +841,7 @@ pub async fn public_authorize_download(
         .await;
         match claim {
             Ok(Some(_)) => {}
-            Ok(None) => return respond(410, "This safe-link has expired.", vec![], json!({})),
+            Ok(None) => return respond(410, "This one-time link has already been used.", vec![], json!({})),
             Err(_e) => return respond(500, "Database error", vec![], json!({})),
         }
 
@@ -920,7 +937,7 @@ pub async fn public_authorize_download(
         .await;
         match claim {
             Ok(Some(_)) => {}
-            Ok(None) => return respond(410, "This safe-link has expired.", vec![], json!({})),
+            Ok(None) => return respond(410, "This one-time link has already been used.", vec![], json!({})),
             Err(_e) => return respond(500, "Database error", vec![], json!({})),
         }
 

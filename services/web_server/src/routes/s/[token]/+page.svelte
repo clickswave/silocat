@@ -1,5 +1,6 @@
 <script>
 	import { glyphForMime } from '$lib/ui/icons.js';
+	import { formatSize } from '$lib/format.js';
 	import Footer from '$lib/components/Footer.svelte';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import { page } from '$app/stores';
@@ -311,16 +312,6 @@
 		toast.success('Folder download complete');
 	}
 
-	function formatSize(bytes) {
-		if (!bytes) return '0 B';
-		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		let i = 0;
-		while (bytes >= 1024 && i < units.length - 1) {
-			bytes /= 1024;
-			i++;
-		}
-		return `${bytes.toFixed(1)} ${units[i]}`;
-	}
 
 	let reporting = $state(false);
 	let showReportModal = $state(false);
@@ -382,6 +373,20 @@
 						</p>
 					</div>
 				</div>
+
+				<!-- A one-time link is spent the moment the download is authorized,
+				     which is before any bytes move, so a closed tab or a dropped
+				     connection burns it. Say so up front: the recipient can at least
+				     make sure they are ready before starting. -->
+				{#if file.one_time}
+					<p class="once-warn">
+						<Icon name="alert" size={13} stroke={1.8} />
+						<span>
+							This link works once. Starting the download uses it up, even if the
+							transfer does not finish, so make sure you can save the file now.
+						</span>
+					</p>
+				{/if}
 
 				{#if file.type === 'folder' && file.files && file.files.length > 0}
 					<div class="file-list">
@@ -529,6 +534,20 @@
 			background: var(--danger-soft);
 			color: var(--danger);
 		}
+	}
+
+	.once-warn {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		margin: 0;
+		padding: 0.6rem 0.7rem;
+		border: 1px solid var(--warn, #d08a2c);
+		border-radius: var(--radius-md);
+		background: var(--warn-soft, rgba(208, 138, 44, 0.1));
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--ink-mute);
 	}
 
 	.head-text {

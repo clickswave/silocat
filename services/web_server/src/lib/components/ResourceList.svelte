@@ -7,6 +7,7 @@
 	 * differ, so they take a `variant` rather than being two near-identical files.
 	 */
 	import Icon from '$lib/ui/Icon.svelte';
+	import { formatSize } from '$lib/format.js';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { browser } from '$app/environment';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -92,13 +93,6 @@
 		return !q || (name || '').toLowerCase().includes(q);
 	}
 
-	function formatSize(bytes) {
-		if (!bytes) return '0 B';
-		const k = 1024;
-		const s = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), s.length - 1);
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
-	}
 
 	/** `1.8 MB · 3 downloads · password`: only the parts that are true. */
 	function metaFor(item, isFolder) {

@@ -75,8 +75,21 @@
 
 <svelte:window onclick={handleClickOutside} />
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div class="folder-card {compact ? 'compact' : ''}" onclick={onclick} role="button" tabindex="0">
+<!-- role="button" + tabindex means keyboard users can focus this, so it has to
+     activate on Enter and Space like a real button. The old suppression comment
+     used the Svelte 4 dash spelling and therefore suppressed nothing anyway. -->
+<div
+	class="folder-card {compact ? 'compact' : ''}"
+	onclick={onclick}
+	onkeydown={(e) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onclick?.(e);
+		}
+	}}
+	role="button"
+	tabindex="0"
+>
 	<div class="top">
 		<div class="folder-icon">
 			<Icon icon="ri:folder-3-line" width={compact ? '17' : '20'} />
