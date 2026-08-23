@@ -22,6 +22,24 @@ pub async fn handle(
     // Server-observed client IP + MaxMind geolocation.
     let ip = libs::geoip::client_ip(&headers, addr);
 
+    // Meter before anything writes. This endpoint mints an anonymous_users row per
+    // browser-supplied key and was unbounded, so a loop could fill the table (and
+    // hand out storage grants) as fast as it could issue keys. Generous enough
+    // that a real anonymous session, which calls this on every upload, never sees
+    // it; tight enough that a script cannot farm identities.
+    if !axum_state.rate_limiter.check(
+        &format!("shadow:{}", ip),
+        120,
+        std::time::Duration::from_secs(600),
+    ) {
+        return respond(
+            429,
+            "Too many attempts",
+            vec!["Too many requests from this address. Try again in a few minutes.".to_string()],
+            json!({}),
+        );
+    }
+
     // Anonymous IP ban: refuse the session so the client surfaces a "banned" toast.
     if let Some(ban) = libs::bans::ip_ban(&axum_state.pg_pool, &ip).await {
         return respond(

@@ -1,16 +1,32 @@
 # Security headers for all responses (Cloudflare Pages honours this file).
 #
-# NOTE: a full Content-Security-Policy (script-src / connect-src / frame-src /
-# worker-src) still needs to be added and validated against the app's real
-# origins: self, Cloudflare Turnstile (challenges.cloudflare.com), Razorpay
-# (checkout.razorpay.com), the R2 upload/download endpoints
-# (*.r2.cloudflarestorage.com), the CDN, Google Analytics, WASM
-# ('wasm-unsafe-eval' for libsodium) and blob: workers. Shipping a strict CSP
-# blind would break uploads/payments, so only frame-ancestors is enforced here.
+# The Content-Security-Policy below was derived from the origins the app actually
+# uses. If you add a third-party script, embed, or API host, it must be added
+# here or it will be blocked.
+#
+#   script-src   self, plus the inline theme bootstrap in app.html pinned by hash,
+#                plus Turnstile and Razorpay checkout. 'wasm-unsafe-eval' is
+#                required by libsodium: without it every encrypt and decrypt
+#                fails, which is the entire product.
+#   connect-src  self (the /api/v1 proxy), R2 for presigned chunk PUT/GET,
+#                api.silo.cat, and the two payment/captcha telemetry hosts.
+#   worker-src   blob: for the crypto worker; the download service worker is
+#                same-origin.
+#   img-src      blob: and data: for decrypted previews and generated avatars.
+#
+# IMPORTANT: the script-src hash below pins the inline theme script in
+# src/app.html. Editing that script without regenerating the hash silently blocks
+# it, and every visitor falls back to the :root (dark) theme. Regenerate with:
+#
+#   python3 - <<'PY'
+#   import re, hashlib, base64
+#   b = re.search(r'<script>\n(.*?)\n\t\t</script>', open('src/app.html').read(), re.S).group(1)
+#   print('sha256-' + base64.b64encode(hashlib.sha256(b.encode()).digest()).decode())
+#   PY
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-agyj9l68V7YG3QUP0eo9LKeOwtigJ6hnXC1+UHW5MA4=' https://challenges.cloudflare.com https://checkout.razorpay.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; connect-src 'self' blob: https://*.r2.cloudflarestorage.com https://api.silo.cat https://challenges.cloudflare.com https://lumberjack.razorpay.com https://api.razorpay.com; frame-src https://challenges.cloudflare.com https://api.razorpay.com; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'

@@ -4,10 +4,20 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-		<!-- Apply the saved theme before first paint (avoids flash + dark-on-refresh) -->
+		<!-- Apply the theme before first paint (avoids flash + dark-on-refresh).
+		     Falls back to the OS preference rather than hardcoding dark, so a
+		     first-time visitor on a light desktop is not forced into dark.
+		     NOTE: the CSP in _headers pins this script by SHA-256. Edit it and the
+		     hash must be regenerated, or the theme bootstrap is silently blocked
+		     and everyone lands on the :root default. See the comment in _headers. -->
 		<script>
 			try {
-				var __theme = localStorage.getItem('theme') || 'dark';
+				var __stored = localStorage.getItem('theme');
+				var __theme =
+					__stored ||
+					(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+						? 'light'
+						: 'dark');
 				document.documentElement.setAttribute('data-theme', __theme);
 				document.currentScript.insertAdjacentHTML(
 					'afterend',

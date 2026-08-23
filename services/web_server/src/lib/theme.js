@@ -5,6 +5,13 @@ const THEME_COLORS = { dark: '#0b0b0d', light: '#fafafa' };
 
 function initial() {
 	if (!browser) return 'dark';
+	// app.html has already resolved this before first paint, including the
+	// prefers-color-scheme fallback, and written it to the root element. Reading
+	// it back is how the store and the DOM stay in agreement; re-deriving it here
+	// meant a visitor with no stored preference on a light OS got a light page
+	// and a store that said 'dark'.
+	const applied = document.documentElement.getAttribute('data-theme');
+	if (applied === 'light' || applied === 'dark') return applied;
 	return localStorage.getItem('theme') || 'dark';
 }
 

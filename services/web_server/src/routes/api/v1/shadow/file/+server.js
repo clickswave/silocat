@@ -46,7 +46,7 @@ async function validateRequest(event) {
 
 export async function POST(event) {
 
-	const { request, locals } = event;
+	const { request } = event;
 
 	let { success, user, error } = await validateRequest(event);
 	if (!success) {
@@ -82,8 +82,16 @@ export async function POST(event) {
 	}
 
 	try {
-		const sessionUser = await locals.session.user.get();
-		const apiKey = sessionUser?.api_key || request.headers.get('X-Api-Key') || undefined;
+		// One identity for the whole request.
+		//
+		// This used to validate the caller from the X-Api-Key header, stamp
+		// body.owner_api_key from THAT identity, and then authenticate downstream
+		// as `sessionUser?.api_key || header`. A logged-in browser posting here
+		// with someone else's key therefore validated as one account and
+		// authenticated as another. api_switch re-derives ownership so it was not
+		// obviously exploitable, but two identities in one request is a bug waiting
+		// to become one. `user` is whoever validateRequest actually authenticated.
+		const apiKey = user?.api_key || request.headers.get('X-Api-Key') || undefined;
 		let response = await ApiServerClient.post(ApiServerRoutes.createFile, body, {
 			headers: { ...clientIpHeaders(event), 'X-Api-Key': apiKey }
 		}).then(res => res.data);

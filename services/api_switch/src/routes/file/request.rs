@@ -273,13 +273,43 @@ async fn resolve_active(
     })
 }
 
+/// Throttle the public side of a file request.
+///
+/// These three endpoints are unauthenticated by design: the request token is the
+/// only credential, and whoever the owner sent the link to is usually not a user
+/// at all. That also means anyone holding the link can loop uploads into the
+/// owner's quota, or grind `public_info` to enumerate tokens, and none of it was
+/// metered. Two buckets, matching the pattern share links already use: per-IP
+/// stops one source, per-token stops a distributed run at a single request.
+fn request_allowed(state: &crate::AppState, ip: &str, token: &str, action: &str, per_ip: u32, per_token: u32) -> bool {
+    const WINDOW: std::time::Duration = std::time::Duration::from_secs(600);
+    state.rate_limiter.check(&format!("req{}:{}", action, ip), per_ip, WINDOW)
+        && state.rate_limiter.check(&format!("req{}tok:{}", action, token), per_token, WINDOW)
+}
+
+fn too_many() -> axum::response::Response {
+    respond(
+        429,
+        "Too many attempts",
+        vec!["Too many requests for this link. Try again in a few minutes.".to_string()],
+        json!({}),
+    )
+    .into_response()
+}
+
 /// Public: what is this request for (label + message), so the upload page can
 /// render before anyone uploads. Reveals nothing about the owner beyond the copy
 /// they wrote.
 pub async fn public_info(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(st): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Path(token): Path<String>,
 ) -> impl IntoResponse {
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    if !request_allowed(&st, &ip, &token, "info", 120, 240) {
+        return too_many();
+    }
     let row = sqlx::query!(
         "SELECT label, message, max_uploads, upload_count, expires_at, active \
          FROM file_requests WHERE token = $1",
@@ -298,9 +328,10 @@ pub async fn public_info(
                 vec![],
                 json!({ "label": r.label, "message": r.message, "open": open }),
             )
+            .into_response()
         }
-        Ok(None) => respond(404, "Request not found", vec![], json!({})),
-        Err(_e) => respond(500, "Database error", vec![], json!({})),
+        Ok(None) => respond(404, "Request not found", vec![], json!({})).into_response(),
+        Err(_e) => respond(500, "Database error", vec![], json!({})).into_response(),
     }
 }
 
@@ -321,9 +352,17 @@ pub struct UploadCreatePayload {
 /// create-file logic, authorized by the request token instead of a caller, and
 /// always writing a sanctum (account) file owned by the request owner.
 pub async fn upload_create(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(st): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(p): Json<UploadCreatePayload>,
 ) -> impl IntoResponse {
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    // Deliberately tighter than the read endpoints: each of these consumes the
+    // owner's storage.
+    if !request_allowed(&st, &ip, &p.token, "up", 20, 40) {
+        return too_many();
+    }
     let req = match resolve_active(&st, &p.token).await {
         Ok(r) => r,
         Err(resp) => return resp,
@@ -420,9 +459,17 @@ pub struct UploadCompletePayload {
 /// Public: mark a request-upload chunk complete. Authorized by the token, and the
 /// chunk must belong to a file that was uploaded through THIS request.
 pub async fn upload_mark_complete(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(st): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
     Json(p): Json<UploadCompletePayload>,
 ) -> impl IntoResponse {
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    // One call per chunk, so the ceiling has to clear a large multi-chunk upload
+    // while still bounding a flood.
+    if !request_allowed(&st, &ip, &p.token, "done", 2000, 4000) {
+        return too_many();
+    }
     let req = match resolve_active(&st, &p.token).await {
         Ok(r) => r,
         Err(resp) => return resp,
