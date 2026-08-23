@@ -249,7 +249,7 @@
 							class="act"
 							title="Copy link"
 							aria-label="Copy link to {r.name}"
-							onclick={() => copyShareLink(r, r.kind)}
+							onclick={() => copyShareLink(r, r.kind, { onchange: invalidate })}
 						>
 							<Icon name="link" size={15} />
 						</button>

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE files SET share_type = $1, share_token = $2, share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END WHERE id = $7 AND user_id = $8 RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
+  "query": "UPDATE files SET share_type = $1, share_token = $2, public_access = $9, share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END WHERE id = $7 AND user_id = $8 RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
   "describe": {
     "columns": [
       {
@@ -43,7 +43,8 @@
         "Bool",
         "Text",
         "Text",
-        "Text"
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -55,5 +56,5 @@
       true
     ]
   },
-  "hash": "f34f338fed416b07a718a00d715f3c76c5a70e20b253cc3bb5a154897e0620f7"
+  "hash": "798d857ec2c08f36ef9db08157f26069bdc3b97a70c7130025519dc5348514ed"
 }

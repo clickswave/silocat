@@ -120,6 +120,22 @@ pub async fn toggle_share(
         }
     };
 
+    // `share_type` is the switch the owner actually sees, so it has to move the
+    // column that grants access.
+    //
+    // `public_access` is what the non-token read paths (`fetch_chunks`,
+    // `fetch_files`, `fetch_resource`) consult to serve a NON-owner who supplies
+    // only the resource id. This used to be left untouched here, so a share the
+    // owner had explicitly turned off stayed downloadable by id: the /s/<token>
+    // page correctly refused (every token query filters `share_type != 'off'`)
+    // while the id path kept serving. Turning sharing off has to revoke access,
+    // not just retire the link, so the two move together now.
+    //
+    // Only `files` carries `public_access`; folders have no such column and are
+    // reachable only through the token path, which already gates on share_type.
+    // So the folder branch below sets the token and type but not the flag.
+    let publish = payload.share_type != "off";
+
     // Compute conditional updates: (should_update, value). When should_update is
     // false the existing column value is preserved (CASE WHEN in the UPDATE).
     let (exp_update, exp_value) = match payload.expires_in_days {
@@ -155,14 +171,19 @@ pub async fn toggle_share(
 
         match current_file {
             Ok(Some(record)) => {
-                let token_to_set = if record.share_token.is_none() && payload.share_type != "off" {
+                // Turning sharing off drops the token as well. Keeping it would leave
+                // a previously distributed URL able to come back to life the moment
+                // sharing is re-enabled, which is not what "off" means to anyone.
+                let token_to_set = if !publish {
+                    None
+                } else if record.share_token.is_none() {
                     Some(new_token)
                 } else {
                     record.share_token // Keep existing
                 };
 
                 let result = sqlx::query!(
-                    "UPDATE files SET share_type = $1, share_token = $2, \
+                    "UPDATE files SET share_type = $1, share_token = $2, public_access = $9, \
                      share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, \
                      share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END \
                      WHERE id = $7 AND user_id = $8 \
@@ -174,7 +195,8 @@ pub async fn toggle_share(
                     pw_update,
                     pw_value,
                     file_id,
-                    user_id
+                    user_id,
+                    publish
                 )
                 .fetch_one(&mut *tx)
                 .await;
@@ -217,7 +239,9 @@ pub async fn toggle_share(
         
         match current_folder {
              Ok(Some(record)) => {
-                let token_to_set = if record.share_token.is_none() && payload.share_type != "off" {
+                let token_to_set = if !publish {
+                    None
+                } else if record.share_token.is_none() {
                     Some(generate_token())
                 } else {
                     record.share_token

@@ -2,7 +2,7 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import { FrontendClient } from '$lib/frontendClient.js';
 	import { browser } from '$app/environment';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { glyphForMime } from '$lib/ui/icons.js';
 	import { copyShareLink } from '$lib/share.js';
 
@@ -50,6 +50,14 @@
 		},
 		enabled: browser
 	}));
+
+	const queryClient = useQueryClient();
+
+	/** Re-read the dashboard's own lists after a share toggle changes an item. */
+	function refreshResources() {
+		queryClient.invalidateQueries({ queryKey: ['fetchRecentFiles'] });
+		queryClient.invalidateQueries({ queryKey: ['fetchRootFolders'] });
+	}
 
 	let loading = $derived(fetchFiles.isLoading || fetchFolders.isLoading);
 	let allFiles = $derived(fetchFiles?.data || []);
@@ -101,7 +109,11 @@
 		{ label: 'Upload your first file', done: allFiles.length > 0, href: '/home/files?upload=1' },
 		{
 			label: 'Share your first link',
-			done: allFiles.some((f) => f.public_access || f.share_type === 'public'),
+			// A live share link, not `public_access`. That flag used to be set on every
+			// plain upload, so this step ticked itself the moment someone uploaded
+			// anything and the checklist congratulated them for a thing they had not
+			// done. It now means what it says.
+			done: allFiles.some((f) => !!f.share_token && f.share_type && f.share_type !== 'off'),
 			href: '/home/files'
 		},
 		{ label: 'Verify your email', done: data?.user?.email_verified === true, href: '/home/settings' }
@@ -267,7 +279,7 @@
 									class="ract"
 									title="Copy link"
 									aria-label="Copy share link"
-									onclick={() => copyShareLink(file, 'file')}
+									onclick={() => copyShareLink(file, 'file', { onchange: refreshResources })}
 								>
 									<Icon name="link" size={14} />
 								</button>

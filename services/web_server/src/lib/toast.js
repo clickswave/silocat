@@ -11,16 +11,26 @@
  */
 import { toast as sonner } from 'svelte-sonner';
 
-const opts = (description) => (description ? { description } : undefined);
+/**
+ * Third argument is passed straight through to Sonner, which is where `action`
+ * lives: `toast.success('Sharing turned on', 'Anyone with the link…', { action:
+ * { label: 'Undo', onClick } })`. Kept as a separate parameter rather than
+ * overloading the second, so the common two-string call stays the obvious one
+ * and nobody has to remember whether the second slot is prose or config.
+ */
+const opts = (description, extra) => {
+	const o = { ...(description ? { description } : null), ...(extra || null) };
+	return Object.keys(o).length ? o : undefined;
+};
 
 export const toast = {
-	success: (title, description) => sonner.success(title, opts(description)),
-	error: (title, description) => sonner.error(title, opts(description)),
-	warning: (title, description) => sonner.warning(title, opts(description)),
-	info: (title, description) => sonner.message(title, opts(description)),
+	success: (title, description, extra) => sonner.success(title, opts(description, extra)),
+	error: (title, description, extra) => sonner.error(title, opts(description, extra)),
+	warning: (title, description, extra) => sonner.warning(title, opts(description, extra)),
+	info: (title, description, extra) => sonner.message(title, opts(description, extra)),
 	/** Resolves/rejects a promise with a toast that swaps state in place. */
 	promise: (p, msgs) => sonner.promise(p, msgs),
-	loading: (title, description) => sonner.loading(title, opts(description)),
+	loading: (title, description, extra) => sonner.loading(title, opts(description, extra)),
 	dismiss: (id) => sonner.dismiss(id)
 };
 

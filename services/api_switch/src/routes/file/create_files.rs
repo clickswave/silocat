@@ -103,6 +103,23 @@ pub async fn handle(
 
     let owner_api_key = caller.api_key.clone();
 
+    // A file in a registered user's drive is private on creation, full stop.
+    //
+    // `public_access` is what `fetch_chunks` / `fetch_files` / `fetch_resource`
+    // consult to hand presigned download URLs to a NON-owner who supplies only
+    // the file id. The web client used to send `public_access: !encrypted`, so
+    // every unencrypted upload into someone's private drive was readable by id
+    // by anyone, with no share link ever created. Ids are UUIDv4 so they are not
+    // guessable, but that is a capability that survives referrer leaks, logs and
+    // support tickets, and it is not what the drive UI promises.
+    //
+    // Publishing is now exclusively the job of `share::toggle_share`, which the
+    // owner drives explicitly and which can be turned back off. Anonymous drops
+    // (no user_id) keep public-by-link, which is the entire point of that
+    // product. Forced here rather than trusted from the body so an old client,
+    // a replayed request or a direct API call cannot opt back in.
+    let public_access = if caller.user_id.is_some() { false } else { payload.public_access };
+
     let file = match &caller.user_id {
         // linked (sanctum) uploads
         Some(user_id) => {
@@ -140,7 +157,7 @@ pub async fn handle(
                 payload.chunks.len() as i64,
                 payload.sha256_checksum,
                 payload.blake3_checksum,
-                payload.public_access,
+                public_access,
                 payload.folder_id,
                 owner_api_key
             ).fetch_one(&axum_state.pg_pool).await;
@@ -212,7 +229,7 @@ pub async fn handle(
                 payload.chunks.len() as i64,
                 payload.sha256_checksum,
                 payload.blake3_checksum,
-                payload.public_access,
+                public_access,
                 payload.folder_id,
                 owner_api_key
             ).fetch_one(&axum_state.pg_pool).await;

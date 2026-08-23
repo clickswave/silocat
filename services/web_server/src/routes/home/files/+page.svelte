@@ -132,6 +132,7 @@
 	import sodium from 'libsodium-wrappers-sumo';
 	import { downloadFile, fetchDecryptedBlob } from '$lib/download.js';
 	import { generatePassword } from '$lib/password.js';
+	import { copyShareLink as sharedCopyLink } from '$lib/share.js';
 	import { fade, scale } from 'svelte/transition';
 	import JSZip from 'jszip';
 
@@ -879,7 +880,11 @@
 				})),
 				sha256_checksum: fileChecksum,
 				blake3_checksum: '',
-				public_access: !encryptionEnabled,
+				// A file in your own drive starts private. Publishing is the share
+				// sheet's job and nothing else's; api_switch forces this to false for
+				// any upload carrying a user_id regardless of what we send, so this is
+				// the honest version of a value the server no longer trusts.
+				public_access: false,
 				folder_id: folderId
 			};
 
@@ -1302,12 +1307,13 @@
 	// ===================================================================
 	//  Quick copy link
 	// ===================================================================
-	function copyShareLink(item) {
-		const url = `${window.location.origin}/${item.id}`;
-		navigator.clipboard
-			.writeText(url)
-			.then(() => toast.success('Link copied to clipboard'))
-			.catch(() => toast.error('Could not copy link'));
+	// Was `${origin}/${item.id}`, which is the anonymous-drop route and resolves
+	// by raw file id through the public_access gate. It only ever produced a
+	// working URL because every plain upload used to be flagged public, and it
+	// never turned sharing on, so the link died the moment that default was
+	// fixed. Real share links go through the token flow in $lib/share.js.
+	function quickCopyShareLink(item, type = 'file') {
+		return sharedCopyLink(item, type, { onchange: refreshView });
 	}
 
 	// ===================================================================
@@ -1528,7 +1534,11 @@
 				list.push({ label: 'Download as zip', icon: 'ri:file-zip-line', action: () => startDownloadFolderZip(item) });
 				list.push({ label: 'Rename', icon: 'ri:edit-line', action: () => handleRenameFolder(item) });
 			}
-			list.push({ label: 'Copy link', icon: 'ri:links-line', action: () => copyShareLink(item) });
+			list.push({
+				label: 'Copy link',
+				icon: 'ri:links-line',
+				action: () => quickCopyShareLink(item, type)
+			});
 			list.push({ label: 'Share', icon: 'ri:share-forward-line', action: () => handleShare(item, type) });
 			list.push({
 				label: item.starred ? 'Unstar' : 'Star',
