@@ -2,7 +2,6 @@ use lettre::{Message, SmtpTransport, Transport};
 use lettre::message::{Attachment, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
-use lettre::transport::smtp::response::Response;
 use serde::Serialize;
 use crate::libs::configs::SmtpConfig;
 
@@ -26,10 +25,35 @@ pub struct EmailData {
     pub email_body: String,
 }
 
+/// Domains that can never receive mail: the reserved TLDs from RFC 2606/6761,
+/// `.local` (RFC 6762, mDNS-only), plus the example second-level domains. Test
+/// fixtures and seeded accounts use these, and handing one to SES costs a real
+/// delivery attempt, fourteen hours of retries, and a bounce back to the
+/// reply-to inbox, all of it counting against the identity's reputation.
+fn is_undeliverable(to_email: &str) -> bool {
+    let domain = match to_email.rsplit_once('@') {
+        Some((_, d)) => d.trim().trim_end_matches('.').to_ascii_lowercase(),
+        None => return true,
+    };
+    const RESERVED_TLDS: [&str; 5] = ["invalid", "test", "example", "localhost", "local"];
+    const RESERVED_DOMAINS: [&str; 3] = ["example.com", "example.net", "example.org"];
+    if domain.is_empty() {
+        return true;
+    }
+    let tld = domain.rsplit('.').next().unwrap_or("");
+    RESERVED_TLDS.contains(&tld)
+        || domain == "localhost"
+        || RESERVED_DOMAINS.iter().any(|d| domain == *d || domain.ends_with(&format!(".{d}")))
+}
+
 pub async fn send(
     smtp_config: &SmtpConfig,
     email_data: &EmailData,
-) -> anyhow::Result<Response, String> {
+) -> Result<(), String> {
+    if is_undeliverable(&email_data.to_email) {
+        eprintln!("[email] reserved domain; dropping mail to {}", email_data.to_email);
+        return Ok(());
+    }
 
     let mail_to = format!("{} <{}>", &email_data.to_name, &email_data.to_email);
     let mail_from = format!("{} <{}>", &email_data.from_name, &email_data.from_email);
@@ -74,8 +98,8 @@ pub async fn send(
 
     // send email
     match mailer.send(&email) {
-        Ok(response) => {
-            Ok(response)
+        Ok(_) => {
+            Ok(())
         }
         Err(err) => {
             Err(err.to_string())
@@ -272,6 +296,10 @@ async fn send_ses_templated(
     template_key: &str,
     data: serde_json::Value,
 ) -> Result<(), String> {
+    if is_undeliverable(to_email) {
+        eprintln!("[email] reserved domain; dropping SES template '{}' to {}", template_key, to_email);
+        return Ok(());
+    }
     let region = aws_sdk_sesv2::config::Region::new(cfg.ses_region.clone());
     let shared = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(region)
@@ -354,7 +382,7 @@ pub async fn send_verification_email(
         email_body,
     };
 
-    send(smtp_config, &email_data).await.map(|_| ())
+    send(smtp_config, &email_data).await
 }
 
 /// Internal support/contact message from a signed-in user. Sent to the support
@@ -366,7 +394,7 @@ pub async fn send_support_email(
     category: &str,
     subject: &str,
     message: &str,
-) -> anyhow::Result<Response, String> {
+) -> Result<(), String> {
     // Fixed recipient (the support inbox), so throttle on the sender instead
     // or one user could flood it and burn the quota for everyone.
     email_allowed(user_email, "support")?;
@@ -514,7 +542,7 @@ pub async fn send_ticket_update_email(
         email_body: body,
     };
 
-    send(smtp_config, &email_data).await.map(|_| ())
+    send(smtp_config, &email_data).await
 }
 
 pub async fn send_password_reset_email(
@@ -557,7 +585,7 @@ pub async fn send_password_reset_email(
         email_body,
     };
 
-    send(smtp_config, &email_data).await.map(|_| ())
+    send(smtp_config, &email_data).await
 }
 #[cfg(test)]
 mod email_throttle_tests {
@@ -591,5 +619,25 @@ mod email_throttle_tests {
     fn recipients_are_normalised_so_case_cannot_reset_the_budget() {
         assert!(email_allowed("Case@Example.com", "verify-email").is_ok());
         assert!(email_allowed("case@example.com", "verify-email").is_err());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_undeliverable;
+
+    #[test]
+    fn reserved_domains_are_never_sent_to() {
+        for addr in ["free@testkit.local", "tk@testkit.invalid", "a@example.com",
+                     "b@my.test", "c@localhost", "no-at-sign"] {
+            assert!(is_undeliverable(addr), "{addr} should have been dropped");
+        }
+    }
+
+    #[test]
+    fn real_addresses_still_go_out() {
+        for addr in ["support@silo.cat", "user@gmail.com", "x@invalid-name.com"] {
+            assert!(!is_undeliverable(addr), "{addr} should have been sent");
+        }
     }
 }
