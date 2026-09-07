@@ -9,6 +9,7 @@
 	import Footer from '$lib/components/Footer.svelte';
 	import { Button, Modal } from '$lib/ui';
 	import { generatePassword } from '$lib/password.js';
+	import { trackDrop } from '$lib/track.js';
 
 	import { createMutation } from '@tanstack/svelte-query';
 	import { toast } from '$lib/toast.js';
@@ -17,6 +18,9 @@
 	import { shadowKey } from '$lib/stores/shadow.js';
 
 	let { data } = $props();
+
+	/** Anonymous drops are most of the traffic, so every drop event carries this. */
+	const isAuthed = () => !!(data?.user && data.user.email && data.user.account_type !== 'anonymous');
 
 	guardNavigation('Your upload is still running. Leaving this page will cancel it.');
 
@@ -34,13 +38,14 @@
 
 	function checkSizeLimit(newFiles) {
 		// Strict check for authenticated user: must have email and not be anonymous
-		const isAuth = data?.user && data.user.email && data.user.account_type !== 'anonymous';
+		const isAuth = isAuthed();
 		const limit = isAuth ? MAX_SIZE_AUTH : MAX_SIZE_ANON;
 		const currentTotal = files.reduce((acc, f) => acc + (f.file ? f.file.size : f.size), 0);
 		const newTotal = newFiles.reduce((acc, f) => acc + (f.file ? f.file.size : f.size), 0);
 
 		if (currentTotal + newTotal > limit) {
 			const limitGb = limit / (1024 * 1024 * 1024);
+			trackDrop('failed', { reason: 'size_limit', authed: isAuth });
 			toast.error(
 				`Total upload size exceeds the ${limitGb}GB limit for ${isAuth ? 'authenticated' : 'anonymous'} users.`
 			);
@@ -115,11 +120,13 @@
 			}
 			if (checkSizeLimit(newFiles)) {
 				files = [...files, ...newFiles];
+				trackDrop('selected', { count: newFiles.length });
 			}
 		} else if (e.dataTransfer.files) {
 			const newFiles = Array.from(e.dataTransfer.files).map((f) => ({ file: f, path: '' }));
 			if (checkSizeLimit(newFiles)) {
 				files = [...files, ...newFiles];
+				trackDrop('selected', { count: newFiles.length });
 			}
 		}
 	}
@@ -135,6 +142,7 @@
 			});
 			if (checkSizeLimit(newFiles)) {
 				files = [...files, ...newFiles];
+				trackDrop('selected', { count: newFiles.length });
 			}
 		}
 	}
@@ -472,10 +480,20 @@
 				successCount++;
 			}
 
-			if (successCount > 0) toast.success(`Upload complete (${successCount} files)`);
+			if (successCount > 0) {
+				// The only point where every chunk of every file is confirmed. The share
+				// link is handed out earlier, in phase 1, so this is deliberately not the
+				// same moment as "the user got a link".
+				trackDrop('uploaded', { files: successCount, authed: isAuthed() });
+				toast.success(`Upload complete (${successCount} files)`);
+			}
 		} catch (e) {
 			console.error('Batch upload interrupted', e);
 			const d = e?.response?.data;
+			trackDrop('failed', {
+				reason: e?.response?.status === 403 ? 'banned' : 'interrupted',
+				authed: isAuthed()
+			});
 			if (e?.response?.status === 403 && (d?.banned || /banned/i.test(d?.error || ''))) {
 				toast.error(d?.error || 'You are banned from using Silocat.');
 			} else {

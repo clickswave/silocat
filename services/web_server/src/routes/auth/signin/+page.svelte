@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import { track } from '$lib/track.js';
 	import Seo from '$lib/components/Seo.svelte';
 	import { toast } from 'svelte-sonner';
 	
@@ -107,6 +108,9 @@
 	function handleSubmit(event) {
 		loading = true;
 		return async ({ update, result }) => {
+			// Success has no branch of its own: `update()` re-runs load, which redirects
+			// once a session exists. The event has to be sent from here, before that.
+			if (result.data.success) track('login');
 			if (result.data.error) {
 				let response = result.data.error;
 				toast.error(response.message, {

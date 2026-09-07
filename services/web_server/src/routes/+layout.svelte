@@ -46,6 +46,10 @@
 			function gtag() {
 				window.dataLayer.push(arguments);
 			}
+			// Publish the shim so `$lib/track.js` can send events. gtag.js does not
+			// define this global itself; the standard snippet does, and this is our
+			// copy of it. Without the assignment every event call is a silent no-op.
+			/** @type {any} */ (window).gtag = gtag;
 			gtag('js', new Date());
 			gtag('config', gaId);
 		}

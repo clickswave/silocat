@@ -9,6 +9,7 @@
 	import { loadRazorpay } from '$lib/loadRazorpay.js';
 	import { PRICES, SYMBOL, formatPrice, formatMinor, currencyForCountry } from '$lib/pricing.js';
 	import { qk } from '$lib/queryKeys.js';
+	import { track, trackCta } from '$lib/track.js';
 
 	let { data } = $props();
 
@@ -192,6 +193,9 @@
 
 			// A 100% promo settles server-side with no gateway round trip.
 			if (orderRes.data.success && orderRes.data.success.amount === 0) {
+				// A fully discounted plan is still a conversion, and it never opens a
+				// gateway, so counting only the handler below would lose it entirely.
+				track('purchase', { plan: checkoutPlan ?? 'unknown', cycle, rail: 'promo' });
 				stage = 'success';
 				return;
 			}
@@ -219,6 +223,11 @@
 							subscription_id: response.razorpay_subscription_id,
 							payment_id: response.razorpay_payment_id,
 							signature: response.razorpay_signature
+						});
+						track('purchase', {
+							plan: checkoutPlan ?? 'unknown',
+							cycle,
+							rail: isSubscription ? 'subscription' : 'one_time'
 						});
 						stage = 'success';
 						loadHistory();
@@ -354,7 +363,7 @@
 						type="button"
 						class="plan-cta {cta.style}"
 						disabled={cta.disabled}
-						onclick={() => openCheckout(p.id)}
+						onclick={() => { trackCta('billing_plan', { plan: p.id }); openCheckout(p.id); }}
 					>
 						{cta.label}
 					</button>

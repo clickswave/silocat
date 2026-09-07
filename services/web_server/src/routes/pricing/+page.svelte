@@ -5,6 +5,7 @@
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import { PRICES, SYMBOL, formatPrice } from '$lib/pricing.js';
+	import { trackCta } from '$lib/track.js';
 
 	let currency = $state('USD');
 	let cycle = $state('monthly');
@@ -157,7 +158,11 @@
 						{/each}
 					</div>
 
-					<a href={p.href} class="cta {p.style}">{p.cta}</a>
+					<a
+						href={p.href}
+						class="cta {p.style}"
+						onclick={() => trackCta(`pricing_${p.id}`, { cycle, currency })}
+					>{p.cta}</a>
 				</div>
 			{/each}
 		</section>

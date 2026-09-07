@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import { track } from '$lib/track.js';
 	import Seo from '$lib/components/Seo.svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
@@ -35,6 +36,7 @@
 		loading = true;
 		return async ({ update, result }) => {
 			if (result.data.success) {
+				track('sign_up');
 				await goto('/home/pending-actions');
 			}
 			if (result.data.error) {
