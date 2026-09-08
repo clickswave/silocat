@@ -137,8 +137,17 @@
 
 	async function fetchMetadata(isPolling = false) {
 		try {
-			// Single Unified Call
-			const res = await axios.post('/api/v1/shadow/resource/fetch', { id: fileId });
+			// Single Unified Call.
+			//
+			// Send the browser's shadow key when we have one: it is what marks the
+			// uploader as the owner of an anonymous drop, and without it a visitor
+			// who just created this link is treated as a stranger, so anything not
+			// publicly readable comes back 404 to the person who made it.
+			const res = await axios.post(
+				'/api/v1/shadow/resource/fetch',
+				{ id: fileId },
+				$shadowKey ? { headers: { 'X-Api-Key': $shadowKey } } : undefined
+			);
 
 			if (res.data.data) {
 				const { resource_type, file, folder, files, folders } = res.data.data;
@@ -217,9 +226,11 @@
 			// Ideally passed in signal. For now, check global.
 			if (!isDownloading) throw new Error('Download cancelled');
 
-			const chunksRes = await axios.post('/api/v1/shadow/file/fetch-chunks', {
-				file_id: fileTarget.id
-			});
+			const chunksRes = await axios.post(
+				'/api/v1/shadow/file/fetch-chunks',
+				{ file_id: fileTarget.id },
+				$shadowKey ? { headers: { 'X-Api-Key': $shadowKey } } : undefined
+			);
 			const chunks = chunksRes.data.data.chunks || [];
 
 			if (chunks.length > processedChunkCount) {

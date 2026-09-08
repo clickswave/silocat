@@ -833,10 +833,8 @@
 				sha256_checksum: fileChecksum,
 				blake3_checksum: '',
 				// A file in your own drive starts private. Publishing is the share
-				// sheet's job and nothing else's; api_switch forces this to false for
-				// any upload carrying a user_id regardless of what we send, so this is
-				// the honest version of a value the server no longer trusts.
-				public_access: false,
+				// sheet's job and nothing else's, and api_switch decides visibility
+				// from the caller alone, so there is no flag to send here.
 				folder_id: folderId
 			};
 

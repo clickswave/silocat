@@ -109,7 +109,6 @@ const plaintext = await silo.download(file.id, {
 						file_mime: 'application/pdf',
 						file_size: 1887436,
 						sha256_checksum: 'e3b0c442…',
-						public_access: false,
 						folder_id: null,
 						chunks: [
 							{ start: 0, end: 1887436, size: 1887436, checksum: 'pending', salt: 'base64…', nonce: 'base64…' }

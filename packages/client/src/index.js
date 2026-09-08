@@ -184,7 +184,6 @@ export class Silocat {
 				chunks: chunks.map(({ _nonce, ...c }) => c),
 				sha256_checksum: checksum,
 				blake3_checksum: '',
-				public_access: !encrypted,
 				folder_id: folderId
 			}
 		});

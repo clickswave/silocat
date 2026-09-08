@@ -28,7 +28,6 @@ pub struct PayloadBody {
     pub chunks: Vec<ChunkData>,
     pub sha256_checksum: String,
     pub blake3_checksum: String,
-    pub public_access: bool,
     pub folder_id: Option<String>,
 }
 
@@ -114,11 +113,16 @@ pub async fn handle(
     // support tickets, and it is not what the drive UI promises.
     //
     // Publishing is now exclusively the job of `share::toggle_share`, which the
-    // owner drives explicitly and which can be turned back off. Anonymous drops
-    // (no user_id) keep public-by-link, which is the entire point of that
-    // product. Forced here rather than trusted from the body so an old client,
-    // a replayed request or a direct API call cannot opt back in.
-    let public_access = if caller.user_id.is_some() { false } else { payload.public_access };
+    // owner drives explicitly and which can be turned back off.
+    //
+    // An anonymous drop is the mirror image: it has no drive to sit in and no
+    // owner who can log in to publish it later, so the id IS the capability and
+    // the file has to be readable by it. That half used to be trusted from the
+    // body, and the drop page sent `public_access: !encrypted`. So turning on a
+    // password, the one thing that makes a drop safe to hand out, was also what
+    // made its link 404 for everyone including the uploader. Both halves are now
+    // decided here, from the caller, so no client can get either one wrong.
+    let public_access = caller.user_id.is_none();
 
     let file = match &caller.user_id {
         // linked (sanctum) uploads

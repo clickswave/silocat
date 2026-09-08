@@ -427,7 +427,6 @@
 					})),
 					sha256_checksum: fileChecksum,
 					blake3_checksum: '',
-					public_access: !encryptionEnabled,
 					folder_id: folderId
 				};
 
