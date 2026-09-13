@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     let sessionUser = await locals.session.user.get();
@@ -29,7 +29,6 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post('/folder/delete', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
         return json(response.data);
     } catch (err) {
-        console.error('[DELETE_FOLDER]', err);
-        return json({ error: 'Failed to delete folder' }, { status: 500 });
+        return proxyError(err, '[DELETE_FOLDER]', 'Failed to delete folder');
     }
 }

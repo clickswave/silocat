@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function GET({ url, locals }) {
     let user = await locals.session.user.get();
@@ -34,8 +34,7 @@ export async function GET({ url, locals }) {
 
         return json(response.data);
     } catch (err) {
-        console.error('[GET_SANCTUM_FILES]', err);
-        return json({ error: 'Failed to fetch files' }, { status: 500 });
+        return proxyError(err, '[GET_SANCTUM_FILES]', 'Failed to fetch files');
     }
 }
 
@@ -62,7 +61,6 @@ export async function POST({ request, locals }) {
 
         return json(response.data);
     } catch (err) {
-        console.error('[POST_SANCTUM_FILES]', err);
-        return json({ error: 'Failed to fetch files' }, { status: 500 });
+        return proxyError(err, '[POST_SANCTUM_FILES]', 'Failed to fetch files');
     }
 }

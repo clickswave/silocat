@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 import { clientIpHeaders } from '$lib/server/client-ip.js';
 
 export async function POST(event) {
@@ -31,7 +31,6 @@ export async function POST(event) {
         let response = await ApiServerClient.post(ApiServerRoutes.createFile, body, { headers: { 'X-Api-Key': sessionUser.api_key, ...clientIpHeaders(event) } }).then(res => res.data);
         return json(response);
     } catch (err) {
-        console.error('[CREATE_SANCTUM_FILE]', err);
-        return json({ error: 'Failed to create file metadata' }, { status: 500 });
+        return proxyError(err, '[CREATE_SANCTUM_FILE]', 'Failed to create file metadata');
     }
 }

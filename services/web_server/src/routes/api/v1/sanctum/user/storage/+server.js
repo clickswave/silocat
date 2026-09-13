@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function GET({ locals }) {
     let sessionUser = await locals.session.user.get();
@@ -17,7 +17,6 @@ export async function GET({ locals }) {
 
         return json({ success: response.data });
     } catch (err) {
-        console.error('[GET_STORAGE_STATS]', err);
-        return json({ error: 'Failed to fetch storage stats' }, { status: 500 });
+        return proxyError(err, '[GET_STORAGE_STATS]', 'Failed to fetch storage stats');
     }
 }

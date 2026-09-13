@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     let sessionUser = await locals.session.user.get();
@@ -43,7 +43,6 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post(ApiServerRoutes.listFolders, payload, { headers: { 'X-Api-Key': sessionUser.api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
-        console.error('[FETCH_FOLDERS]', err);
-        return json({ error: 'Failed to fetch folders' }, { status: 500 });
+        return proxyError(err, '[FETCH_FOLDERS]', 'Failed to fetch folders');
     }
 }

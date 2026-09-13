@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
 
@@ -20,7 +20,6 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post(ApiServerRoutes.fetchFiles, { ...body, api_key }, { headers: { 'X-Api-Key': api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
-        console.error('[FETCH_FILES]', err);
-        return json({ error: 'Failed to fetch file' }, { status: 500 });
+        return proxyError(err, '[FETCH_FILES]', 'Failed to fetch file');
     }
 }

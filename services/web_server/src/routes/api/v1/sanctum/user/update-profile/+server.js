@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     let user = await locals.session.user.get();
@@ -15,7 +15,6 @@ export async function POST({ request, locals }) {
 
         return json({ success: response.data });
     } catch (err) {
-        console.error('[POST_SANCTUM_UPDATE_PROFILE]', err);
-        return json({ error: 'Failed to update profile' }, { status: 500 });
+        return proxyError(err, '[POST_SANCTUM_UPDATE_PROFILE]', 'Failed to update profile');
     }
 }

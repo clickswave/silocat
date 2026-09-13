@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     // Basic validation implies the user has the API key. 
@@ -23,7 +23,6 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post(ApiServerRoutes.markChunkAsComplete, body, { headers: { 'X-Api-Key': apiKey } }).then(res => res.data);
         return json(response);
     } catch (err) {
-        console.error('[MARK_CHUNK_COMPLETE]', err);
-        return json({ error: 'Failed to mark chunk complete' }, { status: 500 });
+        return proxyError(err, '[MARK_CHUNK_COMPLETE]', 'Failed to mark chunk complete');
     }
 }

@@ -1,4 +1,4 @@
-import { ApiServerClient } from '$lib/network';
+import { ApiServerClient, proxyError } from '$lib/network';
 import { json } from '@sveltejs/kit';
 
 export async function POST({ request, locals }) {
@@ -19,13 +19,6 @@ export async function POST({ request, locals }) {
 
         return json(response.data);
     } catch (error) {
-        console.error('File update proxy error:', error);
-        return json(
-            {
-                status: 500,
-                message: 'Internal Server Error'
-            },
-            { status: 500 }
-        );
+        return proxyError(error, 'File update proxy error:', 'Internal Server Error');
     }
 }

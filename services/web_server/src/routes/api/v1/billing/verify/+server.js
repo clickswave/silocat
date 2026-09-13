@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient } from '$lib/network.js';
+import { ApiServerClient, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     let user = await locals.session.user.get();
@@ -30,7 +30,6 @@ export async function POST({ request, locals }) {
 
         return json({ success: response.data });
     } catch (err) {
-        console.error('[POST_BILLING_VERIFY]', err);
-        return json({ error: 'Failed to verify payment' }, { status: 500 });
+        return proxyError(err, '[POST_BILLING_VERIFY]', 'Failed to verify payment');
     }
 }

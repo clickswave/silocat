@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
 const { WEB_SERVER_COMMUNICATION_SECRET, INTERNAL_API_URL, WEB_SERVER_COMMUNICATION_HEADER } = env;
@@ -19,6 +20,32 @@ export const ApiServerError = {
 	errors: ['Last request was not successful. If the problem persists, please contact support.'],
 	data: {}
 };
+
+/**
+ * Turn a failed `ApiServerClient` call into what the browser should actually be
+ * told, and use it in every proxy's catch.
+ *
+ * api_switch maps its envelope status onto the HTTP code, so ANY non-2xx makes
+ * axios throw and land in the catch. Each proxy used to answer a flat 500 there,
+ * which discarded the one thing the caller needed: a 404 for a thing that is
+ * gone, a 401 for a password or session that was refused, a 410 for a link that
+ * is spent. Pages branch on exactly those, so those branches were dead code, and
+ * any status check written *after* the await in a proxy was dead too.
+ *
+ * A genuine transport failure (api_switch down, DNS, timeout) has no
+ * `err.response` and is the only case that is really a 500 here, so that is the
+ * only case that still reports one.
+ *
+ * @param {unknown} err     the thrown axios error
+ * @param {string}  tag     log prefix, e.g. '[FETCH_CHUNKS]'
+ * @param {string}  message what to say when there is no upstream response
+ */
+export function proxyError(err, tag, message) {
+	const upstream = err?.response?.data;
+	if (upstream) return json(upstream, { status: err.response.status });
+	console.error(tag, err);
+	return json({ error: message }, { status: 500 });
+}
 
 // USER MANAGEMENT
 export let ApiServerClient = axios.create({

@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
+import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     let sessionUser = await locals.session.user.get();
@@ -36,7 +36,6 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post(ApiServerRoutes.createFolder, payload, { headers: { 'X-Api-Key': sessionUser?.api_key || apiKey || undefined } }).then(res => res.data);
         return json(response);
     } catch (err) {
-        console.error('[CREATE_FOLDER]', err);
-        return json({ error: 'Failed to create folder' }, { status: 500 });
+        return proxyError(err, '[CREATE_FOLDER]', 'Failed to create folder');
     }
 }

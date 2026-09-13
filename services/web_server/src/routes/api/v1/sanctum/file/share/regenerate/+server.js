@@ -1,6 +1,6 @@
 
 import { json } from '@sveltejs/kit';
-import { ApiServerClient } from '$lib/network.js';
+import { ApiServerClient, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     try {
@@ -37,7 +37,6 @@ export async function POST({ request, locals }) {
         );
 
     } catch (err) {
-        console.error('[SHARE_REGEN_PROXY]', err);
-        return json({ error: 'Internal Error' }, { status: 500 });
+        return proxyError(err, '[SHARE_REGEN_PROXY]', 'Internal Error');
     }
 }

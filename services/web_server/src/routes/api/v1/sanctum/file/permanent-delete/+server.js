@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { ApiServerClient } from '$lib/network.js';
+import { ApiServerClient, proxyError } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
     let sessionUser = await locals.session.user.get();
@@ -22,7 +22,6 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post('/file/permanent-delete-files', payload, { headers: { 'X-Api-Key': sessionUser.api_key } });
         return json(response.data);
     } catch (err) {
-        console.error('[PERMANENT_DELETE_FILE]', err);
-        return json({ error: 'Failed to delete file permanently' }, { status: 500 });
+        return proxyError(err, '[PERMANENT_DELETE_FILE]', 'Failed to delete file permanently');
     }
 }
