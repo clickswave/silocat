@@ -64,15 +64,27 @@ pub async fn handle(
         }
     }
 
+    // Visibility is decided from the caller, never from the body, and by exactly
+    // the rule create_files.rs applies to a file.
+    //
+    // A folder in a registered user's drive is private on creation: publishing it
+    // is the share sheet's job (share::toggle_share), which the owner drives and
+    // can turn back off. An anonymous drop is the mirror image: it has no drive
+    // to sit in and no owner who can log in later to publish it, so the id IS the
+    // capability and the folder has to be readable by it. Without this the upload
+    // page handed out a /<folder_id> link that 404s for everyone it was sent to.
+    let public_access = caller.user_id.is_none();
+
     let insert_query = sqlx::query_as!(
         models::Folder,
-        "INSERT INTO folders (name, user_id, parent_id, uploaded_as_files, owner_api_key)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        "INSERT INTO folders (name, user_id, parent_id, uploaded_as_files, owner_api_key, public_access)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
         payload.name,
         caller.user_id.clone(),
         payload.parent_id,
         uploaded_as_files,
-        Some(caller.api_key.clone())
+        Some(caller.api_key.clone()),
+        public_access
     )
     .fetch_one(&axum_state.pg_pool)
     .await;

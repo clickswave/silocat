@@ -50,15 +50,39 @@ pub async fn handle(
     // carries no active share protection (password / one-time / expiry / delete);
     // protected shares must go through the token-checked /file/public/share/*
     // path so those controls are actually enforced.
-    let now = chrono::Utc::now();
-    let share_protected = file.share_password_hash.is_some()
-        || file.share_type.as_deref() == Some("once")
-        || file.share_expires_at.map_or(false, |e| e <= now)
-        || file.deleted;
-    let allowed = caller
+    let share_protected = crate::libs::sharing::share_protected(
+        file.share_password_hash.as_deref(),
+        file.share_type.as_deref(),
+        file.share_expires_at,
+        file.deleted,
+    );
+    let owns = caller
         .as_ref()
-        .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
-        || (file.public_access && !share_protected);
+        .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+
+    // The folder holding this file has a say in both directions.
+    //
+    // It can grant: publishing a folder is a statement about its contents, so a
+    // file inside one is downloadable without being published itself. A
+    // registered user's files stay private individually (0044) and only the
+    // folder carries the share, and the token path has always worked this way
+    // (it authorizes any file in the shared folder without consulting the file's
+    // own flag), so the two read paths now agree instead of disagreeing quietly.
+    //
+    // And it can refuse: a password or an expiry on a folder covers everything
+    // under it. Otherwise the control is bypassed by asking for a file id
+    // directly instead of the folder's, and the folder listing is where those
+    // ids come from.
+    let folder_access = match file.folder_id.as_deref() {
+        Some(folder_id) => crate::libs::sharing::folder_access(&axum_state.pg_pool, folder_id).await,
+        None => crate::libs::sharing::FolderAccess { published: false, protected: false },
+    };
+
+    let allowed = owns
+        || (!share_protected
+            && !folder_access.protected
+            && (file.public_access || folder_access.published));
+
     if !allowed {
         return respond(404, "File not found", vec![], json!({}));
     }

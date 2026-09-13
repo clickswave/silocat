@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO folders (name, user_id, parent_id, uploaded_as_files, owner_api_key)\n         VALUES ($1, $2, $3, $4, $5) RETURNING *",
+  "query": "INSERT INTO folders (name, user_id, parent_id, uploaded_as_files, owner_api_key, public_access)\n         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
   "describe": {
     "columns": [
       {
@@ -87,6 +87,11 @@
         "ordinal": 16,
         "name": "share_password_hash",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "public_access",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -95,7 +100,8 @@
         "Text",
         "Text",
         "Bool",
-        "Text"
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -115,8 +121,9 @@
       false,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "89e99ccfb9639c0f65bc7d33cc87d395b0812030fb78a16dcc818461307eb86b"
+  "hash": "0284a588a2b07fb9a103ba9ba0ca974c313214c952527eaf6bec01b84023916d"
 }

@@ -87,6 +87,11 @@
         "ordinal": 16,
         "name": "share_password_hash",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "public_access",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -111,7 +116,8 @@
       false,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
   "hash": "fe6944eb144f7c112243193d950167d1736066baf2145c43632b0244c64b3e36"

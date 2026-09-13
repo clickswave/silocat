@@ -149,6 +149,7 @@ pub struct Folder {
     pub user_id: Option<String>,
     pub parent_id: Option<String>,
     pub uploaded_as_files: bool,
+    pub public_access: bool,
     pub created_on: DateTime<Utc>,
     pub updated_on: DateTime<Utc>,
     #[serde(skip_serializing)]

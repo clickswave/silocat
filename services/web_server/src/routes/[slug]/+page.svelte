@@ -385,7 +385,12 @@
 						const currentFileContribution = pct / 100;
 						progress = ((processedFiles + currentFileContribution) / folderFiles.length) * 100;
 					});
-					zip.file(file.name, fileBlob);
+					// `path` is the file's folder relative to the shared root, so a
+					// folder drop unzips with the structure it was uploaded with
+					// instead of collapsing into one flat pile of names (where
+					// two files called the same thing in different directories
+					// would also have overwritten each other).
+					zip.file(file.path ? `${file.path}/${file.name}` : file.name, fileBlob);
 				} catch (e) {
 					console.error(`Failed to download ${file.name} for zip`, e);
 					toast.error(`Could not download ${file.name}: ${e.message}`);
@@ -488,8 +493,8 @@
 						<div class="frow">
 							<span class="fic"><Icon icon={typeIcon(file.mime, file.name)} width="16" /></span>
 							<div class="fmeta">
-								<span class="fname" title={file.name}>{file.name}</span>
-								<span class="fsize">{fmtSize(file.size)}</span>
+								<span class="fname" title={file.path ? `${file.path}/${file.name}` : file.name}>{file.name}</span>
+								<span class="fsize">{#if file.path}<span class="fpath">{file.path}/</span>{/if}{fmtSize(file.size)}</span>
 							</div>
 							{#if file.total_chunks && file.uploaded_chunks < file.total_chunks}
 								<span class="uploading"><Icon icon="svg-spinners:12-dots-scale-rotate" width="13" /> {Math.round((file.uploaded_chunks / file.total_chunks) * 100)}%</span>
@@ -794,6 +799,12 @@
 			font-family: var(--font-mono);
 			font-size: var(--fs-xs);
 			color: var(--ink-faint);
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.fpath {
+			color: var(--ink-muted, var(--ink-faint));
 		}
 	}
 	.uploading {

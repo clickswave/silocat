@@ -300,7 +300,9 @@
 					}
 
 					const fileBlob = new Blob(downloadedChunks);
-					zip.file(f.name, fileBlob);
+					// `path` is the file's folder relative to the shared root, so
+					// the zip keeps the structure the folder was shared with.
+					zip.file(f.path ? `${f.path}/${f.name}` : f.name, fileBlob);
 					processedCount++;
 				}
 			} catch (e) {
@@ -412,8 +414,8 @@
 							<div class="frow">
 								<span class="fglyph"><Icon name={glyphForMime(f.mime, f.name)} size={16} /></span>
 								<div class="fmeta">
-									<span class="fname" title={f.name}>{f.name}</span>
-									<span class="fsize">{formatSize(f.size)}</span>
+									<span class="fname" title={f.path ? `${f.path}/${f.name}` : f.name}>{f.name}</span>
+									<span class="fsize">{#if f.path}<span class="fpath">{f.path}/</span>{/if}{formatSize(f.size)}</span>
 								</div>
 								{#if f.encrypted}
 									<span class="flock"><Icon name="lock" size={13} stroke={1.9} /></span>
@@ -656,6 +658,12 @@
 		font-family: var(--font-mono);
 		font-size: var(--fs-xs);
 		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.fpath {
+		color: var(--ink-muted, var(--ink-faint));
 	}
 
 	.fdl {

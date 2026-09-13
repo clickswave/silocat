@@ -131,9 +131,10 @@ pub async fn toggle_share(
     // while the id path kept serving. Turning sharing off has to revoke access,
     // not just retire the link, so the two move together now.
     //
-    // Only `files` carries `public_access`; folders have no such column and are
-    // reachable only through the token path, which already gates on share_type.
-    // So the folder branch below sets the token and type but not the flag.
+    // Folders carry `public_access` too since 0045, so both branches move it.
+    // While they did not, a folder was reachable only through the token path,
+    // which is why an anonymous folder drop (no token, only an id) had no way to
+    // be read by the person it was sent to.
     let publish = payload.share_type != "off";
 
     // Compute conditional updates: (should_update, value). When should_update is
@@ -248,13 +249,14 @@ pub async fn toggle_share(
                 };
 
                 let result = sqlx::query!(
-                    "UPDATE folders SET share_type = $1, share_token = $2, \
-                     share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, \
-                     share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END \
-                     WHERE id = $7 AND user_id = $8 \
+                    "UPDATE folders SET share_type = $1, share_token = $2, public_access = $3, \
+                     share_expires_at = CASE WHEN $4 THEN $5::timestamptz ELSE share_expires_at END, \
+                     share_password_hash = CASE WHEN $6 THEN $7::text ELSE share_password_hash END \
+                     WHERE id = $8 AND user_id = $9 \
                      RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
                     payload.share_type,
                     token_to_set,
+                    publish,
                     exp_update,
                     exp_value,
                     pw_update,
@@ -633,23 +635,23 @@ pub async fn public_get_info(
                 }));
             }
 
-            // Fetch files in folder to display
-            let files = sqlx::query!(
-                "SELECT id, name, size, mime, encrypted FROM files WHERE folder_id = $1 AND deleted = false",
-                r.id
-            )
-            .fetch_all(&axum_state.pg_pool)
-            .await;
-
-            let files_data = match files {
-                Ok(list) => list.into_iter().map(|f| json!({
-                    "id": f.id,
-                    "name": f.name,
-                    "size": f.size,
-                    "mime": f.mime,
-                    "encrypted": f.encrypted
-                })).collect::<Vec<_>>(),
-                Err(_) => vec![] // Should probably log this, but empty list is safe fallback
+            // The whole subtree. This listed direct children only, so sharing a
+            // folder with any structure to it showed the recipient the top level
+            // and silently dropped everything in a subdirectory.
+            let subtree = crate::libs::sharing::folder_subtree(&axum_state.pg_pool, &r.id).await;
+            let files_data = match subtree {
+                Ok(tree) => match crate::libs::sharing::subtree_files(&axum_state.pg_pool, &tree).await {
+                    Ok(list) => list.into_iter().map(|(f, path)| json!({
+                        "id": f.id,
+                        "name": f.name,
+                        "size": f.size,
+                        "mime": f.mime,
+                        "encrypted": f.encrypted,
+                        "path": path
+                    })).collect::<Vec<_>>(),
+                    Err(_) => vec![] // Should probably log this, but empty list is safe fallback
+                },
+                Err(_) => vec![]
             };
 
             return respond(200, "Folder found", vec![], json!({
@@ -720,31 +722,22 @@ pub async fn public_fetch_file_chunks(
             }
         }
 
-        // Check if file is in this folder (direct child for now, recursive logic if needed later)
-        // For simple structure (parent_id), we check if file.folder_id == folder.id
-        // Doing a recursive check is expensive.
-        // Simplification: We check if the file belongs to the same user as the folder.
-        // AND ensuring the file is not deleted.
-        // A slightly tighter check: Common Table Expression or just check simple parent for MVP.
-        // Since `list_files` does not Recurse, `public_authorize_download` for folder will likely only list top-level files.
-        
-        let file = sqlx::query!(
-            "SELECT id, user_id FROM files WHERE id = $1 AND folder_id = $2 AND deleted = false",
-            file_id,
-            folder_rec.id
-        )
-        .fetch_optional(&axum_state.pg_pool)
-        .await;
+        // The file has to be inside the shared folder, at any depth. Matching
+        // only `folder_id = folder.id` meant the listing and the download
+        // disagreed about what the share contained.
+        let file =
+            crate::libs::sharing::file_in_subtree(&axum_state.pg_pool, &folder_rec.id, &file_id)
+                .await;
 
         match file {
-            Ok(Some(file_rec)) => {
+            Ok(Some((file_id, file_user_id))) => {
                  // FETCH CHUNKS LOGIC (Duplicated from authorize file)
-                let storage_type = if file_rec.user_id.is_some() { "sanctum" } else { "shadow" };
+                let storage_type = if file_user_id.is_some() { "sanctum" } else { "shadow" };
 
                 let chunks_query = sqlx::query_as::<_, crate::models::Chunk>(
                     "SELECT * FROM chunks WHERE file_id = $1 AND uploaded = true ORDER BY chunk_index ASC",
                 )
-                .bind(file_rec.id.clone())
+                .bind(file_id.clone())
                 .fetch_all(&axum_state.pg_pool)
                 .await;
 
@@ -771,7 +764,7 @@ pub async fn public_fetch_file_chunks(
                         
                         return respond(200, "Chunks retrieved", vec![], json!({
                             "type": "file_chunks",
-                            "file_id": file_rec.id,
+                            "file_id": file_id,
                             "chunks": response_chunks
                         }));
                     },
@@ -950,22 +943,22 @@ pub async fn public_authorize_download(
             Err(_e) => return respond(500, "Database error", vec![], json!({})),
         }
 
-        // Fetch files in folder (Non-recursive for now to match zip logic simply)
-        let files = sqlx::query!(
-            "SELECT id, name, size, mime, encrypted FROM files WHERE folder_id = $1 AND deleted = false",
-            r.id
-        )
-        .fetch_all(&axum_state.pg_pool)
-        .await;
+        // The whole subtree, matching what the listing shows and what the zip on
+        // the other end is about to rebuild.
+        let files = match crate::libs::sharing::folder_subtree(&axum_state.pg_pool, &r.id).await {
+            Ok(tree) => crate::libs::sharing::subtree_files(&axum_state.pg_pool, &tree).await,
+            Err(e) => Err(e),
+        };
 
         match files {
             Ok(file_list) => {
-                 let files_data = file_list.into_iter().map(|f| json!({
+                 let files_data = file_list.into_iter().map(|(f, path)| json!({
                     "id": f.id,
                     "name": f.name,
                     "size": f.size,
                     "mime": f.mime,
-                    "encrypted": f.encrypted
+                    "encrypted": f.encrypted,
+                    "path": path
                 })).collect::<Vec<_>>();
 
                 return respond(200, "Download authorized", vec![], json!({ 

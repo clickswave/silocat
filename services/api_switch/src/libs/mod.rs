@@ -14,3 +14,4 @@ pub mod otp;
 pub mod quota;
 pub mod plans;
 pub mod ratelimit;
+pub mod sharing;

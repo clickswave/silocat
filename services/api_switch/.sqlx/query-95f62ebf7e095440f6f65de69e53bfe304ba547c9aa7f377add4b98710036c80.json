@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE folders SET share_type = $1, share_token = $2, share_expires_at = CASE WHEN $3 THEN $4::timestamptz ELSE share_expires_at END, share_password_hash = CASE WHEN $5 THEN $6::text ELSE share_password_hash END WHERE id = $7 AND user_id = $8 RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
+  "query": "UPDATE folders SET share_type = $1, share_token = $2, public_access = $3, share_expires_at = CASE WHEN $4 THEN $5::timestamptz ELSE share_expires_at END, share_password_hash = CASE WHEN $6 THEN $7::text ELSE share_password_hash END WHERE id = $8 AND user_id = $9 RETURNING share_token, share_type, link_downloads, link_max_downloads, share_expires_at, share_password_hash",
   "describe": {
     "columns": [
       {
@@ -39,6 +39,7 @@
         "Text",
         "Text",
         "Bool",
+        "Bool",
         "Timestamptz",
         "Bool",
         "Text",
@@ -55,5 +56,5 @@
       true
     ]
   },
-  "hash": "582a5655299f4aa9156098f47dbb23374a35bec891d5a289fa5f995cbd6fd4ed"
+  "hash": "95f62ebf7e095440f6f65de69e53bfe304ba547c9aa7f377add4b98710036c80"
 }

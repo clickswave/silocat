@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH RECURSIVE tree AS (\n            SELECT id, ''::text AS rel, 0 AS depth\n              FROM folders\n             WHERE id = $1\n            UNION ALL\n            SELECT f.id,\n                   CASE WHEN t.rel = '' THEN f.name ELSE t.rel || '/' || f.name END,\n                   t.depth + 1\n              FROM folders f\n              JOIN tree t ON f.parent_id = t.id\n             WHERE f.deleted = false\n               AND t.depth < $2\n        )\n        SELECT id AS \"id!\", rel AS \"rel!\" FROM tree\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "rel!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "dcec2aef1dd21a8b52035b4fe844e865058f0fedb99f5f1a9e1c8ee3886f16e2"
+}
