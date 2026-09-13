@@ -23,6 +23,11 @@ export async function POST({ request, getClientAddress }) {
         return json(res.data);
 
     } catch (e) {
+        // Same as the other two public proxies: a non-2xx throws, and collapsing
+        // it into a 500 loses the password gate (401) and the expired/spent link
+        // (410) that the caller is expecting to branch on.
+        const upstream = e?.response?.data;
+        if (upstream) return json(upstream, { status: e.response.status });
         console.error('[FETCH_CHUNKS_PROXY]', e);
         return json({ error: 'Internal Error' }, { status: 500 });
     }

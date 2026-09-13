@@ -34,6 +34,13 @@ export async function POST({ request, getClientAddress }) {
         );
 
     } catch (err) {
+        // Everything non-2xx from api_switch throws, so this used to answer 500
+        // for all of it. The download page branches on 401 to re-prompt for the
+        // link password and on 410 to say the link is spent or expired; neither
+        // could run, so a single mistyped password read as "download failed"
+        // with no way back to the prompt.
+        const upstream = err?.response?.data;
+        if (upstream) return json(upstream, { status: err.response.status });
         console.error('[PUBLIC_AUTH_PROXY]', err);
         return json({ error: 'Internal Error' }, { status: 500 });
     }

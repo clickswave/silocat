@@ -19,6 +19,11 @@ export async function POST({ request, locals }) {
         let response = await ApiServerClient.post(ApiServerRoutes.fetchChunks, { ...body, api_key }, { headers: { 'X-Api-Key': api_key } }).then(res => res.data);
         return json(response);
     } catch (err) {
+        // The drop page downloads through here, so a file that is gone, deleted,
+        // or behind a share protection has to arrive as that and not as a server
+        // fault. Same collapse the resource proxy had.
+        const upstream = err?.response?.data;
+        if (upstream) return json(upstream, { status: err.response.status });
         console.error('[FETCH_CHUNKS]', err);
         return json({ error: 'Failed to fetch chunks' }, { status: 500 });
     }

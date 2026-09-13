@@ -35,6 +35,13 @@ export async function GET({ params }) {
         );
 
     } catch (err) {
+        // api_switch maps its envelope status onto the HTTP code, so anything
+        // that is not a 2xx makes axios throw and lands here. That made the
+        // 410/404 branches above dead code and turned "this link has expired"
+        // into a server error, which is the message the /s/<token> page then
+        // could not show. Carry the backend's status and body through.
+        const upstream = err?.response?.data;
+        if (upstream) return json(upstream, { status: err.response.status });
         console.error('[PUBLIC_INFO_PROXY]', err);
         return json({ error: 'Internal Error' }, { status: 500 });
     }
