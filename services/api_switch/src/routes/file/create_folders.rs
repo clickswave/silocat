@@ -43,12 +43,27 @@ pub async fn handle(
         }
     }
 
+    // Same rule as create_files.rs, and as folder/create_folder.rs: decided from
+    // the caller, never from the body. False for a drive folder, which is
+    // published by the share sheet and nothing else; true for an anonymous drop,
+    // which has no drive to sit in and no owner who can log in later to publish
+    // it, so the id IS the capability.
+    //
+    // This is the handler the web app actually reaches (`/file/create-folders`,
+    // via ApiServerRoutes.createFolder). The near-identical one behind
+    // `/folder/create` is the one that reads like the obvious place for this, so
+    // fixing only that left every folder drop made through the UI private while
+    // the by-id read path and the 0045 backfill both looked correct.
+    let public_access = caller.user_id.is_none();
+
     let folder = sqlx::query!(
-        "INSERT INTO folders (name, user_id, parent_id, owner_api_key) VALUES ($1, $2, $3, $4) RETURNING id, name, created_on",
+        "INSERT INTO folders (name, user_id, parent_id, owner_api_key, public_access) \
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, name, created_on",
         payload.name,
         caller.user_id,
         payload.parent_id,
         Some(caller.api_key.clone()),
+        public_access,
     )
     .fetch_one(&state.pg_pool)
     .await;

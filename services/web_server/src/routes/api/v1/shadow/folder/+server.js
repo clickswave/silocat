@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient, ApiServerRoutes, proxyError } from '$lib/network.js';
+import { validateShadowRequest } from '$lib/server/shadow.js';
 
 export async function POST({ request, locals }) {
     let sessionUser = await locals.session.user.get();
@@ -17,6 +18,18 @@ export async function POST({ request, locals }) {
 
     if (!sessionUser && !apiKey) {
         return json({ error: 'Unauthorized: Session or API Key required' }, { status: 401 });
+    }
+
+    // An anonymous key has to exist in `anonymous_users` before api_switch can
+    // resolve it, and the drop page creates its batch folder before any file, so
+    // this is the first call a brand new visitor makes. Without it the folder
+    // 401s, the upload degrades to loose files, and the visitor is shown no
+    // share link at all. Registered callers skip it: they already have identity.
+    if (!sessionUser) {
+        const { success, error } = await validateShadowRequest({ request });
+        if (!success) {
+            return json({ error: error.message || 'Unauthorized' }, { status: error.status || 401 });
+        }
     }
 
     try {

@@ -1,54 +1,13 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
 import { clientIpHeaders } from '$lib/server/client-ip.js';
-
-async function validateRequest(event) {
-
-	const { request } = event;
-	let headers = request.headers;
-
-	// 1. API key enforcement
-	const apiKey = request.headers.get('X-Api-Key');
-	const ipHeaders = clientIpHeaders(event);
-	const clientIp = ipHeaders['X-Client-IP'] || '127.0.0.1';
-	const userAgent = headers.get('user-agent');
-	// Cloudflare geo headers (best case)
-	const geo = {
-		country: headers.get('cf-ipcountry') || "Unknown",
-		region: headers.get('cf-region') || "Unknown",
-		city: headers.get('cf-city') || "Unknown",
-		latitude: headers.get('cf-iplatitude') || "Unknown",
-		longitude: headers.get('cf-iplongitude') || "Unknown",
-		asn: headers.get('cf-asn') || "Unknown",
-		isp: headers.get('cf-isp') || "Unknown"
-	};
-
-	let payload = {
-		api_key: apiKey, user_agent: userAgent, ip: clientIp, geo
-	};
-	try {
-		let validate = await ApiServerClient.post(ApiServerRoutes.validateShadowUser, payload, {
-			headers: ipHeaders
-		}).then(res => res.data);
-		let { user } = validate;
-		return { success: true, user };
-	} catch (e) {
-		console.error("Raw Validation Error:", e.message, e.code, e.response?.status, e.response?.data);
-		let error = e?.response?.data || {
-			status: 500,
-			message: 'Could not validate user',
-			errors: 'Something went wrong trying to validate user, please try again later',
-			data: {}
-		};
-		return { success: false, error };
-	}
-}
+import { validateShadowRequest } from '$lib/server/shadow.js';
 
 export async function POST(event) {
 
 	const { request } = event;
 
-	let { success, user, error } = await validateRequest(event);
+	let { success, user, error } = await validateShadowRequest(event);
 	if (!success) {
 		return json({ error: error.message || 'Unauthorized' }, { status: error.status || 401 });
 	}
