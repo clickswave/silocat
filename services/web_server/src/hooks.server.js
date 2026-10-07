@@ -1,6 +1,18 @@
 import { decodeToken } from '$lib/jwt.js';
 import { createSession, SESSION_COOKIE } from '$lib/auth.js';
 
+// The headers in _headers, for the pages this server renders. Cloudflare Pages
+// applies _headers only to files it serves itself, so every server-rendered page
+// went out with the CSP that SvelteKit sets and none of these. Keep the two lists
+// the same. The CSP stays in svelte.config.js, for the reason _headers gives.
+const SSR_SECURITY_HEADERS = {
+	'X-Frame-Options': 'DENY',
+	'X-Content-Type-Options': 'nosniff',
+	'Referrer-Policy': 'strict-origin-when-cross-origin',
+	'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+	'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
+};
+
 export const handle = async ({ event, resolve }) => {
 	// SESSION MANAGEMENT FUNCTIONS
 	let session = {
@@ -123,6 +135,15 @@ export const handle = async ({ event, resolve }) => {
 	// backstop so the pre-prod site is never indexed even if a link leaks.
 	if (event.url.hostname.startsWith('staging.')) {
 		response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+	}
+	for (const [name, value] of Object.entries(SSR_SECURITY_HEADERS)) {
+		if (response.headers.has(name)) continue;
+		try {
+			response.headers.set(name, value);
+		} catch {
+			// A Response passed straight through from fetch() has immutable
+			// headers. It goes out as it came rather than failing the request.
+		}
 	}
 	return response;
 };
