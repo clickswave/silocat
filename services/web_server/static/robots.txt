@@ -2,7 +2,8 @@
 #
 # Every path below also carries <meta name="robots" content="noindex"> on the
 # page itself; this file is the belt to those braces, and the two lists have to
-# agree. /req/ and the bare-slug drop pages were missing here.
+# agree. /req/ was missing here. Bare-slug drop pages (/<uuid>) cannot be
+# prefixed here and rely on their noindex meta.
 User-agent: *
 Disallow: /home
 Disallow: /auth
