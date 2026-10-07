@@ -1,0 +1,6 @@
+# SiloCat security contact (RFC 9116). Found a vulnerability? Email us.
+Contact: mailto:team@silo.cat
+Expires: 2027-09-30T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://silo.cat/.well-known/security.txt
+Policy: https://github.com/clickswave/silocat/blob/main/SECURITY.md
