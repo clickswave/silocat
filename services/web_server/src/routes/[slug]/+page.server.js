@@ -1,12 +1,23 @@
+import { error } from '@sveltejs/kit';
 import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
 import { formatSize } from '$lib/format.js';
 
+// Every bare drop link is `/<id>`, and files and folders get their ids from
+// gen_random_uuid(). Anything else at one path segment is not a drop, and it
+// used to render the drop page with a 200, so /llms.txt, /BingSiteAuth.xml or
+// any typo looked like a real page to crawlers and to every external check.
+const RESOURCE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Server-side fetch of the shared resource's metadata so social/link-preview
 // crawlers (which do not run JS) get real Open Graph tags describing the file.
 // The interactive page still re-fetches client-side in onMount; this load only
 // powers the <svelte:head> preview. Best-effort: any failure -> generic preview.
 export const load = async ({ params }) => {
+	if (!RESOURCE_ID.test(params.slug)) error(404, 'Not found');
+
+	// A UUID that the API will not describe still renders: password, one-time
+	// and expiring links answer 404 to an anonymous caller, and those pages have
+	// to load so the visitor can unlock them.
 	const fallback = {
 		og: {
 			title: 'Secure download on SiloCat',
