@@ -33,6 +33,9 @@ pub struct User {
     #[serde(skip_serializing)]
     pub otp_attempts: i32,
 
+    // Session tokens and a pending email-change code are credentials. Nothing
+    // that serializes a User (the admin users list did) has any use for them.
+    #[serde(skip_serializing)]
     pub sessions: Vec<String>,
     pub is_restricted: bool,
 
@@ -53,6 +56,7 @@ pub struct User {
     pub ban_reason: Option<String>,
 
     pub pending_email: Option<String>,
+    #[serde(skip_serializing)]
     pub pending_email_otp: Option<String>,
 }
 
