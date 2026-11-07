@@ -21,6 +21,7 @@ pub mod signup_promos;
 pub mod ip_bans;
 pub mod support_tickets;
 pub mod accounts;
+pub mod traction;
 
 pub fn router() -> Router<crate::AppState> {
     // Every admin route requires the admin caller's credential (X-Admin, checked
@@ -43,6 +44,7 @@ pub fn router() -> Router<crate::AppState> {
         .nest("/ip-bans", ip_bans::router())
         .nest("/support-tickets", support_tickets::router())
         .nest("/accounts", accounts::router())
+        .nest("/traction", traction::router())
         .layer(from_fn(middlewares::admin_secret::validate_admin_secret))
 }
 
