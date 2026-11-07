@@ -47,6 +47,7 @@
 				'Everything in Free',
 				'Request a file (secure inbox)',
 				'Delivery receipts',
+				'Your links carry no Silocat promotion',
 				'Email support'
 			],
 			cta: 'Choose Plus',
@@ -67,6 +68,7 @@
 				'Everything in Plus',
 				'Request a file (secure inbox)',
 				'Delivery receipts',
+				'Your links carry no Silocat promotion',
 				'Priority support'
 			],
 			cta: 'Go Pro',

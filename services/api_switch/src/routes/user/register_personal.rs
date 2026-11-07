@@ -19,6 +19,22 @@ pub struct RegisterAccountInput {
     // Preferred over geoip here, because the IP this API sees is the web Worker's
     // (registration is proxied server-side), not the real client's.
     pub client_country: Option<String>,
+    // The first `ref` this visitor arrived with (see migration 0047). Optional;
+    // cleaned by `sanitize_source` before it is stored.
+    pub source: Option<String>,
+}
+
+/// Clean a client-supplied signup source: lowercase, only [a-z0-9_-], at most
+/// 40 characters. Anything that comes out empty is dropped.
+pub fn sanitize_source(raw: Option<&str>) -> Option<String> {
+    let s: String = raw?
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(40)
+        .collect();
+    (!s.is_empty()).then_some(s)
 }
 
 /// Sanitize a 2-letter ISO country code; drops empties and Cloudflare's
@@ -176,10 +192,11 @@ pub async fn handle(
              subscription_id,
              account_type,
              default_storage_bytes,
-             country
+             country,
+             signup_source
             )
         VALUES
-            ( $1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes', $6, $7, TRUE, $8, $9, $10, $11, $12)
+            ( $1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes', $6, $7, TRUE, $8, $9, $10, $11, $12, $13)
         RETURNING *
         "
     )
@@ -195,6 +212,7 @@ pub async fn handle(
     .bind("personal")
     .bind(initial_storage_bytes)
     .bind(&geo_country)
+    .bind(sanitize_source(payload.source.as_deref()))
     .fetch_one(&axum_state.pg_pool)
     .await;
 

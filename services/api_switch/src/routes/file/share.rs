@@ -580,6 +580,7 @@ pub async fn public_get_info(
                 return respond(200, "Password required", vec![], json!({
                     "type": "file",
                     "password_required": true,
+                    "sender_paid": crate::libs::plans::sender_paid(&axum_state.pg_pool, crate::libs::plans::SharedBy::Token(&token)).await,
                     "one_time": one_shot,
                     "remaining": remaining
                 }));
@@ -593,6 +594,7 @@ pub async fn public_get_info(
                 "mime": r.mime,
                 "encrypted": r.encrypted, // Expose encrypted status
                 "password_required": false,
+                "sender_paid": crate::libs::plans::sender_paid(&axum_state.pg_pool, crate::libs::plans::SharedBy::Token(&token)).await,
                 "one_time": one_shot,
                 "remaining": remaining,
                 "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
@@ -660,6 +662,7 @@ pub async fn public_get_info(
                 "name": r.name,
                 "files": files_data,
                 "password_required": false,
+                "sender_paid": crate::libs::plans::sender_paid(&axum_state.pg_pool, crate::libs::plans::SharedBy::Token(&token)).await,
                 "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },

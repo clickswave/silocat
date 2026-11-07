@@ -1,13 +1,16 @@
 
 import { json } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network.js';
+import { readSource } from '$lib/source.js';
 
-export async function POST({ request, locals }) {
+export async function POST({ request, locals, cookies }) {
     try {
         const payload = await request.json();
         // Forward the user's real country (Cloudflare sets CF-IPCountry on this
         // request). The API can't geolocate the user since the call is proxied.
         payload.client_country = request.headers.get('cf-ipcountry') || null;
+        // First-touch source (see $lib/source.js); only used if this creates the account.
+        payload.source = readSource(cookies);
         const response = await ApiServerClient.post('/user/google-auth', payload);
 
         if (response.status === 200) {

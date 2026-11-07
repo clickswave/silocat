@@ -12,6 +12,8 @@
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import { shadowKey } from '$lib/stores/shadow.js';
+	import SendYourOwn from '$lib/components/SendYourOwn.svelte';
+	import { track } from '$lib/track.js';
 	import { Button, Progress, PasswordInput, Input, Modal, Badge, Spinner } from '$lib/ui';
 
 	function fmtSize(bytes) {
@@ -115,6 +117,10 @@
 	let isDownloading = $state(false);
 	let progress = $state(0);
 	let error = $state(null);
+	// A paying sender's links carry no Silocat promotion (see SendYourOwn).
+	let senderPaid = $state(false);
+	// Set once a download finishes, so the block below can say so.
+	let downloaded = $state(false);
 
 	let pollingInterval;
 
@@ -150,7 +156,8 @@
 			);
 
 			if (res.data.data) {
-				const { resource_type, file, folder, files, folders } = res.data.data;
+				const { resource_type, file, folder, files, folders, sender_paid } = res.data.data;
+				senderPaid = !!sender_paid;
 
 				if (resource_type === 'file') {
 					fileMeta = file;
@@ -342,6 +349,8 @@
 			sink = null;
 
 			toast.success('Download complete!');
+			downloaded = true;
+			track('download_complete', { surface: 'drop', kind: 'file', encrypted: !!(/** @type {any} */ (fileTarget).encrypted) });
 		} catch (e) {
 			await sink?.abort(e).catch(() => {});
 			if (e?.name === 'SinkCancelled') return;
@@ -415,6 +424,8 @@
 			URL.revokeObjectURL(url);
 
 			toast.success('All files downloaded!');
+			downloaded = true;
+			track('download_complete', { surface: 'drop', kind: 'zip', files: folderFiles.length });
 		} catch (e) {
 			console.error(e);
 			toast.error('Failed to create zip: ' + e.message);
@@ -576,10 +587,14 @@
 			{#if !error}
 				<p class="secure-note">
 					<Icon icon="ri:shield-check-line" width="13" />
-					{#if isFolder ? folderFiles.some((f) => f.encrypted) : fileMeta?.encrypted}Encrypted end to end · shared via Silocat{:else}Shared via Silocat{/if}
+					<span>{#if isFolder ? folderFiles.some((f) => f.encrypted) : fileMeta?.encrypted}Encrypted end to end · shared via{:else}Shared via{/if}
+						<a class="via" href="/?ref=dl-drop-footer">Silocat</a></span>
 				</p>
 			{/if}
 		</div>
+		{#if !error && !senderPaid && (fileMeta || isFolder)}
+			<SendYourOwn surface="drop" done={downloaded} />
+		{/if}
 	</main>
 
 	<Footer />
@@ -609,6 +624,8 @@
 	.dl-main {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
 		align-items: center;
 		justify-content: center;
 		padding: var(--space-8) var(--gutter);
@@ -878,6 +895,9 @@
 		}
 	}
 
+	.via {
+		color: inherit;
+	}
 	.secure-note {
 		display: flex;
 		align-items: center;

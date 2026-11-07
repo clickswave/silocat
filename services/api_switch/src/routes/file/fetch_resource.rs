@@ -52,7 +52,8 @@ pub async fn handle(
                 vec![],
                 json!({
                     "resource_type": "file",
-                    "file": file
+                    "file": file,
+                    "sender_paid": crate::libs::plans::sender_paid(&axum_state.pg_pool, crate::libs::plans::SharedBy::Id(&payload.id)).await
                 }),
             );
         }
@@ -124,7 +125,8 @@ pub async fn handle(
                     "resource_type": "folder",
                     "folder": folder,
                     "files": files_json,
-                    "folders": folders_json
+                    "folders": folders_json,
+                    "sender_paid": crate::libs::plans::sender_paid(&axum_state.pg_pool, crate::libs::plans::SharedBy::Id(&payload.id)).await
                 }),
             );
         }

@@ -3,6 +3,7 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import Modal from '$lib/ui/Modal.svelte';
 	import axios from 'axios';
+	import { track } from '$lib/track.js';
 	import { toast } from '$lib/toast.js';
 
 	// item: the file or folder object { id, name, type, ... }. onclose: called to
@@ -142,6 +143,7 @@
 			);
 			if (res.data.success) {
 				applyResponse(res.data.success.data);
+				if (oldType === 'off' && type !== 'off') track('share_link_created', { kind: type, via: 'modal' });
 				toast.success('Share settings updated');
 			} else {
 				shareType = oldType;

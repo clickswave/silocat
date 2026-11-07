@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import axios from 'axios';
+	import { track } from '$lib/track.js';
 
 	// Request-a-file is a paid delivery feature (E7): a subscription unlocks it.
 	let isPaid = $derived(!!$page.data.user?.subscription);
@@ -39,6 +40,7 @@
 			if (Number(expiresDays) > 0) body.expires_in_days = Number(expiresDays);
 			if (Number(maxUploads) > 0) body.max_uploads = Number(maxUploads);
 			await axios.post('/api/v1/sanctum/file/request/create', body);
+			track('request_link_created', { expires: Number(expiresDays) > 0, capped: Number(maxUploads) > 0 });
 			label = '';
 			message = '';
 			expiresDays = 0;

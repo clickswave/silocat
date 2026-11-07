@@ -13,6 +13,7 @@
 	import { onMount } from 'svelte';
 	import Version from '$lib/components/Version.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
+	import { captureSource } from '$lib/source.js';
 
 	NProgress.configure({
 		showSpinner: false,
@@ -29,6 +30,7 @@
 
 	onMount(() => {
 		NProgress.done();
+		captureSource();
 
 		// Optional analytics: only injected when a GA id is configured
 		// (PUBLIC_GA_ID) and only on the configured production host, so

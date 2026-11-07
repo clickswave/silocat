@@ -6,6 +6,7 @@
 	import { uploadToRequest } from '$lib/requestUpload.js';
 	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
 	import { generatePassword } from '$lib/password.js';
+	import { track } from '$lib/track.js';
 
 	const token = $page.params.token;
 
@@ -87,6 +88,7 @@
 				onProgress: (p) => (progress = p)
 			});
 			done = true;
+			track('request_upload_complete', { encrypted: !!encrypt });
 		} catch (e) {
 			error = e.response?.data?.message || e.message || 'Upload failed. Please try again.';
 		} finally {
@@ -184,7 +186,7 @@
 				{/if}
 
 				<p class="foot">
-					Powered by Silocat ·
+					Powered by <a class="via" href="/?ref=req-footer">Silocat</a> ·
 					{encrypt
 						? 'encrypted in this browser before it is sent'
 						: 'encrypted in transit and at rest'}
@@ -349,6 +351,9 @@
 	.check {
 		font-size: 2.5rem;
 		color: var(--accent, #ff4655);
+	}
+	.via {
+		color: inherit;
 	}
 	.foot {
 		font-size: 0.72rem;

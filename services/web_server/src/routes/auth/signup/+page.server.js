@@ -8,6 +8,7 @@ import { validateTurnstileToken } from '$lib/turnstile.js';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
 import { clientIpHeaders } from '$lib/server/client-ip.js';
+import { readSource } from '$lib/source.js';
 const { PUBLIC_TURNSTILE_KEY } = env;
 
 /** @satisfies {import('./$types').Load} */
@@ -56,7 +57,8 @@ export const actions = {
 				email: email,
 				password: password,
 				promo_code: promoCode || null,
-				client_country: clientCountry
+				client_country: clientCountry,
+				source: readSource(event.cookies)
 			};
 			let response = await ApiServerClient.post(ApiServerRoutes.registerPersonal, payload, { headers: clientIpHeaders(event) }).then((res) => res.data);
 			await locals.session.user.set(response.data.user);

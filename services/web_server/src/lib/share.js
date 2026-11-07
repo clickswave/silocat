@@ -13,6 +13,7 @@
  * the one-click flow safe to keep.
  */
 import axios from 'axios';
+import { track } from '$lib/track.js';
 import { toast } from '$lib/toast.js';
 
 /** Absolute URL for a share token. */
@@ -66,6 +67,7 @@ export async function copyShareLink(item, type = 'file', { onchange } = {}) {
 				share_type: 'public'
 			});
 			token = data?.success?.data?.share_token || data?.success?.data?.token || token;
+			if (token) track('share_link_created', { kind: type, via: 'copy' });
 		}
 
 		if (!token) {

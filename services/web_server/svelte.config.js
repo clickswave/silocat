@@ -33,6 +33,12 @@ const adapter = useNode
  *   *.r2.cloudflarestorage.com  presigned chunk PUT and GET.
  *   challenges.cloudflare.com   Turnstile, on signin and signup.
  *   *.razorpay.com              checkout.
+ *   *.googletagmanager.com, *.google-analytics.com, *.analytics.google.com
+ *                               Google Analytics, which the layout loads only on
+ *                               silo.cat. Leaving these out blocked GA from the
+ *                               end of August to 2026-11-08 without any error a
+ *                               visitor would see, and the traffic numbers fell
+ *                               to almost nothing.
  */
 const csp = {
 	mode: 'hash',
@@ -42,10 +48,11 @@ const csp = {
 			'self',
 			'wasm-unsafe-eval',
 			'https://challenges.cloudflare.com',
-			'https://checkout.razorpay.com'
+			'https://checkout.razorpay.com',
+			'https://*.googletagmanager.com'
 		],
 		'style-src': ['self', 'unsafe-inline'],
-		'img-src': ['self', 'data:', 'blob:'],
+		'img-src': ['self', 'data:', 'blob:', 'https://*.google-analytics.com', 'https://*.googletagmanager.com'],
 		'font-src': ['self'],
 		'worker-src': ['self', 'blob:'],
 		'connect-src': [
@@ -55,7 +62,10 @@ const csp = {
 			'https://api.silo.cat',
 			'https://challenges.cloudflare.com',
 			'https://lumberjack.razorpay.com',
-			'https://api.razorpay.com'
+			'https://api.razorpay.com',
+			'https://*.google-analytics.com',
+			'https://*.analytics.google.com',
+			'https://*.googletagmanager.com'
 		],
 		// 'self' is required by the download sink: the service-worker tier starts a
 		// download by pointing a hidden iframe at a same-origin /_stream/<id> URL.

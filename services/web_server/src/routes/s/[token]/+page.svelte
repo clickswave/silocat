@@ -15,6 +15,8 @@
 	import sodium from 'libsodium-wrappers-sumo';
 	import JSZip from 'jszip';
 	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
+	import SendYourOwn from '$lib/components/SendYourOwn.svelte';
+	import { track } from '$lib/track.js';
 
 	const token = $page.params.token;
 
@@ -24,6 +26,10 @@
 	let file = $state(null); // { id, name, size, type, data: { encrypted: bool } }
 	let downloading = $state(false);
 	let downloadProgress = $state(0);
+	// Set once a download finishes, so the block under the card can say so.
+	let downloaded = $state(false);
+	// A paying sender's links carry no Silocat promotion.
+	const senderPaid = $derived(!!(/** @type {any} */ (file)?.sender_paid));
 
 	// Encryption state
 	let needsPassword = $state(false);   // a password is needed at all (server gate OR client decryption)
@@ -242,6 +248,8 @@
 
 		downloadProgress = 100;
 		toast.success('Download complete');
+		downloaded = true;
+		track('download_complete', { surface: 'share', kind: 'file', encrypted: !!(/** @type {any} */ (file)?.encrypted) });
 	}
 
 	async function handleFolderDownload(files, folderName) {
@@ -330,6 +338,8 @@
 
 		downloadProgress = 100;
 		toast.success('Folder download complete');
+		downloaded = true;
+		track('download_complete', { surface: 'share', kind: 'zip', files: files.length });
 	}
 
 
@@ -472,7 +482,8 @@
 
 				<p class="secure-note">
 					<Icon name="shield-check" size={13} />
-					{file.encrypted ? 'Encrypted end to end · shared via Silocat' : 'Shared via Silocat'}
+					<span>{file.encrypted ? 'Encrypted end to end · shared via' : 'Shared via'}
+						<a class="via" href="/?ref=dl-share-footer">Silocat</a></span>
 				</p>
 
 				<button
@@ -486,6 +497,9 @@
 				</button>
 			{/if}
 		</div>
+		{#if !error && file && !senderPaid}
+			<SendYourOwn surface="share" done={downloaded} />
+		{/if}
 	</main>
 
 	<Footer />
@@ -516,6 +530,9 @@
 	.main {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		--sy-max: 440px;
 		align-items: center;
 		justify-content: center;
 		padding: clamp(2rem, 6vw, 4rem) var(--gutter);
@@ -803,6 +820,9 @@
 		}
 	}
 
+	.via {
+		color: inherit;
+	}
 	.secure-note {
 		margin: 0;
 		display: flex;

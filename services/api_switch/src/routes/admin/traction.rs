@@ -53,6 +53,15 @@ async fn handle(State(state): State<crate::AppState>) -> impl IntoResponse {
     )
     .fetch_all(pool)
     .await;
+    // Signups by where they came from (migration 0047), and how many of each
+    // went on to pay. Only accounts that carry a source: the rest predate it.
+    let sources = sqlx::query(
+        "SELECT date_trunc('week', u.created_on)::date AS wk, u.signup_source AS src, COUNT(*)::BIGINT AS n, \
+                COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM subscriptions s WHERE s.created_by = u.id))::BIGINT AS paid \
+         FROM users u WHERE u.signup_source IS NOT NULL GROUP BY 1, 2 ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await;
     let now = sqlx::query(
         "SELECT \
             (SELECT COUNT(*) FROM users)::BIGINT AS accounts, \
@@ -76,8 +85,8 @@ async fn handle(State(state): State<crate::AppState>) -> impl IntoResponse {
             .collect()
     };
 
-    match (signups, subs, orders, uploads, anon, now) {
-        (Ok(s), Ok(b), Ok(o), Ok(u), Ok(a), Ok(n)) => respond(
+    match (signups, subs, orders, uploads, anon, now, sources) {
+        (Ok(s), Ok(b), Ok(o), Ok(u), Ok(a), Ok(n), Ok(src)) => respond(
             200,
             "Traction",
             vec![],
@@ -86,6 +95,12 @@ async fn handle(State(state): State<crate::AppState>) -> impl IntoResponse {
                 "subscriptions": wk(&b, &["n"]),
                 "uploads": wk(&u, &["files", "bytes", "encrypted"]),
                 "anon_sessions": wk(&a, &["n"]),
+                "sources": src.iter().map(|r| json!({
+                    "week": r.get::<chrono::NaiveDate, _>("wk"),
+                    "source": r.get::<String, _>("src"),
+                    "n": r.get::<i64, _>("n"),
+                    "paid": r.get::<i64, _>("paid"),
+                })).collect::<Vec<_>>(),
                 "orders": o.iter().map(|r| json!({
                     "month": r.get::<chrono::NaiveDate, _>("mo"),
                     "currency": r.try_get::<Option<String>, _>("currency").ok().flatten(),

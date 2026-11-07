@@ -15,6 +15,9 @@ pub struct GoogleAuthInput {
     // ISO country from the user's CF-IPCountry (forwarded by the web proxy);
     // preferred over geoip since this call is proxied server-side.
     pub client_country: Option<String>,
+    // First-touch `ref`, as on the email signup (migration 0047). Only used
+    // when this sign-in creates the account.
+    pub source: Option<String>,
 }
 
 /// Sanitize a 2-letter ISO country code; drops Cloudflare's non-country
@@ -186,8 +189,8 @@ pub async fn handle(
 
             let created = sqlx::query_as::<_, User>(
                 "INSERT INTO users \
-                 (id, username, email, password_hash, otp, api_key, api_key_enc, api_key_migrated, account_type, default_storage_bytes, email_verified, profile_image, country) \
-                 VALUES ($1, $2, $3, '', '', $4, $5, TRUE, 'personal', $6, true, $7, $8) RETURNING *",
+                 (id, username, email, password_hash, otp, api_key, api_key_enc, api_key_migrated, account_type, default_storage_bytes, email_verified, profile_image, country, signup_source) \
+                 VALUES ($1, $2, $3, '', '', $4, $5, TRUE, 'personal', $6, true, $7, $8, $9) RETURNING *",
             )
             .bind(&user_id)
             .bind(&username)
@@ -197,6 +200,7 @@ pub async fn handle(
             .bind(libs::quota::signup_storage_bytes())
             .bind(&google_user.picture)
             .bind(&geo_country)
+            .bind(super::register_personal::sanitize_source(payload.source.as_deref()))
             .fetch_one(&axum_state.pg_pool)
             .await;
 

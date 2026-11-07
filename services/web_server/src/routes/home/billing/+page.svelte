@@ -170,6 +170,7 @@
 	function openCheckout(id) {
 		checkoutPlan = id;
 		stage = 'summary';
+		track('begin_checkout', { plan: id, cycle, currency });
 	}
 
 	function closeCheckout() {

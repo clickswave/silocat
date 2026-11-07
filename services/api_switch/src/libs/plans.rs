@@ -73,3 +73,30 @@ pub fn razorpay_plan_id(identifier: &str, cycle: &str, currency: &str) -> Option
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
+
+/// Which column identifies a shared resource when asking who owns it.
+pub enum SharedBy<'a> {
+    /// A file or folder id (the bare `/<id>` drop link).
+    Id(&'a str),
+    /// A share token (the `/s/<token>` link).
+    Token(&'a str),
+}
+
+/// True when the account that owns a shared file or folder is on a paid plan.
+/// Anonymous drops have no owner and are never paid. The download pages use
+/// this to leave a paying sender's links free of SiloCat's own promotion.
+pub async fn sender_paid(pool: &sqlx::Pool<sqlx::Postgres>, by: SharedBy<'_>) -> bool {
+    let (col, val) = match by {
+        SharedBy::Id(v) => ("id", v),
+        SharedBy::Token(v) => ("share_token", v),
+    };
+    // `col` comes from the fixed match above, never from input.
+    let sql = format!(
+        "SELECT EXISTS ( \
+           SELECT 1 FROM (SELECT user_id FROM files WHERE {col} = $1 \
+                          UNION ALL SELECT user_id FROM folders WHERE {col} = $1) r \
+           JOIN subscriptions s ON s.created_by = r.user_id \
+           WHERE r.user_id IS NOT NULL AND s.expires_on > NOW())"
+    );
+    sqlx::query_scalar::<_, bool>(&sql).bind(val).fetch_one(pool).await.unwrap_or(false)
+}
