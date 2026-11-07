@@ -168,6 +168,7 @@ services:
     environment:
       HM_PRODUCT: silocat
       HM_ENV: prod
+      HM_COMMIT: ${APP_COMMIT:-}
       HM_PORT: "9099"
       HM_TOKEN: ${HEALTH_TOKEN}
       HM_HTTP_CHECKS: "api=http://sc_api_switch:31337/,storage=${CF_R2_SHADOW_API_URL}"
