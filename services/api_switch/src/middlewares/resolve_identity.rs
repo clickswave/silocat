@@ -63,6 +63,7 @@ pub async fn resolve_identity(
             .flatten();
             match user {
                 Some((uid, email_verified)) => {
+                    crate::libs::activity::touch(&state.pg_pool, &uid);
                     Some(Caller { api_key: k, user_id: Some(uid), email_verified })
                 }
                 None => {

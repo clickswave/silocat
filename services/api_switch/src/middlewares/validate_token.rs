@@ -61,6 +61,8 @@ pub async fn validate_token(
         .into_response();
     }
 
+    crate::libs::activity::touch(&state.pg_pool, &user.id);
+
     let subscription = if let Some(sub_id) = &user.subscription_id {
         sqlx::query_as::<_, models::Subscription>("SELECT * FROM subscriptions WHERE id = $1 AND expires_on > NOW()")
             .bind(sub_id)
