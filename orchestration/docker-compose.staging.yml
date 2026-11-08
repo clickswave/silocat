@@ -1,3 +1,12 @@
+# Every container's stdout goes to a json-file log that docker never rotates
+# unless told to. On 2026-11-08 sc_nginx's access log reached 7.7 GB in a day
+# and took the silocat prod disk to 91%. 50 MB x 2 caps each container at 100 MB.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "2"
+
 services:
   # -----------------------------------------
   # - API SWITCH (AXUM)
@@ -6,6 +15,7 @@ services:
   # -----------------------------------------
   sc_api_switch:
     container_name: sc_api_switch
+    logging: *logging
     # restart: always
     tty: true
 
@@ -83,6 +93,7 @@ services:
   # ---- WATCHCAT SCHEDULER (GC + scheduled jobs) ----
   sc_watchcat:
     container_name: sc_watchcat
+    logging: *logging
     # restart: always
     tty: true
 
@@ -160,6 +171,7 @@ services:
   # -----------------------------------------
   sc_health_monitor:
     container_name: sc_health_monitor
+    logging: *logging
     image: debian:bookworm-slim
     restart: unless-stopped
     # No apt step at start. reqwest is built with rustls and its own root store,
@@ -194,6 +206,7 @@ services:
   # -----------------------------------------
   sc_nginx:
     container_name: sc_nginx
+    logging: *logging
     restart: always
     tty: true
 

@@ -122,22 +122,50 @@
 	// Set once a download finishes, so the block below can say so.
 	let downloaded = $state(false);
 
-	let pollingInterval;
+	// The page refreshes the listing while the drop can still change: a file
+	// still uploading, or a folder young enough that files may still be landing
+	// in it. Folders used to refresh every 3 s for as long as the tab was open,
+	// and onMount was async, so its cleanup never registered and the timer kept
+	// running after the visitor moved on. On 2026-11-08 that was ~930k requests
+	// an hour from open tabs, two API calls each, and a 7.7 GB nginx log on the
+	// prod box. Now it stops when nothing is changing, pauses in a hidden tab,
+	// and gives up after half an hour on the page.
+	const POLL_MS = 3000;
+	const POLL_FOR_MS = 30 * 60 * 1000;
+	const FOLDER_FILLING_MS = 15 * 60 * 1000;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let pollTimer;
+	let pollStarted = 0;
 
-	onMount(async () => {
-		await fetchMetadata();
-		// Start polling if it's a folder OR if single file is still uploading
-		if (isFolder || (fileMeta && uploadProgress < 100)) {
-			pollingInterval = setInterval(async () => {
-				await fetchMetadata(true);
-				// Stop polling if single file upload is complete
-				if (!isFolder && uploadProgress >= 100) {
-					clearInterval(pollingInterval);
-				}
-			}, 3000);
+	function stillChanging() {
+		if (isFolder) {
+			if (folderFiles.some((f) => f.total_chunks && f.uploaded_chunks < f.total_chunks)) return true;
+			const created = Date.parse(/** @type {any} */ (folderMeta)?.created_on ?? '');
+			return Number.isFinite(created) && Date.now() - created < FOLDER_FILLING_MS;
 		}
+		return !!fileMeta && uploadProgress < 100;
+	}
+
+	function schedulePoll() {
+		clearTimeout(pollTimer);
+		if (error || document.hidden || !stillChanging()) return;
+		if (Date.now() - pollStarted > POLL_FOR_MS) return;
+		pollTimer = setTimeout(async () => {
+			await fetchMetadata(true);
+			schedulePoll();
+		}, POLL_MS);
+	}
+
+	onMount(() => {
+		pollStarted = Date.now();
+		const onVisibility = () => {
+			if (!document.hidden) schedulePoll();
+		};
+		document.addEventListener('visibilitychange', onVisibility);
+		fetchMetadata().then(schedulePoll);
 		return () => {
-			if (pollingInterval) clearInterval(pollingInterval);
+			clearTimeout(pollTimer);
+			document.removeEventListener('visibilitychange', onVisibility);
 		};
 	});
 

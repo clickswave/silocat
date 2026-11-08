@@ -11,8 +11,14 @@ export async function POST({ request, locals }) {
 
     try {
         // Inject caller identity for backend ownership checks (session or shadow key).
-        const sessionUser = await locals.session.user.get();
-        const api_key = sessionUser?.api_key || request.headers.get('X-Api-Key') || undefined;
+        //
+        // Read the session cookie directly. `locals.session.user.get()` first
+        // resolves an X-Api-Key through /user/info, and the download page always
+        // sends the browser's shadow key, which is never a user key: every call
+        // here cost a second, failing API round trip (half of api.silo.cat's
+        // traffic on 2026-11-08). api_switch checks the forwarded key itself.
+        const sess = await locals.session.get();
+        const api_key = sess?.user?.api_key || request.headers.get('X-Api-Key') || undefined;
         const response = await ApiServerClient.post(
             ApiServerRoutes.fetchResource,
             { ...body, api_key },
