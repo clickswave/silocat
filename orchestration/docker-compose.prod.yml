@@ -162,8 +162,9 @@ services:
     container_name: sc_health_monitor
     image: debian:bookworm-slim
     restart: unless-stopped
-    command: >
-      bash -c "apt-get update && apt-get install -y ca-certificates && ./target/release/health_monitor"
+    # No apt step at start. reqwest is built with rustls and its own root store,
+    # so the binary needs nothing beyond the base image.
+    command: ./target/release/health_monitor
     environment:
       HM_PRODUCT: silocat
       HM_ENV: prod
