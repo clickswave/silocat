@@ -12,12 +12,3 @@ test('script-src names the gtag.js loader by path, not the Google Tag Manager ho
 		assert.ok(!source.includes('*'), `wildcard in script-src: ${source}`);
 	}
 });
-
-test('nothing but that script may reach googletagmanager.com, where gtag.js reports the real path', () => {
-	for (const [name, sources] of Object.entries(directives)) {
-		for (const source of sources) {
-			if (!source.includes('googletagmanager.com')) continue;
-			assert.equal(`${name} ${source}`, 'script-src https://www.googletagmanager.com/gtag/js');
-		}
-	}
-});

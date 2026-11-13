@@ -1,20 +1,31 @@
-// What Google Analytics is told about the page a visitor is on.
+// Where Google Analytics runs on silo.cat, and where it must not.
 //
 // Three kinds of silo.cat URL are credentials in themselves:
-//   /<id>         a drop. For an unencrypted anonymous drop the id is all it
+//   /<id>         a drop. For an unencrypted public drop the id is all it
 //                 takes to download the file.
 //   /s/<token>    a share link.
 //   /req/<token>  a file request: the token lets anyone upload into the
 //                 owner's request.
-// gtag.js sends the full URL (page_location), the tab title (page_title) and
-// the referrer (page_referrer) with every hit, and a drop page's title is the
-// file's name. Sent as they are, each visit would copy a working link and the
-// file name into the GA property, readable by anyone with access to it for as
-// long as the link lives. On these pages GA gets the route and a fixed title
-// instead.
+// GA does not load on these pages at all. Handing gtag.js another page_location
+// there is not enough: it also reads location.href and document.referrer for
+// itself, in its tag diagnostics and in the page view it sends when a page
+// comes back from the back-forward cache, and no parameter of ours reaches
+// either.
 //
-// Pure functions, no SvelteKit imports, so tests/analytics.test.js runs them
-// under plain node.
+// While GA runs on the site, moving onto or off one of these pages loads the
+// next page in full. A page where GA runs therefore never has a link page in
+// its own history, where gtag.js would report it as a History API change, and
+// GA starts afresh on the page after a link page. That page is told only
+// silo.cat's origin as its referrer, because every page goes out with
+// Referrer-Policy: strict-origin ($lib/server/securityHeaders.js).
+//
+// /home/files keeps the open folder's id and the names of the folders above it
+// in its query (folder=, path=), and gtag.js reports each folder opened there
+// as a History API change, real URL and all. A folder shared by link opens by
+// that id. Nothing in this file can rewrite those hits; the Redact data
+// setting of the GA web stream, for the query parameters folder and path, does.
+//
+// No SvelteKit imports, so tests/analytics.test.js runs this under plain node.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,79 +39,24 @@ function decodeSegment(segment) {
 }
 
 /**
- * The route and title GA gets for a link page, or null for any other page.
+ * Whether a path is a drop, share or request page.
  *
  * Decided by the first path segment, so a link with something appended (an
  * error page, but the token is still in it) is covered too. Segments are
  * decoded first because the router decodes them: /%73/<token> is a share page.
  * @param {string} pathname
- * @returns {{ path: string, title: string } | null}
  */
-export function capabilityRoute(pathname) {
+export function isLinkPage(pathname) {
 	const [first = '', second] = pathname.split('/').filter(Boolean).map(decodeSegment);
-	if (UUID.test(first)) return { path: '/:id', title: 'Secure download on SiloCat' };
-	if (second === undefined) return null;
+	if (UUID.test(first)) return true;
+	if (second === undefined) return false;
 	const head = first.toLowerCase();
-	if (head === 's') return { path: '/s/:token', title: 'Secure download · Silocat' };
-	if (head === 'req') return { path: '/req/:token', title: 'Send a file securely · Silocat' };
-	return null;
+	return head === 's' || head === 'req';
 }
 
 /**
- * page_location and page_title for a hit sent from `href`, or an empty object
- * when the page is not a link page and gtag.js can report it as it is.
- * @param {string} href
- * @returns {{ page_location?: string, page_title?: string }}
- */
-export function capabilityPageFields(href) {
-	const url = new URL(href);
-	const route = capabilityRoute(url.pathname);
-	if (!route) return {};
-	return { page_location: url.origin + route.path, page_title: route.title };
-}
-
-/**
- * A referrer with any link page on this host reduced to its route. A link page
- * that sends the visitor on hands the next page its own URL as the referrer.
- * @param {string} referrer
- * @param {string} hostname  the current page's host
- */
-function cleanReferrer(referrer, hostname) {
-	if (!referrer) return referrer;
-	let url;
-	try {
-		url = new URL(referrer);
-	} catch {
-		return '';
-	}
-	if (url.hostname !== hostname) return referrer;
-	const route = capabilityRoute(url.pathname);
-	return route ? url.origin + route.path : referrer;
-}
-
-/**
- * Parameters for `gtag('config', id, ...)` when a page loads.
- *
- * Empty for an ordinary page reached from an ordinary referrer, so those pages
- * report exactly what gtag.js reports on its own.
- * @param {{ href: string, referrer?: string }} page  location.href and document.referrer
- * @returns {{ page_location?: string, page_title?: string, page_referrer?: string }}
- */
-export function analyticsConfig({ href, referrer = '' }) {
-	/** @type {{ page_location?: string, page_title?: string, page_referrer?: string }} */
-	const params = capabilityPageFields(href);
-	const cleaned = cleanReferrer(referrer, new URL(href).hostname);
-	if (cleaned !== referrer) params.page_referrer = cleaned;
-	return params;
-}
-
-/**
- * Whether an in-app navigation has to load the next page in full while GA runs.
- *
- * With enhanced measurement on, gtag.js reports every History API change by
- * itself, with the real new URL and the real URL before it, and nothing of ours
- * runs in between. A fresh page load starts a fresh gtag.js that only hears
- * analyticsConfig. A move within the same page (only the hash changes) stays.
+ * Whether an in-app navigation enters or leaves a link page. A move within the
+ * same page, where only the hash changes, does neither.
  * @param {URL | null | undefined} from
  * @param {URL} to
  */
@@ -113,5 +69,25 @@ export function needsFullLoad(from, to) {
 	) {
 		return false;
 	}
-	return Boolean((from && capabilityRoute(from.pathname)) || capabilityRoute(to.pathname));
+	return Boolean(from && isLinkPage(from.pathname)) || isLinkPage(to.pathname);
+}
+
+let gaOnSite = false;
+
+/**
+ * The root layout calls this once it knows GA runs on this site, on every page
+ * including a link page, where gtag.js itself is not loaded.
+ */
+export function separateLinkPages() {
+	gaOnSite = true;
+}
+
+/**
+ * Whether the root layout turns this in-app navigation into a full page load.
+ * The transfer guard asks too, so that a running transfer gets one prompt.
+ * @param {URL | null | undefined} from
+ * @param {URL} to
+ */
+export function forcesFullLoad(from, to) {
+	return gaOnSite && needsFullLoad(from, to);
 }

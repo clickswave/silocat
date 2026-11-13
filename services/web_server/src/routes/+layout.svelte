@@ -15,7 +15,8 @@
 	import Version from '$lib/components/Version.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
 	import { captureSource } from '$lib/source.js';
-	import { analyticsConfig, needsFullLoad } from '$lib/analytics.js';
+	import { forcesFullLoad, isLinkPage, separateLinkPages } from '$lib/analytics.js';
+	import { confirmFullLoad } from '$lib/transferGuard.js';
 
 	NProgress.configure({
 		showSpinner: false,
@@ -30,9 +31,6 @@
 		NProgress.start();
 	}
 
-	// Set once gtag.js has been loaded into this page.
-	let gaLoaded = false;
-
 	onMount(() => {
 		NProgress.done();
 		captureSource();
@@ -45,6 +43,11 @@
 		if (!import.meta.env.PROD) return;
 		const gaId = env.PUBLIC_GA_ID;
 		if (gaId && location.hostname === (env.PUBLIC_GA_HOSTNAME || 'silo.cat')) {
+			// GA runs on this site, but never on a drop, share or request page,
+			// whose URL is the link itself, and moving onto or off one of those
+			// is a full page load. See $lib/analytics.js.
+			separateLinkPages();
+			if (isLinkPage(location.pathname)) return;
 			const gaScript = document.createElement('script');
 			gaScript.async = true;
 			gaScript.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
@@ -58,25 +61,20 @@
 			// copy of it. Without the assignment every event call is a silent no-op.
 			/** @type {any} */ (window).gtag = gtag;
 			gtag('js', new Date());
-			// Not the bare config: on a drop, share or request page that sends GA
-			// the link itself and, on a drop, the file's name. See $lib/analytics.js.
-			gtag('config', gaId, analyticsConfig({ href: location.href, referrer: document.referrer }));
-			gaLoaded = true;
+			gtag('config', gaId);
 		}
 	});
 
-	// gtag.js reports every History API change by itself, with the real new URL
-	// and the real one before it, so moving onto or off a drop, share or request
-	// page in place would hand GA the link after all. Those moves load the next
-	// page in full instead, and the fresh gtag.js there only hears the config
-	// above. Back and Forward never cross that line in place, because no in-place
-	// move across it is ever made.
+	// While GA runs, moving onto or off a link page loads the next page in full.
+	// gtag.js reports every History API change by itself, with the real URL, so
+	// an in-place move onto a link page would hand GA the link, and after an
+	// in-place move off one GA would not be running. Back and Forward never cross
+	// that line in place, because no in-place move across it is ever made. A
+	// running transfer ends with the page, so confirmFullLoad asks first.
 	beforeNavigate((nav) => {
-		if (!gaLoaded || nav.willUnload || !nav.to) return;
-		if (needsFullLoad(nav.from?.url, nav.to.url)) {
-			nav.cancel();
-			location.href = nav.to.url.href;
-		}
+		if (nav.willUnload || !nav.to || !forcesFullLoad(nav.from?.url, nav.to.url)) return;
+		nav.cancel();
+		if (confirmFullLoad()) location.href = nav.to.url.href;
 	});
 
 	$effect(() => {

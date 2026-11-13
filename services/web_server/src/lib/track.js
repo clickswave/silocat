@@ -8,20 +8,20 @@
 // deployment, and in any environment where the layout's GA gates did not fire,
 // because `window.gtag` only exists once GA is genuinely running.
 
-import { capabilityPageFields } from './analytics.js';
+import { isLinkPage } from './analytics.js';
 
 /**
- * Send a GA4 event. On a drop, share or request page the event names the route
- * rather than the link, the same as the page view (see $lib/analytics.js).
+ * Send a GA4 event. Never from a drop, share or request page, where GA does not
+ * run at all (see $lib/analytics.js).
  * @param {string} name snake_case event name
  * @param {Record<string, string | number | boolean>} [params]
  */
 export function track(name, params = {}) {
 	if (typeof window === 'undefined') return;
 	try {
+		if (isLinkPage(location.pathname)) return;
 		const g = /** @type {any} */ (window).gtag;
-		if (typeof g === 'function')
-			g('event', name, { ...params, ...capabilityPageFields(location.href) });
+		if (typeof g === 'function') g('event', name, params);
 	} catch {
 		// Analytics must never break the page.
 	}

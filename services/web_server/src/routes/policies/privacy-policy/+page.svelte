@@ -69,11 +69,11 @@
 		</p>
 		<p>
 			On silo.cat we use <strong>Google Analytics</strong> to count visits and to see which steps people
-			complete, such as finishing an upload or a download. Google receives the address and title of each
-			page you open, the page you came from, basic details of your browser and device, and a rough location
-			it works out from your IP address, and it sets its own cookies on silo.cat to tell repeat visits
-			apart. On a download, share or file request page it receives only the kind of page, never the link,
-			its token or a file's name. Self-hosted copies of SiloCat do not load it.
+			complete, such as finishing an upload or creating a share link. Google receives the address and
+			title of each page you open, the page you came from, basic details of your browser and device, and
+			a rough location it works out from your IP address, and it sets its own cookies on silo.cat to tell
+			repeat visits apart. Download, share and file request pages do not load it, so opening one of those
+			links sends Google nothing. Self-hosted copies of SiloCat do not load it either.
 		</p>
 	</section>
 

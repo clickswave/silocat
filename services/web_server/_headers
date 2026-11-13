@@ -6,9 +6,13 @@
 # blocks hydration on every page. SvelteKit hashes that script and emits the
 # header itself. Setting a second CSP here would intersect with that one and
 # break the site, so do not add one back.
+#
+# The pages the server renders get the same list from
+# src/lib/server/securityHeaders.js, which says why Referrer-Policy is
+# strict-origin. Keep the two the same.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
-  Referrer-Policy: strict-origin-when-cross-origin
+  Referrer-Policy: strict-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
