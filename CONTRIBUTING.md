@@ -46,7 +46,7 @@ files are.
 - `services/api_switch` builds. It compiles against a checked-in sqlx query
   cache, so if you change SQL, regenerate it with `cargo sqlx prepare` or the
   build fails.
-- `services/web_server` builds.
+- `services/web_server` builds, and its unit tests pass (`npm test`).
 - Lint runs but does not block. There is a backlog of type-inference warnings;
   please do not add to it, but you are not expected to fix it either.
 

@@ -33,12 +33,29 @@ const adapter = useNode
  *   *.r2.cloudflarestorage.com  presigned chunk PUT and GET.
  *   challenges.cloudflare.com   Turnstile, on signin and signup.
  *   *.razorpay.com              checkout.
- *   *.googletagmanager.com, *.google-analytics.com, *.analytics.google.com
- *                               Google Analytics, which the layout loads only on
- *                               silo.cat. Leaving these out blocked GA from the
+ *   *.google-analytics.com, *.analytics.google.com
+ *                               (img-src, connect-src) Where Google Analytics,
+ *                               which the layout loads only on silo.cat, sends
+ *                               its hits. Leaving these out blocked GA from the
  *                               end of August to 2026-11-08 without any error a
  *                               visitor would see, and the traffic numbers fell
  *                               to almost nothing.
+ *   www.googletagmanager.com/gtag/js
+ *                               (script-src) The one script GA needs, by path.
+ *                               The whole host would also run any Tag Manager
+ *                               container (/gtm.js?id=...), including one an
+ *                               attacker owns, on the pages where people type
+ *                               decryption passwords. If the Google tag ever
+ *                               gets a second destination, such as Google Ads,
+ *                               gtag.js also loads /gtag/destination and that
+ *                               path goes here.
+ *                               Nothing else on that host is allowed, in any
+ *                               directive. gtag.js sends a sampled diagnostics
+ *                               ping there (/td) carrying the page's real host
+ *                               and path, which on a drop, share or request
+ *                               page is the link itself, whatever the page
+ *                               view says. Blocking it leaves GA's own hits
+ *                               alone: those go to google-analytics.com.
  */
 const csp = {
 	mode: 'hash',
@@ -49,10 +66,10 @@ const csp = {
 			'wasm-unsafe-eval',
 			'https://challenges.cloudflare.com',
 			'https://checkout.razorpay.com',
-			'https://*.googletagmanager.com'
+			'https://www.googletagmanager.com/gtag/js'
 		],
 		'style-src': ['self', 'unsafe-inline'],
-		'img-src': ['self', 'data:', 'blob:', 'https://*.google-analytics.com', 'https://*.googletagmanager.com'],
+		'img-src': ['self', 'data:', 'blob:', 'https://*.google-analytics.com'],
 		'font-src': ['self'],
 		'worker-src': ['self', 'blob:'],
 		'connect-src': [
@@ -64,8 +81,7 @@ const csp = {
 			'https://lumberjack.razorpay.com',
 			'https://api.razorpay.com',
 			'https://*.google-analytics.com',
-			'https://*.analytics.google.com',
-			'https://*.googletagmanager.com'
+			'https://*.analytics.google.com'
 		],
 		// 'self' is required by the download sink: the service-worker tier starts a
 		// download by pointing a hidden iframe at a same-origin /_stream/<id> URL.

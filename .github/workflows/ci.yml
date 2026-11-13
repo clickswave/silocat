@@ -31,6 +31,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Unit tests
+        run: npm test
+
       - name: Type diagnostics (report only)
         continue-on-error: true
         run: npx svelte-kit sync && npx svelte-check --tsconfig ./jsconfig.json

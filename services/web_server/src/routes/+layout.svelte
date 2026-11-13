@@ -9,11 +9,13 @@
 	import NProgress from 'nprogress';
 	import 'nprogress/nprogress.css';
 	import { navigating } from '$app/stores';
+	import { beforeNavigate } from '$app/navigation';
 
 	import { onMount } from 'svelte';
 	import Version from '$lib/components/Version.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
 	import { captureSource } from '$lib/source.js';
+	import { analyticsConfig, needsFullLoad } from '$lib/analytics.js';
 
 	NProgress.configure({
 		showSpinner: false,
@@ -27,6 +29,9 @@
 	if (browser) {
 		NProgress.start();
 	}
+
+	// Set once gtag.js has been loaded into this page.
+	let gaLoaded = false;
 
 	onMount(() => {
 		NProgress.done();
@@ -53,7 +58,24 @@
 			// copy of it. Without the assignment every event call is a silent no-op.
 			/** @type {any} */ (window).gtag = gtag;
 			gtag('js', new Date());
-			gtag('config', gaId);
+			// Not the bare config: on a drop, share or request page that sends GA
+			// the link itself and, on a drop, the file's name. See $lib/analytics.js.
+			gtag('config', gaId, analyticsConfig({ href: location.href, referrer: document.referrer }));
+			gaLoaded = true;
+		}
+	});
+
+	// gtag.js reports every History API change by itself, with the real new URL
+	// and the real one before it, so moving onto or off a drop, share or request
+	// page in place would hand GA the link after all. Those moves load the next
+	// page in full instead, and the fresh gtag.js there only hears the config
+	// above. Back and Forward never cross that line in place, because no in-place
+	// move across it is ever made.
+	beforeNavigate((nav) => {
+		if (!gaLoaded || nav.willUnload || !nav.to) return;
+		if (needsFullLoad(nav.from?.url, nav.to.url)) {
+			nav.cancel();
+			location.href = nav.to.url.href;
 		}
 	});
 

@@ -14,7 +14,7 @@
 
 <div class="policy-document">
 	<h1>Privacy Policy</h1>
-	<p class="last-updated">Last Updated: 2026-07-20</p>
+	<p class="last-updated">Last Updated: 2026-11-13</p>
 
 	<section>
 		<h2>1. Who We Are</h2>
@@ -65,8 +65,15 @@
 			We store minimal metadata in our database (for example, filenames, folder names, file size,
 			mime type, a plaintext content hash, and expiry). For
 			<strong>Shadow</strong> (anonymous) uploads, this data evaporates after 7 days. For
-			<strong>Sanctum</strong> (authenticated) uploads, it persists until you delete it. We do not use
-			third-party tracking pixels or analytics.
+			<strong>Sanctum</strong> (authenticated) uploads, it persists until you delete it.
+		</p>
+		<p>
+			On silo.cat we use <strong>Google Analytics</strong> to count visits and to see which steps people
+			complete, such as finishing an upload or a download. Google receives the address and title of each
+			page you open, the page you came from, basic details of your browser and device, and a rough location
+			it works out from your IP address, and it sets its own cookies on silo.cat to tell repeat visits
+			apart. On a download, share or file request page it receives only the kind of page, never the link,
+			its token or a file's name. Self-hosted copies of SiloCat do not load it.
 		</p>
 	</section>
 
@@ -89,6 +96,7 @@
 			<li><strong>Razorpay</strong> for payment processing.</li>
 			<li><strong>Cloudflare and Backblaze</strong> for encrypted storage.</li>
 			<li>Our transactional email provider for account and service notifications.</li>
+			<li><strong>Google</strong> for Google Analytics on silo.cat, as described in section 4.</li>
 		</ul>
 		<p>
 			Some of these processors operate infrastructure outside India, so your data may be processed in
