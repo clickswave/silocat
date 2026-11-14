@@ -21,13 +21,21 @@ pub struct Caller {
 
 impl Caller {
     /// Does this caller own an object with the given `user_id` / `owner_api_key`?
-    /// True when the object's stored owner key matches the caller's key, or the
-    /// object belongs to the caller's account.
+    ///
+    /// An object with a `user_id` belongs to that account and is matched on
+    /// `user_id` alone. Its `owner_api_key` only records which key was current
+    /// when it was made, and rotating the key must not leave that key able to
+    /// reach it: once the old key is unknown to `users`, anyone still holding it
+    /// can register it as an anonymous key, and a key match here would hand them
+    /// the account's files and folders.
+    ///
+    /// Only an object with no account (an anonymous drop) is owned by the key
+    /// that made it.
     pub fn owns(&self, user_id: &Option<String>, owner_api_key: &Option<String>) -> bool {
-        if owner_api_key.as_deref() == Some(self.api_key.as_str()) {
-            return true;
+        match user_id {
+            Some(owner) => self.user_id.as_deref() == Some(owner.as_str()),
+            None => owner_api_key.as_deref() == Some(self.api_key.as_str()),
         }
-        matches!((user_id, &self.user_id), (Some(a), Some(b)) if a == b)
     }
 }
 
@@ -90,4 +98,72 @@ pub async fn resolve_identity(
 
     request.extensions_mut().insert(caller);
     next.run(request).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Caller;
+
+    // owns() only ever sees blind indexes, so plain strings stand in for them.
+    const OLD: &str = "index-of-the-rotated-out-key";
+    const NEW: &str = "index-of-the-current-key";
+
+    fn account(id: &str, key: &str) -> Caller {
+        Caller {
+            api_key: key.to_string(),
+            user_id: Some(id.to_string()),
+            email_verified: true,
+        }
+    }
+
+    fn anonymous(key: &str) -> Caller {
+        Caller {
+            api_key: key.to_string(),
+            user_id: None,
+            email_verified: true,
+        }
+    }
+
+    fn some(v: &str) -> Option<String> {
+        Some(v.to_string())
+    }
+
+    #[test]
+    fn a_rotated_out_key_does_not_own_what_the_account_made_with_it() {
+        // Everything the account created before rotating still carries the old
+        // key's index. Rotation made that key unknown to `users`, so whoever still
+        // holds it can only come back by registering it as an anonymous key.
+        assert!(!anonymous(OLD).owns(&some("u1"), &some(OLD)));
+    }
+
+    #[test]
+    fn the_account_keeps_its_objects_after_rotating() {
+        assert!(account("u1", NEW).owns(&some("u1"), &some(OLD)));
+        assert!(account("u1", NEW).owns(&some("u1"), &some(NEW)));
+    }
+
+    #[test]
+    fn a_matching_key_does_not_reach_into_another_account() {
+        assert!(!account("u2", OLD).owns(&some("u1"), &some(OLD)));
+    }
+
+    #[test]
+    fn an_account_object_stamped_with_no_key_is_still_the_accounts() {
+        // File-request uploads land in the requester's account with no key.
+        assert!(account("u1", NEW).owns(&some("u1"), &None));
+        assert!(!account("u2", NEW).owns(&some("u1"), &None));
+        assert!(!anonymous(NEW).owns(&some("u1"), &None));
+    }
+
+    #[test]
+    fn an_anonymous_drop_belongs_to_the_key_that_made_it() {
+        assert!(anonymous(OLD).owns(&None, &some(OLD)));
+        assert!(!anonymous(NEW).owns(&None, &some(OLD)));
+        assert!(!anonymous(OLD).owns(&None, &None));
+        // A row with no account and an account's key on it (left by uploads made
+        // before identity was derived on the server) follows that key, which
+        // rotation moves to the new one.
+        assert!(account("u1", NEW).owns(&None, &some(NEW)));
+        assert!(!account("u1", NEW).owns(&None, &some(OLD)));
+    }
 }

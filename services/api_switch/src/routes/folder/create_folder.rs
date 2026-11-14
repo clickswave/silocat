@@ -33,34 +33,21 @@ pub async fn handle(
 
     let uploaded_as_files = payload.uploaded_as_files.unwrap_or(false);
 
-    // If a parent is requested, it must belong to the caller.
+    // If a parent is requested, it must belong to the caller, by the same rule
+    // as every other ownership check (Caller::owns). Matching an anonymous
+    // caller on owner_api_key alone let a rotated-out account key, registered
+    // as an anonymous key, nest folders inside the account's folders.
     if let Some(parent_id) = &payload.parent_id {
-        let parent_check = if let Some(uid) = &caller.user_id {
-            sqlx::query_scalar!(
-                "SELECT id FROM folders WHERE id = $1 AND user_id = $2",
-                parent_id,
-                uid
-            )
-            .fetch_optional(&axum_state.pg_pool)
-            .await
-        } else {
-            sqlx::query_scalar!(
-                "SELECT id FROM folders WHERE id = $1 AND owner_api_key = $2",
-                parent_id,
-                &caller.api_key
-            )
-            .fetch_optional(&axum_state.pg_pool)
-            .await
-        };
-
-        match parent_check {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                return respond(404, "Parent folder not found", vec![], json!({}))
-            }
-            Err(_e) => {
-                return respond(500, "Database error", vec![], json!({}))
-            }
+        let parent = sqlx::query!(
+            "SELECT user_id, owner_api_key FROM folders WHERE id = $1",
+            parent_id
+        )
+        .fetch_optional(&axum_state.pg_pool)
+        .await;
+        match parent {
+            Ok(Some(p)) if caller.owns(&p.user_id, &p.owner_api_key) => {}
+            Ok(_) => return respond(404, "Parent folder not found", vec![], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
         }
     }
 
