@@ -37,6 +37,10 @@
 	let password = $state('');
 	let showPasswordInput = $state(false);
 
+	// Issued by authorize when it spends a one-time folder link. Every per-file
+	// fetch on such a folder has to carry it, since by then the link reads spent.
+	let folderGrant = null;
+
 	// Fetch info on mount
 	onMount(async () => {
 		try {
@@ -113,6 +117,7 @@
 				if (data.type === 'folder') {
 					// Update files from authorized response just in case, though authorize mostly just authorizes.
 					// The authorize response carries the folder's files as well.
+					folderGrant = data.grant || null;
 					await handleFolderDownload(data.files || file.files, file.name);
 					return;
 				}
@@ -156,13 +161,30 @@
 			return;
 		}
 
+		if (passwordRequired && !password) {
+			toast.error('Please enter the link password first');
+			showPasswordInput = true;
+			return;
+		}
+
 		const toastId = toast.loading(`Preparing ${f.name}...`);
 		try {
+			// A one-time folder is spent by authorize, once, and the grant it hands
+			// back covers every file after that, from these buttons or the zip.
+			if ((/** @type {any} */ (file))?.one_time && !folderGrant) {
+				const auth = await axios.post('/api/v1/public/share/authorize', {
+					token,
+					...(passwordRequired ? { password } : {})
+				});
+				folderGrant = auth.data?.success?.data?.grant || null;
+			}
+
 			const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 				token: token,
 				file_id: f.id,
 				// Only for a server-side gate; never leak the decryption key.
-				...(passwordRequired ? { password } : {})
+				...(passwordRequired ? { password } : {}),
+				...(folderGrant ? { grant: folderGrant } : {})
 			});
 
 			if (chunksRes.data && chunksRes.data.success) {
@@ -179,8 +201,16 @@
 			}
 		} catch (e) {
 			console.error(e);
-			toast.error('Download failed');
 			toast.dismiss(toastId);
+			if (e.response && e.response.status === 401) {
+				showPasswordInput = true;
+				password = '';
+				toast.error('Incorrect link password.');
+			} else if (e.response && e.response.status === 410) {
+				error = e.response.data?.message || 'This link has expired.';
+			} else {
+				toast.error('Download failed');
+			}
 		}
 	}
 
@@ -277,7 +307,8 @@
 					token: token,
 					file_id: f.id,
 					// Only for a server-side gate; never leak the decryption key.
-					...(passwordRequired ? { password } : {})
+					...(passwordRequired ? { password } : {}),
+					...(folderGrant ? { grant: folderGrant } : {})
 				});
 
 				if (chunksRes.data && chunksRes.data.success) {

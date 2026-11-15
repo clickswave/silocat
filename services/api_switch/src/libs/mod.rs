@@ -15,4 +15,5 @@ pub mod quota;
 pub mod plans;
 pub mod ratelimit;
 pub mod sharing;
+pub mod share_grant;
 pub mod activity;

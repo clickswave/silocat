@@ -619,12 +619,14 @@ pub async fn public_get_info(
                     return respond(410, "This link has expired.", vec!["Link expired".to_string()], json!({}));
                 }
             }
-            if r.share_type == Some("once".to_string()) {
-                let downloads = r.link_downloads.unwrap_or(0);
-                let max = r.link_max_downloads.unwrap_or(1);
-                if downloads >= max {
-                    return respond(410, "This safe-link has expired.", vec!["Link limit reached".to_string()], json!({}));
-                }
+            let one_shot = r.share_type.as_deref() == Some("once");
+            let remaining = if one_shot {
+                Some((r.link_max_downloads.unwrap_or(1) - r.link_downloads.unwrap_or(0)).max(0))
+            } else {
+                None
+            };
+            if remaining == Some(0) {
+                return respond(410, "This safe-link has expired.", vec!["Link limit reached".to_string()], json!({}));
             }
 
             // As above: a protected folder listing is withheld entirely until the
@@ -633,7 +635,9 @@ pub async fn public_get_info(
             if r.share_password_hash.is_some() {
                 return respond(200, "Password required", vec![], json!({
                     "type": "folder",
-                    "password_required": true
+                    "password_required": true,
+                    "one_time": one_shot,
+                    "remaining": remaining
                 }));
             }
 
@@ -663,6 +667,8 @@ pub async fn public_get_info(
                 "files": files_data,
                 "password_required": false,
                 "sender_paid": crate::libs::plans::sender_paid(&axum_state.pg_pool, crate::libs::plans::SharedBy::Token(&token)).await,
+                "one_time": one_shot,
+                "remaining": remaining,
                 "expires_at": r.share_expires_at.map(|t| t.to_rfc3339())
             }));
         },
@@ -676,6 +682,9 @@ pub struct PublicFetchChunksPayload {
     pub token: String, // Folder share token
     pub file_id: String, // File within that folder
     pub password: Option<String>,
+    // Issued by authorize when it spends a one-time folder link. Ignored for
+    // other share types.
+    pub grant: Option<String>,
 }
 
 pub async fn public_fetch_file_chunks(
@@ -717,11 +726,26 @@ pub async fn public_fetch_file_chunks(
                 }
             }
         }
+        // A one-time folder is served only to whoever spent it. Checking the
+        // counter here instead let anyone skip authorize and fetch every file
+        // forever without spending the link, and refused the recipient who had
+        // spent it, so the zip download always failed.
         if folder_rec.share_type == Some("once".to_string()) {
-            let downloads = folder_rec.link_downloads.unwrap_or(0);
-            let max = folder_rec.link_max_downloads.unwrap_or(1);
-            if downloads >= max {
-                return respond(410, "This safe-link has expired.", vec![], json!({}));
+            let granted = payload.grant.as_deref().map_or(false, |g| {
+                crate::libs::share_grant::verify(g, &folder_rec.id, &token)
+            });
+            if !granted {
+                let downloads = folder_rec.link_downloads.unwrap_or(0);
+                let max = folder_rec.link_max_downloads.unwrap_or(1);
+                if downloads >= max {
+                    return respond(410, "This safe-link has expired.", vec![], json!({}));
+                }
+                return respond(
+                    403,
+                    "Download not authorized",
+                    vec!["authorize_required".to_string()],
+                    json!({ "authorize_required": true }),
+                );
             }
         }
 
@@ -734,6 +758,18 @@ pub async fn public_fetch_file_chunks(
 
         match file {
             Ok(Some((file_id, file_user_id))) => {
+                // Delivery receipt, one per file handed out, as the file branch
+                // of authorize records for a file link (best effort).
+                record_share_access(
+                    &axum_state.pg_pool,
+                    &token,
+                    &file_id,
+                    &file_user_id,
+                    &client_ip,
+                    headers.get("user-agent").and_then(|v| v.to_str().ok()),
+                )
+                .await;
+
                  // FETCH CHUNKS LOGIC (Duplicated from authorize file)
                 let storage_type = if file_user_id.is_some() { "sanctum" } else { "shadow" };
 
@@ -964,10 +1000,23 @@ pub async fn public_authorize_download(
                     "path": path
                 })).collect::<Vec<_>>();
 
-                return respond(200, "Download authorized", vec![], json!({ 
+                // A one-time folder's files are fetched one by one after this, by
+                // which point the counter reads spent. The grant is what lets this
+                // caller, and only this caller, finish.
+                let grant = if r.share_type.as_deref() == Some("once") {
+                    match crate::libs::share_grant::issue(&r.id, &token) {
+                        Some(g) => Some(g),
+                        None => return respond(500, "Download grant unavailable", vec![], json!({})),
+                    }
+                } else {
+                    None
+                };
+
+                return respond(200, "Download authorized", vec![], json!({
                     "type": "folder",
-                    "folder_id": r.id, 
-                    "files": files_data 
+                    "folder_id": r.id,
+                    "files": files_data,
+                    "grant": grant
                 }));
             },
             Err(_e) => return respond(500, "Failed to list folder files", vec![], json!({}))
