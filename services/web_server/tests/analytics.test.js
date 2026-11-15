@@ -26,14 +26,33 @@ test('drop, share and request pages are link pages, however they are spelled', (
 		`/s/${TOKEN}/extra`,
 		`/S/${TOKEN}`,
 		`/%73/${TOKEN}`,
-		`//req/${TOKEN}`
+		`//req/${TOKEN}`,
+		// A drop link at the end of a sentence, in brackets, in a list, or copied
+		// with a space: a 404 page, with the id still in its URL.
+		`/${DROP}.`,
+		`/${DROP})`,
+		`/${DROP},`,
+		`/${DROP}%20`,
+		`/${DROP}%0A`,
+		`/${DROP}abc`,
+		`/(${DROP})`,
+		`/${DROP}.pdf/x`
 	]) {
 		assert.equal(isLinkPage(path), true, path);
 	}
 });
 
 test('other pages are not link pages', () => {
-	for (const path of ['/', '/pricing', '/s', '/req', '/home/files', '/auth/signin', '/about']) {
+	for (const path of [
+		'/',
+		'/pricing',
+		'/s',
+		'/req',
+		'/home/files',
+		'/auth/signin',
+		'/about',
+		'/7f3c2a10-5b9e-4d1c-9a8e'
+	]) {
 		assert.equal(isLinkPage(path), false, path);
 	}
 });

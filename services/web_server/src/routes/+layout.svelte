@@ -15,7 +15,7 @@
 	import Version from '$lib/components/Version.svelte';
 	import Menu from '$lib/ui/Menu.svelte';
 	import { captureSource } from '$lib/source.js';
-	import { forcesFullLoad, isLinkPage, separateLinkPages } from '$lib/analytics.js';
+	import { leaveLinkPagesInFull, startAnalytics } from '$lib/analytics.js';
 	import { confirmFullLoad } from '$lib/transferGuard.js';
 
 	NProgress.configure({
@@ -35,47 +35,20 @@
 		NProgress.done();
 		captureSource();
 
-		// Optional analytics: only injected when a GA id is configured
-		// (PUBLIC_GA_ID) and only on the configured production host, so
-		// self-hosters and dev/staging traffic stay untracked by default.
-		// Build-time gate: false under `vite dev`, so a dev server cannot report
-		// even if it is reached on a matching hostname.
-		if (!import.meta.env.PROD) return;
-		const gaId = env.PUBLIC_GA_ID;
-		if (gaId && location.hostname === (env.PUBLIC_GA_HOSTNAME || 'silo.cat')) {
-			// GA runs on this site, but never on a drop, share or request page,
-			// whose URL is the link itself, and moving onto or off one of those
-			// is a full page load. See $lib/analytics.js.
-			separateLinkPages();
-			if (isLinkPage(location.pathname)) return;
-			const gaScript = document.createElement('script');
-			gaScript.async = true;
-			gaScript.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
-			document.head.appendChild(gaScript);
-			window.dataLayer = window.dataLayer || [];
-			function gtag() {
-				window.dataLayer.push(arguments);
-			}
-			// Publish the shim so `$lib/track.js` can send events. gtag.js does not
-			// define this global itself; the standard snippet does, and this is our
-			// copy of it. Without the assignment every event call is a silent no-op.
-			/** @type {any} */ (window).gtag = gtag;
-			gtag('js', new Date());
-			gtag('config', gaId);
-		}
+		// GA runs only in a production build with PUBLIC_GA_ID set, on the
+		// configured host, and never on a drop, share or request page, whose URL
+		// is the link itself. Moving onto or off one of those is a full page load,
+		// and confirmFullLoad asks first while a transfer runs, because the
+		// transfer ends with the page. See $lib/analytics.js.
+		startAnalytics({
+			prod: import.meta.env.PROD,
+			gaId: env.PUBLIC_GA_ID,
+			gaHostname: env.PUBLIC_GA_HOSTNAME,
+			confirm: confirmFullLoad
+		});
 	});
 
-	// While GA runs, moving onto or off a link page loads the next page in full.
-	// gtag.js reports every History API change by itself, with the real URL, so
-	// an in-place move onto a link page would hand GA the link, and after an
-	// in-place move off one GA would not be running. Back and Forward never cross
-	// that line in place, because no in-place move across it is ever made. A
-	// running transfer ends with the page, so confirmFullLoad asks first.
-	beforeNavigate((nav) => {
-		if (nav.willUnload || !nav.to || !forcesFullLoad(nav.from?.url, nav.to.url)) return;
-		nav.cancel();
-		if (confirmFullLoad()) location.href = nav.to.url.href;
-	});
+	beforeNavigate(leaveLinkPagesInFull);
 
 	$effect(() => {
 		if ($navigating) {
