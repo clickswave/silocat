@@ -19,5 +19,5 @@
 - [ ] `services/web_server` builds (`npm run build`)
 - [ ] Regenerated the sqlx cache if SQL changed (`cargo sqlx prepare`)
 - [ ] No emoji in code, comments or commit messages
-- [ ] Does not weaken the zero-knowledge guarantee: no plaintext, key material
-      or password reaches the server
+- [ ] Does not weaken the zero-knowledge guarantee of encrypted uploads: no
+      plaintext, key material or password of one reaches the server

@@ -46,9 +46,9 @@ below, or read the code and decide for yourself whether to believe us.
 | Select | You pick files. Nothing has moved. | Only you |
 | Encrypt | With password protection on, libsodium encrypts each chunk with a key Argon2id derives from your password, on your device. With it off, nothing is encrypted. | Only you |
 | Upload | An encrypted file travels as ciphertext, an unencrypted one as the plain file. TLS wraps either in transit. | Only you if encrypted, otherwise us too |
-| Store | We hold the blobs (ciphertext when encrypted) plus metadata we can read: filenames, folder names, size, timestamps, and a hash of the file's plaintext. | You, plus metadata to us |
-| Share | The link carries no key. You pass the password separately. | Anyone with link + password |
-| Download | For an encrypted file, the recipient's browser fetches ciphertext and decrypts locally. An unencrypted file downloads as uploaded. | Only you |
+| Store | We hold the blobs (ciphertext when encrypted, otherwise the plain file) plus metadata we can read: filenames, folder names, size, timestamps, and a hash of the file's plaintext. | You, plus us: metadata always, contents if unencrypted |
+| Share | The link carries no key. For an encrypted file you pass the password separately. An unencrypted file opens for anyone with the link, unless you also set a link password. | Link + password if encrypted, otherwise anyone with the link |
+| Download | For an encrypted file, the recipient's browser fetches ciphertext and decrypts locally. An unencrypted file downloads as uploaded. | Whoever has the password if encrypted, otherwise anyone with the link |
 | Delete | Blobs are unlinked immediately and scrubbed in the next sweep. | No one |
 
 Zero-knowledge is not zero-metadata. Even for encrypted uploads, we can see the
@@ -113,16 +113,18 @@ after its window, and reclaiming abandoned uploads.
 
 Storage is any S3-compatible object store, addressed as three buckets: `shadow`
 for anonymous uploads, `sanctum` for account storage, `dp` for display pictures.
-Clients transfer chunks directly against storage, so ciphertext is all the store
-ever sees.
+Clients transfer chunks directly against storage. For an encrypted upload that
+means ciphertext is all the store ever sees; an unencrypted upload is stored as
+the plain file.
 
 ## API
 
 Every account gets an API key, visible and rotatable under **Settings → API**.
 Send it as `X-Api-Key`.
 
-Because encryption happens client-side, the HTTP API takes ciphertext rather
-than files. The official client does that part for you:
+Encryption happens client-side, so the HTTP API stores whatever bytes it is
+sent: ciphertext for an encrypted file, the plain file otherwise. Give the
+official client a password and it does the encryption for you:
 
 ```bash
 npm install @clickswave/silocat-client
@@ -143,9 +145,10 @@ const { url } = await silo.share(file.id, { type: 'public' });
 
 Full reference at [silo.cat/api](https://silo.cat/api), library source in
 [`packages/client`](packages/client). The raw endpoints are documented too, but
-using them means implementing Argon2id, chunking and XChaCha20-Poly1305 exactly
-as the app does. Get a parameter wrong and the upload succeeds while the file
-becomes permanently undecryptable, which is why the client exists.
+encrypting through them means implementing Argon2id, chunking and
+XChaCha20-Poly1305 exactly as the app does. Get a parameter wrong and the upload
+succeeds while the file becomes permanently undecryptable, which is why the
+client exists.
 
 ## Development
 
@@ -171,14 +174,16 @@ Found something? **[SECURITY.md](SECURITY.md)** has the reporting address, our
 response times, and an explicit scope. Please do not open a public issue for
 anything security-relevant.
 
-The short version of what we guarantee: we hold ciphertext, and we do not hold
-your decryption passwords or anything that can recover them.
+The short version of what we guarantee: for a file uploaded with password
+protection we hold only ciphertext, and we do not hold your decryption passwords
+or anything that can recover them. A file uploaded without password protection
+is stored unencrypted, and we can read it.
 
 ## Licence
 
 [AGPL-3.0](LICENSE). If you run a modified Silocat as a network service, you
 have to offer your users the modified source. That is deliberate: the trust
-story of a zero-knowledge product depends on the code staying inspectable,
+story of zero-knowledge encryption depends on the code staying inspectable,
 wherever it runs.
 
 Built by [Clickswave Labs](https://clickswave.org).

@@ -6,7 +6,7 @@
 </script>
 
 <Seo
-	title="About Silocat: Privacy-first encrypted storage"
+	title="About Silocat: Privacy-first file storage"
 	description="Silocat's mission is private file sharing and cloud storage. Turn on password protection and a file is encrypted end to end, readable only by you and whoever you give the password."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },

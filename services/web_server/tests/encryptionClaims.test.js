@@ -272,3 +272,77 @@ test('the email templates do not say every file is encrypted', () => {
 		absent(src, /remain encrypted exactly as you left them/i, path);
 	}
 });
+
+test('the security pipeline says who can read an unencrypted file at every stage', () => {
+	// Every stage from Upload to Download reads differently for a file sent
+	// without password protection, so the "who" has to say so too.
+	const later = ['Upload', 'Store', 'Share', 'Download'];
+	const privacy = page('privacy/+page.svelte');
+	const rows = [
+		...privacy.matchAll(
+			/stage: '(\w+)',.*?what: (['"])((?:\\.|(?!\2).)*)\2, who: '([^']*)', tone: '(\w+)'/g
+		)
+	].map(([, stage, , what, who, tone]) => ({ stage, what, who, tone }));
+	assert.deepEqual(
+		rows.map((r) => r.stage),
+		['Select', 'Encrypt', 'Upload', 'Store', 'Share', 'Download', 'Delete'],
+		'privacy stages not parsed'
+	);
+	for (const { stage, what, who, tone } of rows.filter((r) => later.includes(r.stage))) {
+		assert.match(what, /unencrypted|without password protection|plain file/i, `privacy ${stage} what: ${what}`);
+		assert.match(who, /unencrypted|otherwise|if encrypted/i, `privacy ${stage} who: ${who}`);
+		assert.notEqual(tone, 'ok', `privacy ${stage} tone`);
+	}
+	const readme = repo('README.md');
+	const table = [...readme.matchAll(/\| (\w+) \| ([^|]*) \| ([^|]*) \|/g)].filter(([, s]) =>
+		later.includes(s)
+	);
+	assert.equal(table.length, later.length, 'README pipeline rows not parsed');
+	for (const [, stage, what, who] of table) {
+		assert.match(what, /unencrypted|without password protection|plain file/i, `README ${stage} what: ${what}`);
+		assert.match(who, /unencrypted|otherwise|if encrypted/i, `README ${stage} who: ${who}`);
+	}
+});
+
+test('the README and security policy do not say the server only ever holds ciphertext', () => {
+	const readme = repo('README.md');
+	absent(readme, /so ciphertext is all the store ever sees/i, 'README.md');
+	absent(readme, /the HTTP API takes ciphertext rather than files/i, 'README.md');
+	absent(readme, /what we guarantee: we hold ciphertext/i, 'README.md');
+	const security = repo('SECURITY.md');
+	absent(security, /what we don't We hold ciphertext\./i, 'SECURITY.md');
+	absent(security, /limited by the fact that we cannot read file contents/i, 'SECURITY.md');
+	const guarantee = security.slice(security.indexOf("## What we guarantee"), security.indexOf('## Self-hosting'));
+	assert.ok(guarantee.length > 30, 'SECURITY.md guarantee section not found');
+	assert.match(guarantee, /without password protection|unencrypted/i, 'SECURITY.md guarantee section');
+	const short = readme.slice(readme.indexOf('The short version of what we guarantee'), readme.indexOf('## Licence'));
+	assert.match(short, /without password protection|unencrypted/i, 'README.md security summary');
+});
+
+test('the empty-state hints name the encryption control the upload form shows', () => {
+	const files = page('home/files/+page.svelte');
+	assert.ok(files.includes('<span class="t1">Client-side encryption</span>'), 'upload form label changed');
+	const hints = [
+		['home/files', files.match(/class="state-line">(.*?)<\/span>/)?.[1]],
+		['home', page('home/+page.svelte').match(/class="empty-line">(.*?)<\/span>/)?.[1]]
+	];
+	for (const [name, hint] of hints) {
+		assert.ok(hint, `${name} empty hint not found`);
+		absent(hint, /password protection/i, name);
+		assert.match(hint, /client-side encryption/i, `${name}: ${hint}`);
+	}
+});
+
+test('page titles do not call the whole product encrypted', () => {
+	const titles = [
+		['lib/seo.js', repo('services/web_server/src/lib/seo.js').match(/defaultTitle: '([^']*)'/)?.[1]],
+		['landing', page('+page.svelte').match(/<Seo title="([^"]*)"/)?.[1]],
+		['about', page('about/+page.svelte').match(/<Seo title="([^"]*)"/)?.[1]]
+	];
+	for (const [name, title] of titles) {
+		assert.ok(title, `${name} title not found`);
+		if (/encrypt|zero-knowledge/i.test(title)) {
+			assert.match(title, /optional/i, `${name} title: ${title}`);
+		}
+	}
+});

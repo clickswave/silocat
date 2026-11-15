@@ -8,7 +8,7 @@ export const SITE = {
 	twitter: '', // no handle yet
 	locale: 'en_US',
 	themeColor: '#0a0a0c',
-	defaultTitle: 'SiloCat: End-to-end encrypted file sharing & cloud storage',
+	defaultTitle: 'SiloCat: File sharing & cloud storage with optional encryption',
 	titleSuffix: 'SiloCat',
 	defaultDescription:
 		'SiloCat is file sharing and cloud storage with optional end-to-end encryption. Upload up to 20 GB, share an anonymous link, and keep full control. Built for the privacy-conscious.',

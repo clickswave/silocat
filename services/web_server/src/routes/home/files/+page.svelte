@@ -1883,8 +1883,8 @@
 				<div class="state-text">
 					<span class="state-title">This folder is empty</span>
 					<span class="state-line">
-						Drop something in, or use the button. Turn on password protection to encrypt it in your
-						browser first.
+						Drop something in, or use the button. Turn on client-side encryption in the upload form
+						to encrypt it in your browser first.
 					</span>
 				</div>
 				<button type="button" class="state-cta" onclick={() => (showUploadModal = true)}>

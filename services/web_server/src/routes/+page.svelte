@@ -561,7 +561,7 @@
 </script>
 
 <Seo
-	title="Silocat: End-to-end encrypted file sharing & cloud storage"
+	title="Silocat: File sharing & cloud storage with optional encryption"
 	description="File sharing and cloud storage with optional end-to-end encryption. Drop up to 20 GB, share a link that expires in seven days, and keep full control of your data."
 	keywords="encrypted file sharing, secure cloud storage, zero knowledge storage, end-to-end encryption, anonymous file share, send large files, private file sharing"
 	schema={softwareApplicationSchema()}

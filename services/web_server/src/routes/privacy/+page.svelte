@@ -28,7 +28,7 @@
 		{
 			stage: 'Store',
 			what: 'Our servers hold your file blobs (ciphertext when you enable password protection, otherwise the plain file) plus metadata we can always read: filenames, folder names, size, timestamps, and a hash of the file\'s plaintext that lets us tell whether a specific known file was uploaded.',
-			who: 'You + metadata: us',
+			who: 'You, plus us: metadata always, contents if unencrypted',
 			tone: 'mute'
 		},
 		{
@@ -37,15 +37,15 @@
 			// this build shares a password out of band and the link alone is
 			// useless without it. Describing the wrong mechanism would change how
 			// people handle their passwords, so the row states what actually ships.
-			what: 'The link carries no key. You pass the password separately, so a leaked link on its own decrypts nothing.',
-			who: 'Anyone with link + password',
+			what: 'The link carries no key. For an encrypted file you pass the password separately, so a leaked link on its own decrypts nothing. An unencrypted file opens for anyone with the link, unless you also set a link password.',
+			who: 'Link + password if encrypted, otherwise anyone with the link',
 			tone: 'mute'
 		},
 		{
 			stage: 'Download',
 			what: "For an encrypted file, the recipient's browser fetches ciphertext and decrypts it locally once they enter the password. An unencrypted file downloads as it was uploaded.",
-			who: 'Only you',
-			tone: 'ok'
+			who: 'Whoever has the password if encrypted, otherwise anyone with the link',
+			tone: 'mute'
 		},
 		{
 			stage: 'Delete',

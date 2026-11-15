@@ -70,14 +70,17 @@ we'd rather promise nothing than promise money we can't pay.
 
 ## What we guarantee, and what we don't
 
-We hold ciphertext. We do not hold, and cannot recover, your decryption
-passwords. We do hold metadata: file sizes, timestamps, MIME types, content
-hashes, and the account or browser key an upload belongs to. If your threat
+For a file uploaded with password protection, we hold ciphertext. We do not
+hold, and cannot recover, your decryption passwords. A file uploaded without
+password protection is stored unencrypted, and we can read it. For every file we
+hold metadata: file sizes, timestamps, MIME types, content hashes, and the
+account or browser key an upload belongs to. If your threat
 model includes "the server learns that a 4 GB file was uploaded on Tuesday",
 Silocat does not solve that.
 
 Privacy is not lawlessness. We comply with valid legal process to the extent we
-can, which is limited by the fact that we cannot read file contents.
+can. For an encrypted upload that is limited by the fact that we cannot read its
+contents; an unencrypted upload we can read.
 
 ## Self-hosting
 

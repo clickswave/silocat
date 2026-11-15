@@ -190,8 +190,8 @@
 			<div class="empty-text">
 				<span class="empty-title">Nothing here yet</span>
 				<span class="empty-line">
-					Drop your first file and it will show up here. Turn on password protection to encrypt it
-					in your browser first.
+					Drop your first file and it will show up here. Turn on client-side encryption in the
+					upload form to encrypt it in your browser first.
 				</span>
 			</div>
 			<a href="/home/files?upload=1" class="upload-btn">Upload a file</a>
