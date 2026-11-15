@@ -823,6 +823,30 @@ pub async fn public_fetch_file_chunks(
 }
 
 
+/// What authorize answers for a file link.
+///
+/// info says nothing about a password-protected file, so this is where the
+/// share page first learns what it is downloading, and above all whether to
+/// decrypt it. Without `encrypted` here it saved the ciphertext as the file.
+fn authorized_file_data(
+    id: &str,
+    name: &str,
+    size: i64,
+    mime: &str,
+    encrypted: bool,
+    chunks: &[PublicChunkResponse],
+) -> serde_json::Value {
+    json!({
+        "type": "file",
+        "id": id,
+        "name": name,
+        "size": size,
+        "mime": mime,
+        "encrypted": encrypted,
+        "chunks": chunks
+    })
+}
+
 pub async fn public_authorize_download(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
@@ -835,7 +859,7 @@ pub async fn public_authorize_download(
 
     // Check file
     let file_query = sqlx::query!(
-        "SELECT id, share_type, link_downloads, link_max_downloads, user_id, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
+        "SELECT id, name, size, mime, encrypted, share_type, link_downloads, link_max_downloads, user_id, share_expires_at, share_password_hash FROM files WHERE share_token = $1 AND share_type != 'off' AND deleted = false",
         token
     )
     .fetch_optional(&axum_state.pg_pool)
@@ -930,11 +954,12 @@ pub async fn public_authorize_download(
                     }
                 }
                 
-                return respond(200, "Download authorized", vec![], json!({
-                    "type": "file",
-                    "id": r.id,
-                    "chunks": response_chunks
-                }));
+                return respond(
+                    200,
+                    "Download authorized",
+                    vec![],
+                    authorized_file_data(&r.id, &r.name, r.size, &r.mime, r.encrypted, &response_chunks),
+                );
             },
             Err(_e) => return respond(500, "Failed to fetch chunks", vec![], json!({})),
         }
@@ -1057,6 +1082,34 @@ mod share_pw_tests {
         assert!(verify_share_pw(Some("old-password"), &legacy));
         assert!(!verify_share_pw(Some("nope"), &legacy));
         assert!(!is_legacy_share_pw(&hash_share_pw("x").unwrap()));
+    }
+
+    /// info withholds everything about a password-protected file, so the
+    /// authorize answer is the only place the share page can learn whether to
+    /// decrypt. Without `encrypted` it saved raw ciphertext.
+    #[test]
+    fn authorize_tells_the_page_what_it_is_downloading() {
+        let chunks = vec![PublicChunkResponse {
+            id: "c1".into(),
+            index: 0,
+            size: 1040,
+            presigned_url: "https://r2.example/c1".into(),
+            file_offset: 0,
+            checksum: "ab".into(),
+            nonce: Some("bm9uY2U=".into()),
+            salt: Some("c2FsdA==".into()),
+        }];
+        let data = authorized_file_data("f1", "tax-2026.pdf", 1024, "application/pdf", true, &chunks);
+        assert_eq!(data["type"], "file");
+        assert_eq!(data["id"], "f1");
+        assert_eq!(data["encrypted"], true);
+        assert_eq!(data["name"], "tax-2026.pdf");
+        assert_eq!(data["size"], 1024);
+        assert_eq!(data["mime"], "application/pdf");
+        assert_eq!(data["chunks"][0]["salt"], "c2FsdA==");
+
+        let plain = authorized_file_data("f2", "a.txt", 3, "text/plain", false, &[]);
+        assert_eq!(plain["encrypted"], false);
     }
 
     #[test]

@@ -31,11 +31,52 @@
 	// A paying sender's links carry no Silocat promotion.
 	const senderPaid = $derived(!!(/** @type {any} */ (file)?.sender_paid));
 
-	// Encryption state
-	let needsPassword = $state(false);   // a password is needed at all (server gate OR client decryption)
-	let passwordRequired = $state(false); // the OWNER set a SERVER-side link-password gate
-	let password = $state('');
-	let showPasswordInput = $state(false);
+	// Two passwords that must never be mixed up. The link password is the
+	// owner's server-side gate: it goes to authorize and fetch-chunks and
+	// nowhere else. The decryption password turns into the key in this browser
+	// and is never sent anywhere: the server holds the ciphertext, salt and
+	// nonces, so sending it would hand a compromised or logging server
+	// everything. They used to share one variable, which sent the decryption
+	// password to the server on every password-protected link.
+	let passwordRequired = $state(false); // the owner set a link password
+	let linkPassword = $state('');
+	let needsDecryption = $state(false); // the file, or a file in the folder, is encrypted
+	let decryptionPassword = $state('');
+	// A file link authorized on an earlier click that then stopped to ask for
+	// the decryption password. Kept so a one-time link, already spent by that
+	// authorize, still downloads.
+	let authorizedChunks = null;
+	// Same for a folder: authorize answered with the file list, then the page
+	// stopped to ask for the decryption password.
+	let folderAuthorized = false;
+
+	/** Fold what authorize revealed about a protected share into the page. */
+	function learnFromAuthorize(/** @type {any} */ data) {
+		if (!data || !file) return;
+		const f = /** @type {any} */ (file);
+		if (f.type === 'folder') {
+			if (Array.isArray(data.files)) {
+				file = { ...f, files: data.files };
+				if (data.files.some((/** @type {any} */ x) => x.encrypted)) needsDecryption = true;
+			}
+		} else {
+			file = {
+				...f,
+				name: data.name ?? f.name,
+				size: data.size ?? f.size,
+				mime: data.mime ?? f.mime,
+				encrypted: data.encrypted ?? f.encrypted
+			};
+			if (data.encrypted) needsDecryption = true;
+		}
+	}
+
+	/** Stop for the decryption password. True when the caller has to wait. */
+	function askForDecryptionPassword() {
+		if (!needsDecryption || decryptionPassword) return false;
+		toast.error('This is encrypted. Enter the decryption password the sender gave you.');
+		return true;
+	}
 
 	// Issued by authorize when it spends a one-time folder link. Every per-file
 	// fetch on such a folder has to carry it, since by then the link reads spent.
@@ -50,11 +91,12 @@
 			folderAuth = axios
 				.post('/api/v1/public/share/authorize', {
 					token,
-					...(passwordRequired ? { password } : {})
+					...(passwordRequired ? { password: linkPassword } : {})
 				})
 				.then((res) => {
 					const data = res.data?.success?.data;
 					if (data?.grant) folderGrant = data.grant;
+					learnFromAuthorize(data);
 					return data;
 				})
 				.finally(() => {
@@ -71,15 +113,14 @@
 			const res = await axios.get(`/api/v1/public/share/info/${token}`);
 			if (res.data.success) {
 				file = res.data.success.data;
-				// Needs a password if it is client-side encrypted OR the owner set a
-				// link password gate (server-enforced on authorize).
+				// A protected link withholds its metadata, so whether it is also
+				// encrypted is only known after authorize (learnFromAuthorize).
 				if (file.password_required) {
-					needsPassword = true;
-					passwordRequired = true; // server-enforced gate; this pw is sent to authorize
+					passwordRequired = true;
 				} else if (file.type === 'file' && file.encrypted) {
-					needsPassword = true;
+					needsDecryption = true;
 				} else if (file.type === 'folder' && file.files && file.files.some((f) => f.encrypted)) {
-					needsPassword = true;
+					needsDecryption = true;
 				}
 			}
 		} catch (e) {
@@ -100,11 +141,8 @@
 	async function handleDownload() {
 		if (!file) return;
 
-		if (needsPassword && !password) {
-			showPasswordInput = true;
-			// focus input?
-			return;
-		}
+		if (passwordRequired && !linkPassword) return;
+		if (askForDecryptionPassword()) return;
 
 		downloading = true;
 		downloadProgress = 0;
@@ -117,7 +155,10 @@
 		// in memory and have no sink, so they skip this.
 		let presink = null;
 		try {
-			if (file?.type !== 'folder') {
+			// A protected file's name is unknown until authorize answers, and a
+			// sink opened without one saves under the wrong name, so that first
+			// click takes the slower path that opens the sink afterwards.
+			if (file?.type !== 'folder' && (/** @type {any} */ (file))?.name) {
 				presink = await createFileSink(file.name, {
 					size: Number(file.size) || 0,
 					mime: file.mime
@@ -129,43 +170,57 @@
 			// again would get 410 for a link this tab has already spent.
 			const folder = /** @type {any} */ (file);
 			if (folder.type === 'folder') {
-				const data = folderGrant ? null : await authorizeFolder();
-				await handleFolderDownload(data?.files || folder.files, folder.name);
+				if (!folderGrant && !folderAuthorized) await authorizeFolder();
+				// A protected folder's listing arrives with authorize, and with it
+				// whether any file is encrypted.
+				if (askForDecryptionPassword()) {
+					folderAuthorized = true;
+					return;
+				}
+				folderAuthorized = false;
+				const listed = /** @type {any} */ (file);
+				await handleFolderDownload(listed.files || [], listed.name);
 				return;
 			}
 
-			// Only send the password to the server when the OWNER set a server-side
-			// link-password gate. For a client-side-ENCRYPTED file with no gate the
-			// password IS the decryption key and must never leave the browser (the
-			// server holds the ciphertext + salt + nonce, so sending it would let a
-			// compromised/logging server decrypt everything). Authorize without it
-			// and derive the key locally.
-			const res = await axios.post('/api/v1/public/share/authorize', {
-				token,
-				...(passwordRequired ? { password } : {})
-			});
-			if (res.data.success) {
+			// Only the link password goes to the server, and only when the owner
+			// set one. The decryption password stays here and becomes the key.
+			let chunks = authorizedChunks;
+			if (!chunks) {
+				const res = await axios.post('/api/v1/public/share/authorize', {
+					token,
+					...(passwordRequired ? { password: linkPassword } : {})
+				});
+				if (!res.data.success) return;
 				const data = res.data.success.data;
-				const chunks = data.chunks;
+				learnFromAuthorize(data);
+				chunks = data.chunks;
 				if (!chunks || chunks.length === 0) {
 					toast.error('File appears empty or corrupted.');
 					downloading = false;
 					return;
 				}
-
-				await handleFileDownload(file, chunks, password, presink);
-				presink = null;
+				if (askForDecryptionPassword()) {
+					authorizedChunks = chunks;
+					return;
+				}
 			}
+
+			await handleFileDownload(file, chunks, presink);
+			presink = null;
+			authorizedChunks = null;
 		} catch (e) {
 			if (e?.name === 'SinkCancelled') return; // user dismissed the save dialog
 			console.error(e);
+			// A wrong decryption password can be retried on the chunks already
+			// authorized. Anything else starts over from authorize.
+			const wrongKey = !!e?.message?.includes('Decryption failed');
+			if (!wrongKey) authorizedChunks = null;
 			if (e.response && e.response.status === 401) {
-				// Server-side link password gate rejected the password.
-				showPasswordInput = true;
-				password = '';
+				linkPassword = '';
 				toast.error('Incorrect link password.');
 			} else if (e.message.includes('Wrong password') || e.message.includes('Decryption failed')) {
-				toast.error('Incorrect password.');
+				toast.error('Incorrect decryption password.');
 			} else if (e.response && e.response.status === 410) {
 				error = e.response.data?.message || 'This link has expired.';
 			} else {
@@ -179,15 +234,14 @@
 	}
 
 	async function downloadSingleFile(f) {
-		if (f.encrypted && !password) {
-			toast.error('Please enter the password first');
-			showPasswordInput = true;
+		if (f.encrypted && !decryptionPassword) {
+			needsDecryption = true;
+			toast.error('Please enter the decryption password first');
 			return;
 		}
 
-		if (passwordRequired && !password) {
+		if (passwordRequired && !linkPassword) {
 			toast.error('Please enter the link password first');
-			showPasswordInput = true;
 			return;
 		}
 
@@ -202,8 +256,8 @@
 			const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 				token: token,
 				file_id: f.id,
-				// Only for a server-side gate; never leak the decryption key.
-				...(passwordRequired ? { password } : {}),
+				// The link password only. The decryption password never leaves.
+				...(passwordRequired ? { password: linkPassword } : {}),
 				...(folderGrant ? { grant: folderGrant } : {})
 			});
 
@@ -214,7 +268,7 @@
 					return;
 				}
 
-				await handleFileDownload(f, chunks, password);
+				await handleFileDownload(f, chunks);
 				toast.dismiss(toastId);
 			} else {
 				throw new Error('Failed to fetch info');
@@ -223,9 +277,10 @@
 			console.error(e);
 			toast.dismiss(toastId);
 			if (e.response && e.response.status === 401) {
-				showPasswordInput = true;
-				password = '';
+				linkPassword = '';
 				toast.error('Incorrect link password.');
+			} else if (e.message?.includes('Decryption failed')) {
+				toast.error('Incorrect decryption password.');
 			} else if (e.response && e.response.status === 410) {
 				error = e.response.data?.message || 'This link has expired.';
 			} else {
@@ -234,7 +289,7 @@
 		}
 	}
 
-	async function handleFileDownload(fileMeta, chunks, password, presink = null) {
+	async function handleFileDownload(fileMeta, chunks, presink = null) {
 		// Prepare decryption key if needed
 		let fileKey = null;
 		if (fileMeta.encrypted) {
@@ -243,7 +298,7 @@
 				console.warn('Encrypted file missing salt!');
 			} else {
 				const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-				fileKey = await deriveKey(password, saltBytes);
+				fileKey = await deriveKey(decryptionPassword, saltBytes);
 			}
 		}
 
@@ -326,8 +381,8 @@
 				const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
 					token: token,
 					file_id: f.id,
-					// Only for a server-side gate; never leak the decryption key.
-					...(passwordRequired ? { password } : {}),
+					// The link password only. The decryption password never leaves.
+					...(passwordRequired ? { password: linkPassword } : {}),
 					...(folderGrant ? { grant: folderGrant } : {})
 				});
 
@@ -341,7 +396,7 @@
 						const firstChunk = chunks[0];
 						if (!firstChunk.salt) throw new Error(`File ${f.name} missing salt.`);
 						const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-						fileKey = await deriveKey(password, saltBytes);
+						fileKey = await deriveKey(decryptionPassword, saltBytes);
 					}
 
 					// Download and decrypt chunks
@@ -495,18 +550,37 @@
 					</div>
 				{/if}
 
-				{#if showPasswordInput || needsPassword}
+				{#if passwordRequired}
 					<div class="pw-field">
-						<label for="share-pw">Password</label>
+						<label for="share-link-pw">Link password</label>
+						<input
+							id="share-link-pw"
+							type="password"
+							autocomplete="off"
+							bind:value={linkPassword}
+							placeholder="Link password"
+							onkeydown={(e) => e.key === 'Enter' && handleDownload()}
+						/>
+						<span class="pw-hint">
+							The sender locked this link with it. Silocat checks it before the download starts.
+						</span>
+					</div>
+				{/if}
+
+				{#if needsDecryption}
+					<div class="pw-field">
+						<label for="share-pw">Decryption password</label>
 						<input
 							id="share-pw"
 							type="password"
-							bind:value={password}
+							autocomplete="off"
+							bind:value={decryptionPassword}
 							placeholder="Decryption password"
 							onkeydown={(e) => e.key === 'Enter' && handleDownload()}
 						/>
 						<span class="pw-hint">
-							The sender shared this separately. Without it the file cannot be decrypted.
+							The sender shared this separately. It never leaves your browser, and without it
+							the file cannot be decrypted.
 						</span>
 					</div>
 				{/if}
@@ -523,7 +597,7 @@
 					<button
 						type="button"
 						class="primary"
-						disabled={needsPassword && !password}
+						disabled={(passwordRequired && !linkPassword) || (needsDecryption && !decryptionPassword)}
 						onclick={handleDownload}
 					>
 						<Icon name={file.encrypted ? 'unlock' : 'download'} size={16} />

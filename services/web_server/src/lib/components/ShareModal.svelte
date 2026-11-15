@@ -383,6 +383,11 @@
 								encrypt a file so nobody (including us) can read it, turn on password
 								protection when you upload it.
 							</p>
+							<p class="opt-hint">
+								Use a different password here from the one that encrypts the file.
+								The recipient sends this one to Silocat to open the link, so reusing
+								the encryption password would let the server read the file.
+							</p>
 
 							{#if passwordProtected}
 								<label class="opt-remove">
