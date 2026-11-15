@@ -30,9 +30,9 @@ pub async fn handle(
 
     match file_query {
         Ok(Some(file)) => {
-            // A non-owner reads by id only via public_access, and only when no
+            // A non-owner reads by id only an anonymous drop, and only when no
             // active share protection applies (password / one-time / expiry /
-            // delete); protected shares must use the token path.
+            // delete). A drive file is shared through its token and nothing else.
             let share_protected = sharing::share_protected(
                 file.share_password_hash.as_deref(),
                 file.share_type.as_deref(),
@@ -42,7 +42,12 @@ pub async fn handle(
             let allowed = caller
                 .as_ref()
                 .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
-                || (file.public_access && !share_protected);
+                || sharing::file_readable_by_id(
+                    file.user_id.as_deref(),
+                    file.public_access,
+                    share_protected,
+                    &sharing::FolderAccess::none(),
+                );
             if !allowed {
                 return respond(404, "Resource not found", vec![], json!({}));
             }
@@ -83,12 +88,13 @@ pub async fn handle(
             //
             // Read from the whole chain rather than this row: a subfolder of a
             // published folder is part of what was published, and a protection
-            // anywhere above has to cover everything below it.
+            // anywhere above has to cover everything below it. A drive folder
+            // never opens by id for a non-owner, only through its token.
             let access = sharing::folder_access(&axum_state.pg_pool, &folder.id).await;
             let allowed = caller
                 .as_ref()
                 .map_or(false, |c| c.owns(&folder.user_id, &folder.owner_api_key))
-                || access.grants_public_read();
+                || sharing::folder_readable_by_id(folder.user_id.as_deref(), &access);
             if !allowed {
                 return respond(404, "Resource not found", vec!["ID does not match any file or folder".to_string()], json!({}));
             }

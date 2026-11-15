@@ -30,8 +30,8 @@ pub async fn handle(
     match file {
         Ok(Some(file)) => {
             // Access control. The owner always reaches their own file (incl.
-            // trashed) via `owns`. A non-owner may read a file only through the
-            // public_access shortcut, and ONLY when the file carries no active
+            // trashed) via `owns`. A non-owner may read a file by id only when it
+            // is an anonymous drop, and ONLY when it carries no active
             // share protection: a password, a one-time link, an expiry, or a
             // soft-delete must force the token-checked /file/public/share/* path,
             // never leak by id.
@@ -43,7 +43,12 @@ pub async fn handle(
             let allowed = caller
                 .as_ref()
                 .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
-                || (file.public_access && !share_protected);
+                || crate::libs::sharing::file_readable_by_id(
+                    file.user_id.as_deref(),
+                    file.public_access,
+                    share_protected,
+                    &crate::libs::sharing::FolderAccess::none(),
+                );
             if !allowed {
                 return respond(404, "File not found", vec![], json!({}));
             }

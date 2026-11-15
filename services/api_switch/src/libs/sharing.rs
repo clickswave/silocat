@@ -185,6 +185,48 @@ impl FolderAccess {
     pub fn grants_public_read(&self) -> bool {
         self.published && !self.protected
     }
+
+    /// No folder above, so nothing granted and nothing refused.
+    pub fn none() -> Self {
+        FolderAccess { published: false, protected: false }
+    }
+}
+
+/// Is the id itself the link for this row?
+///
+/// Only for an anonymous drop. Its link is /<id>, and it has no owner who could
+/// sign in to hand out a token instead, so the id has to open it.
+///
+/// Anything in a registered user's drive is shared through a token, and the
+/// token is the only thing the owner can take back: "Replace link" swaps it, and
+/// it does nothing else. The id, meanwhile, is handed to every visitor of the
+/// share page (the info and authorize responses carry it, a folder share lists
+/// every file id, and a request uploader is told the destination folder id). If
+/// the id also opened the row, anyone who had ever seen the share kept reading
+/// it, including files added later, with no access receipt for the owner.
+fn id_is_the_link(user_id: Option<&str>) -> bool {
+    user_id.is_none()
+}
+
+/// May a non-owner read this file holding only its id?
+///
+/// `own_protected` is `share_protected` for the file's own row, `folder` is what
+/// the chain above it says.
+pub fn file_readable_by_id(
+    user_id: Option<&str>,
+    public_access: bool,
+    own_protected: bool,
+    folder: &FolderAccess,
+) -> bool {
+    id_is_the_link(user_id)
+        && !own_protected
+        && !folder.protected
+        && (public_access || folder.published)
+}
+
+/// May a non-owner read this folder holding only its id?
+pub fn folder_readable_by_id(user_id: Option<&str>, access: &FolderAccess) -> bool {
+    id_is_the_link(user_id) && access.grants_public_read()
 }
 
 /// Walk from a folder up to the root of its tree.
@@ -234,5 +276,56 @@ pub async fn folder_access(pool: &sqlx::PgPool, folder_id: &str) -> FolderAccess
                 r.deleted,
             )
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OWNER: Option<&str> = Some("user-1");
+    const DROP: Option<&str> = None;
+
+    fn published() -> FolderAccess {
+        FolderAccess { published: true, protected: false }
+    }
+
+    #[test]
+    fn a_shared_file_in_a_drive_is_not_readable_by_its_id() {
+        // Public share, no password. The share page hands the id to every
+        // visitor, and replacing the link only changes the token, so the id has
+        // to be worth nothing on its own or the old link holder keeps access.
+        assert!(!file_readable_by_id(OWNER, true, false, &FolderAccess::none()));
+    }
+
+    #[test]
+    fn a_file_under_a_shared_drive_folder_is_not_readable_by_its_id() {
+        assert!(!file_readable_by_id(OWNER, false, false, &published()));
+        assert!(!file_readable_by_id(OWNER, true, false, &published()));
+    }
+
+    #[test]
+    fn a_shared_drive_folder_is_not_readable_by_its_id() {
+        // Covers a subfolder id too, and the destination folder id a request
+        // uploader is given.
+        assert!(!folder_readable_by_id(OWNER, &published()));
+    }
+
+    #[test]
+    fn an_anonymous_drop_is_still_readable_by_its_id() {
+        // The drop link is /<id>, so for a drop the id is the link.
+        assert!(file_readable_by_id(DROP, true, false, &FolderAccess::none()));
+        assert!(file_readable_by_id(DROP, true, false, &published()));
+        assert!(file_readable_by_id(DROP, false, false, &published()));
+        assert!(folder_readable_by_id(DROP, &published()));
+    }
+
+    #[test]
+    fn a_drop_still_honours_its_own_and_its_folders_controls() {
+        assert!(!file_readable_by_id(DROP, true, true, &FolderAccess::none()));
+        assert!(!file_readable_by_id(DROP, true, false, &FolderAccess { published: true, protected: true }));
+        assert!(!file_readable_by_id(DROP, false, false, &FolderAccess::none()));
+        assert!(!folder_readable_by_id(DROP, &FolderAccess { published: true, protected: true }));
+        assert!(!folder_readable_by_id(DROP, &FolderAccess { published: false, protected: false }));
     }
 }
