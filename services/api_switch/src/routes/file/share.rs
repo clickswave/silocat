@@ -758,18 +758,6 @@ pub async fn public_fetch_file_chunks(
 
         match file {
             Ok(Some((file_id, file_user_id))) => {
-                // Delivery receipt, one per file handed out, as the file branch
-                // of authorize records for a file link (best effort).
-                record_share_access(
-                    &axum_state.pg_pool,
-                    &token,
-                    &file_id,
-                    &file_user_id,
-                    &client_ip,
-                    headers.get("user-agent").and_then(|v| v.to_str().ok()),
-                )
-                .await;
-
                  // FETCH CHUNKS LOGIC (Duplicated from authorize file)
                 let storage_type = if file_user_id.is_some() { "sanctum" } else { "shadow" };
 
@@ -800,7 +788,21 @@ pub async fn public_fetch_file_chunks(
                                 Err(_e) => return respond(500, "Failed to generate download URL", vec![], json!({})),
                             }
                         }
-                        
+
+                        // Delivery receipt, one per file handed out, as the file
+                        // branch of authorize records for a file link (best
+                        // effort). Written once the URLs exist, so a fetch that
+                        // fails above leaves no receipt for a file never served.
+                        record_share_access(
+                            &axum_state.pg_pool,
+                            &token,
+                            &file_id,
+                            &file_user_id,
+                            &client_ip,
+                            headers.get("user-agent").and_then(|v| v.to_str().ok()),
+                        )
+                        .await;
+
                         return respond(200, "Chunks retrieved", vec![], json!({
                             "type": "file_chunks",
                             "file_id": file_id,
@@ -991,6 +993,7 @@ pub async fn public_authorize_download(
 
         match files {
             Ok(file_list) => {
+                let total_bytes: i64 = file_list.iter().map(|(f, _)| f.size.max(0)).fold(0, i64::saturating_add);
                  let files_data = file_list.into_iter().map(|(f, path)| json!({
                     "id": f.id,
                     "name": f.name,
@@ -1002,9 +1005,10 @@ pub async fn public_authorize_download(
 
                 // A one-time folder's files are fetched one by one after this, by
                 // which point the counter reads spent. The grant is what lets this
-                // caller, and only this caller, finish.
+                // caller, and only this caller, finish. It lasts as long as a
+                // folder of this size needs (see share_grant::ttl_for).
                 let grant = if r.share_type.as_deref() == Some("once") {
-                    match crate::libs::share_grant::issue(&r.id, &token) {
+                    match crate::libs::share_grant::issue(&r.id, &token, total_bytes) {
                         Some(g) => Some(g),
                         None => return respond(500, "Download grant unavailable", vec![], json!({})),
                     }

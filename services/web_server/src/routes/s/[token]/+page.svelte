@@ -40,6 +40,29 @@
 	// Issued by authorize when it spends a one-time folder link. Every per-file
 	// fetch on such a folder has to carry it, since by then the link reads spent.
 	let folderGrant = null;
+	// The folder authorize in flight, shared by every caller that needs it. A
+	// one-time link answers a second authorize with 410, so two quick clicks
+	// must not each send one.
+	let folderAuth = null;
+
+	function authorizeFolder() {
+		if (!folderAuth) {
+			folderAuth = axios
+				.post('/api/v1/public/share/authorize', {
+					token,
+					...(passwordRequired ? { password } : {})
+				})
+				.then((res) => {
+					const data = res.data?.success?.data;
+					if (data?.grant) folderGrant = data.grant;
+					return data;
+				})
+				.finally(() => {
+					folderAuth = null;
+				});
+		}
+		return folderAuth;
+	}
 
 	// Fetch info on mount
 	onMount(async () => {
@@ -101,6 +124,16 @@
 				});
 			}
 
+			// A folder authorizes through authorizeFolder, and a one-time folder
+			// whose grant is already held has nothing left to authorize: asking
+			// again would get 410 for a link this tab has already spent.
+			const folder = /** @type {any} */ (file);
+			if (folder.type === 'folder') {
+				const data = folderGrant ? null : await authorizeFolder();
+				await handleFolderDownload(data?.files || folder.files, folder.name);
+				return;
+			}
+
 			// Only send the password to the server when the OWNER set a server-side
 			// link-password gate. For a client-side-ENCRYPTED file with no gate the
 			// password IS the decryption key and must never leave the browser (the
@@ -113,15 +146,6 @@
 			});
 			if (res.data.success) {
 				const data = res.data.success.data;
-
-				if (data.type === 'folder') {
-					// Update files from authorized response just in case, though authorize mostly just authorizes.
-					// The authorize response carries the folder's files as well.
-					folderGrant = data.grant || null;
-					await handleFolderDownload(data.files || file.files, file.name);
-					return;
-				}
-
 				const chunks = data.chunks;
 				if (!chunks || chunks.length === 0) {
 					toast.error('File appears empty or corrupted.');
@@ -172,11 +196,7 @@
 			// A one-time folder is spent by authorize, once, and the grant it hands
 			// back covers every file after that, from these buttons or the zip.
 			if ((/** @type {any} */ (file))?.one_time && !folderGrant) {
-				const auth = await axios.post('/api/v1/public/share/authorize', {
-					token,
-					...(passwordRequired ? { password } : {})
-				});
-				folderGrant = auth.data?.success?.data?.grant || null;
+				await authorizeFolder();
 			}
 
 			const chunksRes = await axios.post('/api/v1/public/share/fetch-chunks', {
