@@ -47,15 +47,24 @@ pub async fn handle(
             // 3. Trashed files stop counting toward the plan while their bytes
             //    stay stored for the 30-day retention, so restoring one has to
             //    fit the plan again. Without this, uploading to the cap, trashing
-            //    and repeating, then restoring everything held any amount.
+            //    and repeating, then restoring everything held any amount. The
+            //    quota lock is held from the check to the commit, so restores
+            //    sent together cannot each fit into the same free space.
+            let mut tx = match axum_state.pg_pool.begin().await {
+                Ok(tx) => tx,
+                Err(_e) => return respond(500, "Database error", vec![], json!({})),
+            };
             if let Some(user_id) = &record.user_id {
+                if crate::libs::quota::lock(&mut tx, user_id).await.is_err() {
+                    return respond(500, "Database error", vec![], json!({}));
+                }
                 let trashed_bytes = sqlx::query_scalar::<_, Option<i64>>(
                     "SELECT COALESCE((SELECT SUM(GREATEST(c.size_on_server, 0)) FROM chunks c \
                                       WHERE c.file_id = f.id AND c.uploaded = true), 0)::BIGINT \
                      FROM files f WHERE f.id = $1 AND f.deleted = true",
                 )
                 .bind(&payload.file_id)
-                .fetch_optional(&axum_state.pg_pool)
+                .fetch_optional(&mut *tx)
                 .await;
                 let trashed_bytes = match trashed_bytes {
                     // Not in the trash: restoring it changes nothing.
@@ -64,7 +73,7 @@ pub async fn handle(
                     Err(_e) => return respond(500, "Database error", vec![], json!({})),
                 };
                 if trashed_bytes > 0 {
-                    match crate::libs::quota::for_user(&axum_state.pg_pool, user_id).await {
+                    match crate::libs::quota::for_user(&mut tx, user_id).await {
                         Some(q) if !q.would_exceed(trashed_bytes) => {}
                         Some(q) => {
                             return respond(
@@ -84,12 +93,14 @@ pub async fn handle(
                 "UPDATE files SET deleted = false, deleted_on = NULL WHERE id = $1",
                 payload.file_id
             )
-            .execute(&axum_state.pg_pool)
+            .execute(&mut *tx)
             .await;
 
             match restore_result {
-                Ok(_) => respond(200, "File restored successfully", vec![], json!({})),
-                Err(_e) => respond(500, "Failed to restore file", vec![], json!({})),
+                Ok(_) if tx.commit().await.is_ok() => {
+                    respond(200, "File restored successfully", vec![], json!({}))
+                }
+                _ => respond(500, "Failed to restore file", vec![], json!({})),
             }
         },
         Ok(None) => respond(404, "File not found", vec![], json!({})),
@@ -165,6 +176,68 @@ mod tests {
         };
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
         assert!(still_trashed);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn restores_sent_at_once_cannot_pass_the_plan() {
+        // Each restore read usage and then flipped its file back with nothing
+        // in between to stop the others doing the same.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        sqlx::query("UPDATE users SET default_storage_bytes = 100 WHERE id = $1")
+            .bind(&user)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let mut ids = Vec::new();
+        for _ in 0..8 {
+            ids.push(stored_file(&st.pg_pool, &user, 80, true).await);
+        }
+        let caller = Caller { api_key: key, user_id: Some(user.clone()), email_verified: true };
+        let tasks: Vec<_> = ids
+            .into_iter()
+            .map(|file_id| {
+                let (st, caller) = (st.clone(), caller.clone());
+                tokio::spawn(async move {
+                    let payload: RestorePayload = serde_json::from_value(json!({ "file_id": file_id })).unwrap();
+                    handle(State(st), Extension(Some(caller)), Json(payload)).await.into_response().status()
+                })
+            })
+            .collect();
+        let mut statuses = Vec::new();
+        for t in tasks {
+            statuses.push(t.await.unwrap());
+        }
+        let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE user_id = $1 AND deleted = false")
+            .bind(&user)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(live, 1, "{statuses:?}");
+    }
+
+    #[tokio::test]
+    async fn an_upload_in_flight_keeps_its_room_from_a_restore() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        sqlx::query("UPDATE users SET default_storage_bytes = 100 WHERE id = $1")
+            .bind(&user)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let pending = stored_file(&st.pg_pool, &user, 80, false).await;
+        sqlx::query("UPDATE chunks SET uploaded = false, size_on_server = 0 WHERE file_id = $1")
+            .bind(&pending)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let file_id = stored_file(&st.pg_pool, &user, 80, true).await;
+        let caller = Caller { api_key: key, user_id: Some(user.clone()), email_verified: true };
+        let payload: RestorePayload = serde_json::from_value(json!({ "file_id": file_id })).unwrap();
+        let status = handle(State(st.clone()), Extension(Some(caller)), Json(payload)).await.into_response().status();
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]

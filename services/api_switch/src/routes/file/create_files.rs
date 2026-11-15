@@ -132,6 +132,14 @@ pub async fn handle(
     // decided here, from the caller, so no client can get either one wrong.
     let public_access = caller.user_id.is_none();
 
+    // The file and its chunks are written in one transaction. For an account it
+    // also holds the quota lock from the usage check to the commit, and the
+    // chunks it writes are what reserve this upload's room for the next check.
+    let mut tx = match axum_state.pg_pool.begin().await {
+        Ok(tx) => tx,
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
+    };
+
     let file = match &caller.user_id {
         // linked (sanctum) uploads
         Some(user_id) => {
@@ -145,9 +153,13 @@ pub async fn handle(
                 );
             }
 
-            // Enforce the account's storage quota before accepting the upload.
-            if let Some(q) = libs::quota::for_user(&axum_state.pg_pool, user_id).await {
-                if q.would_exceed(payload.file_size) {
+            // Enforce the account's storage quota before accepting the upload,
+            // counting the uploads it has started but not finished.
+            if libs::quota::lock(&mut tx, user_id).await.is_err() {
+                return respond(500, "Database error", vec![], json!({}));
+            }
+            if let Some(q) = libs::quota::for_user(&mut tx, user_id).await {
+                if q.would_exceed(libs::uploads::stored_total(&chunk_sizes, payload.file_encrypted)) {
                     return respond(
                         413,
                         "Storage quota exceeded",
@@ -172,7 +184,7 @@ pub async fn handle(
                 public_access,
                 payload.folder_id,
                 owner_api_key
-            ).fetch_one(&axum_state.pg_pool).await;
+            ).fetch_one(&mut *tx).await;
 
             match insert_file_query {
                 Ok(file) => file,
@@ -244,7 +256,7 @@ pub async fn handle(
                 public_access,
                 payload.folder_id,
                 owner_api_key
-            ).fetch_one(&axum_state.pg_pool).await;
+            ).fetch_one(&mut *tx).await;
 
             match insert_file_query {
                 Ok(file) => {
@@ -336,7 +348,7 @@ pub async fn handle(
         .bind(chunk.checksum)
         .bind(chunk.salt)
         .bind(chunk.nonce)
-        .fetch_one(&axum_state.pg_pool).await;
+        .fetch_one(&mut *tx).await;
 
         match insert_chunk_query {
             Ok(chunk) => chunks.push(chunk),
@@ -352,6 +364,10 @@ pub async fn handle(
 
         chunk_index += 1;
 
+    }
+
+    if tx.commit().await.is_err() {
+        return respond(500, "Failed to create upload", vec![], json!({}));
     }
 
     respond(
@@ -525,6 +541,90 @@ mod tests {
         let (status, _, made) = as_user(&st, 0, false, &[]).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(made, 1);
+    }
+
+    /// A verified account on a plan of `limit` bytes, and the caller for it.
+    async fn on_plan(st: &crate::AppState, limit: i64) -> (String, Caller) {
+        let (user, key) = account(&st.pg_pool).await;
+        sqlx::query("UPDATE users SET default_storage_bytes = $2 WHERE id = $1")
+            .bind(&user)
+            .bind(limit)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        (user.clone(), Caller { api_key: key, user_id: Some(user), email_verified: true })
+    }
+
+    #[tokio::test]
+    async fn uploads_started_before_any_is_stored_share_the_plan() {
+        // Nothing is stored until the PUTs land, so five creates in a row each
+        // used to be checked against an empty account and all were admitted.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, caller) = on_plan(&st, 100).await;
+        let mut statuses = Vec::new();
+        for _ in 0..5 {
+            statuses.push(create(&st, caller.clone(), body(80, false, &[80])).await.0);
+        }
+        let made = files_of(&st, &user).await;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(statuses[0], StatusCode::OK);
+        assert!(statuses[1..].iter().all(|s| *s == StatusCode::PAYLOAD_TOO_LARGE), "{statuses:?}");
+        assert_eq!(made, 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn uploads_started_at_once_share_the_plan() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, caller) = on_plan(&st, 100).await;
+        let tasks: Vec<_> = (0..8)
+            .map(|_| {
+                let (st, caller) = (st.clone(), caller.clone());
+                tokio::spawn(async move { create(&st, caller, body(80, false, &[80])).await.0 })
+            })
+            .collect();
+        let mut statuses = Vec::new();
+        for t in tasks {
+            statuses.push(t.await.unwrap());
+        }
+        let made = files_of(&st, &user).await;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(statuses.iter().filter(|s| **s == StatusCode::OK).count(), 1, "{statuses:?}");
+        assert_eq!(made, 1);
+    }
+
+    #[tokio::test]
+    async fn trashing_an_upload_in_flight_does_not_free_its_room() {
+        // Its PUT URLs still work after it is trashed.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, caller) = on_plan(&st, 100).await;
+        let first = create(&st, caller.clone(), body(80, false, &[80])).await.0;
+        sqlx::query("UPDATE files SET deleted = true, deleted_on = NOW() WHERE user_id = $1")
+            .bind(&user)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let second = create(&st, caller, body(80, false, &[80])).await.0;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(first, StatusCode::OK);
+        assert_eq!(second, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn an_upload_whose_urls_have_expired_holds_no_room() {
+        // Abandoned before the sweep reaches it: its URLs no longer work, so it
+        // must not keep the account full.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, caller) = on_plan(&st, 100).await;
+        let first = create(&st, caller.clone(), body(80, false, &[80])).await.0;
+        sqlx::query("UPDATE chunks SET created_on = NOW() - INTERVAL '3 hours' WHERE file_id IN (SELECT id FROM files WHERE user_id = $1)")
+            .bind(&user)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let second = create(&st, caller, body(80, false, &[80])).await.0;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(first, StatusCode::OK);
+        assert_eq!(second, StatusCode::OK);
     }
 
     #[tokio::test]

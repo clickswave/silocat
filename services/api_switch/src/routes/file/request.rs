@@ -470,9 +470,18 @@ pub async fn upload_create(
         return respond(400, "Invalid upload", vec![why.to_string()], json!({})).into_response();
     }
 
-    // The upload counts against the OWNER's quota.
-    if let Some(q) = crate::libs::quota::for_user(&st.pg_pool, &req.owner_user_id).await {
-        if q.would_exceed(p.file_size) {
+    // The upload counts against the OWNER's quota, along with every upload
+    // into that account that is started but not finished. The lock is held
+    // until the file and its chunks are committed.
+    let mut tx = match st.pg_pool.begin().await {
+        Ok(tx) => tx,
+        Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
+    };
+    if crate::libs::quota::lock(&mut tx, &req.owner_user_id).await.is_err() {
+        return respond(500, "Database error", vec![], json!({})).into_response();
+    }
+    if let Some(q) = crate::libs::quota::for_user(&mut tx, &req.owner_user_id).await {
+        if q.would_exceed(crate::libs::uploads::stored_total(&chunk_sizes, p.file_encrypted)) {
             return respond(
                 413,
                 "The recipient is out of storage",
@@ -498,7 +507,7 @@ pub async fn upload_create(
         p.blake3_checksum,
         req.folder_id,
     )
-    .fetch_one(&st.pg_pool)
+    .fetch_one(&mut *tx)
     .await
     {
         Ok(f) => f,
@@ -512,7 +521,7 @@ pub async fn upload_create(
         file.id,
         p.uploader_name
     )
-    .execute(&st.pg_pool)
+    .execute(&mut *tx)
     .await
     {
         return respond(500, "Failed to record upload", vec![], json!({})).into_response();
@@ -541,13 +550,17 @@ pub async fn upload_create(
         .bind(chunk.checksum.clone())
         .bind(chunk.salt.clone())
         .bind(chunk.nonce.clone())
-        .fetch_one(&st.pg_pool)
+        .fetch_one(&mut *tx)
         .await;
         match inserted {
             Ok(c) => chunks.push(c),
             Err(_e) => return respond(500, "Failed to create file chunk", vec![], json!({})).into_response(),
         }
         idx += 1;
+    }
+
+    if tx.commit().await.is_err() {
+        return respond(500, "Failed to create upload", vec![], json!({})).into_response();
     }
 
     respond(200, "Upload started", vec![], json!({ "file": file, "chunks": chunks })).into_response()
@@ -719,6 +732,22 @@ mod tests {
 
     fn some_ip() -> String {
         format!("2001:db8::{}", &crate::libs::rng::uuid()[..4])
+    }
+
+    #[tokio::test]
+    async fn uploads_through_a_link_share_the_owner_plan_before_any_is_stored() {
+        // Each create was checked against stored bytes only, so a link holder
+        // could start any number of uploads before the first one landed.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        set(&st, "UPDATE users SET default_storage_bytes = 8 WHERE id = $1", &owner).await;
+        let first = upload(&st, &token, &some_ip()).await;
+        let second = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(first, StatusCode::OK);
+        assert_eq!(second, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(made, 1);
     }
 
     #[tokio::test]

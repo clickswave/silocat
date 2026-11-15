@@ -21,7 +21,7 @@ fn env_u64(key: &str, default: u64) -> u64 {
 /// Scheduler entrypoint. Never returns.
 pub async fn run(pool: Pool<Postgres>, r2: R2) {
     let interval = env_u64("WATCHCAT_GC_INTERVAL_SECS", 900); // every 15 min
-    println!("[watchcat] online: orphan GC every {}s (TTL {}h)", interval, env_u64("WATCHCAT_GC_TTL_HOURS", 2));
+    println!("[watchcat] online: orphan GC every {}s (TTL {} min)", interval, orphan_ttl_minutes());
     // Warm-up so we don't race api_switch's migrations on a cold start.
     sleep(Duration::from_secs(8)).await;
     loop {
@@ -44,14 +44,20 @@ pub async fn run(pool: Pool<Postgres>, r2: R2) {
     }
 }
 
+/// How old an unfinished upload must be before the orphan sweep reaps it.
+///
+/// Never less than the life of its PUT URLs plus the grace margin: deleting the
+/// rows first would let a late PUT land an object that no row, quota or sweep
+/// ever finds again. Never more than 30 days, so a huge WATCHCAT_GC_TTL_HOURS
+/// still makes an interval Postgres accepts.
+fn orphan_ttl_minutes() -> u64 {
+    const MAX_MINUTES: u64 = 30 * 24 * 60;
+    let floor = (crate::libs::r2::PUT_URL_TTL + crate::libs::r2::PUT_URL_GRACE).as_secs() / 60;
+    env_u64("WATCHCAT_GC_TTL_HOURS", 2).saturating_mul(60).clamp(floor, MAX_MINUTES)
+}
+
 async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> {
-    // Never reap an upload while its PUT URLs still work. Deleting the rows
-    // first would let a late PUT land an object that no row, quota or sweep
-    // ever finds again. The margin covers clock skew and a slow final PUT.
-    let ttl_minutes = env_u64("WATCHCAT_GC_TTL_HOURS", 2)
-        .saturating_mul(60)
-        .max(crate::libs::r2::PUT_URL_TTL.as_secs() / 60 + 15);
-    let ttl_minutes = i64::try_from(ttl_minutes).unwrap_or(i64::MAX);
+    let ttl_minutes = orphan_ttl_minutes();
     let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
 
     // ttl_minutes/batch are our own integers: safe to inline into the interval.
@@ -280,4 +286,21 @@ async fn gc_abandoned_orders(pool: &Pool<Postgres>) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_orphan_ttl_stays_between_the_url_life_and_thirty_days() {
+        // Only this test reads WATCHCAT_GC_TTL_HOURS.
+        unsafe { std::env::set_var("WATCHCAT_GC_TTL_HOURS", u64::MAX.to_string()) };
+        let huge = orphan_ttl_minutes();
+        unsafe { std::env::set_var("WATCHCAT_GC_TTL_HOURS", "1") };
+        let small = orphan_ttl_minutes();
+        unsafe { std::env::remove_var("WATCHCAT_GC_TTL_HOURS") };
+        assert_eq!(huge, 30 * 24 * 60);
+        assert_eq!(small, 135);
+    }
 }

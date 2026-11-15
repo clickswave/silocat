@@ -13,10 +13,21 @@
 //! stored: chunk sizes must add up to it, each PUT URL is signed for its
 //! chunk's exact length, and a chunk counts only once measured at that length.
 //!
+//! Nothing is stored when an upload is created, so `used` also counts every
+//! chunk that is still waiting for its PUT, at the length its URL was signed
+//! for, for as long as that URL works. Without that, any number of uploads
+//! started before the first one landed were each checked against the same
+//! stored total, and all of them fit.
+//!
 //! Trashed files do not count, though their bytes stay stored until the trash
-//! is emptied, so restoring one checks the plan again (restore_files).
+//! is emptied, so restoring one checks the plan again (restore_files). A
+//! trashed upload whose URLs still work keeps its room until they expire.
+//!
+//! Every path that admits bytes (create, a request-link create, restore) takes
+//! `lock` first and writes in the same transaction, so requests sent together
+//! cannot each see the same usage.
 
-use sqlx::{Pool, Postgres};
+use sqlx::{PgConnection, Postgres};
 
 /// Bytes in a gibibyte. Every storage grant in the codebase is expressed as a
 /// multiple of this rather than a literal byte count, because the two signup
@@ -80,34 +91,57 @@ impl Quota {
     }
 }
 
+/// Serialise quota admission for one account until the caller's transaction
+/// ends. Hold it from the usage check to the commit of whatever was admitted.
+pub async fn lock(conn: &mut PgConnection, user_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('silocat-quota:' || $1, 0))")
+        .bind(user_id)
+        .execute(conn)
+        .await
+        .map(|_| ())
+}
+
+/// How long a chunk that has not been marked uploaded keeps its room: the life
+/// of its PUT URL plus the margin the orphan sweep also waits.
+pub fn pending_window_secs() -> i64 {
+    crate::libs::r2::PUT_URL_TTL.as_secs() as i64 + crate::libs::r2::PUT_URL_GRACE.as_secs() as i64
+}
+
 /// Compute a user's storage limit (base + active non-expired subscription space)
-/// and current used bytes (completed, non-deleted files). Returns `None` on a DB
-/// error or unknown user.
-pub async fn for_user(pool: &Pool<Postgres>, user_id: &str) -> Option<Quota> {
-    let limit = sqlx::query_scalar::<_, Option<i64>>(
+/// and current used bytes: stored chunks of non-deleted files, plus chunks whose
+/// PUT URL still works, of any file. Returns `None` on a DB error or unknown
+/// user. Run it after `lock` in the transaction that writes the admission.
+pub async fn for_user(conn: &mut PgConnection, user_id: &str) -> Option<Quota> {
+    let limit = sqlx::query_scalar::<Postgres, Option<i64>>(
         "SELECT ((SELECT default_storage_bytes FROM users WHERE id = $1) \
               + COALESCE((SELECT SUM(additional_space) FROM subscriptions \
                           WHERE created_by = $1 AND expires_on > NOW()), 0))::BIGINT",
     )
     .bind(user_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .ok()
     .flatten()?;
 
-    // Count REAL stored bytes (each chunk's HeadObject-measured size_on_server),
-    // not the client-declared files.size, so usage can't be understated to beat
-    // the plan. Uploaded chunks of any non-deleted file count (bytes are stored
-    // whether or not the file is fully assembled yet).
-    let used = sqlx::query_scalar::<_, Option<i64>>(
+    // Stored chunks count at their HeadObject-measured size_on_server, not the
+    // client-declared size, and only while their file is not trashed. A chunk
+    // still waiting for its PUT counts at the length its URL was signed for
+    // (declared size, plus the tag when encrypted) until that URL expires,
+    // trashed or not, since the URL still works either way.
+    let used = sqlx::query_scalar::<Postgres, Option<i64>>(
         // GREATEST: a size recorded negative before sizes were checked must
         // not lower the total and with it every later admission.
-        "SELECT COALESCE(SUM(GREATEST(c.size_on_server, 0)), 0)::BIGINT \
+        "SELECT COALESCE(SUM(CASE WHEN c.uploaded THEN GREATEST(c.size_on_server, 0) \
+                                  ELSE GREATEST(c.size, 0) + CASE WHEN f.encrypted THEN $3 ELSE 0 END END), 0)::BIGINT \
          FROM chunks c JOIN files f ON f.id = c.file_id \
-         WHERE f.user_id = $1 AND f.deleted = false AND c.uploaded = true",
+         WHERE f.user_id = $1 \
+           AND ((c.uploaded = true AND f.deleted = false) \
+             OR (c.uploaded = false AND c.created_on > NOW() - make_interval(secs => $2)))",
     )
     .bind(user_id)
-    .fetch_one(pool)
+    .bind(pending_window_secs() as f64)
+    .bind(crate::libs::uploads::ENCRYPTION_TAG_BYTES)
+    .fetch_one(&mut *conn)
     .await
     .ok()
     .flatten()

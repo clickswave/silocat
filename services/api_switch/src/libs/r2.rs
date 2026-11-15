@@ -9,6 +9,11 @@ use aws_sdk_s3::presigning::PresigningConfig;
 /// uploads already had to finish inside its two hours.
 pub const PUT_URL_TTL: Duration = Duration::from_secs(2 * 60 * 60);
 
+/// Margin past PUT_URL_TTL for clock skew and a slow final PUT. The orphan
+/// sweep waits TTL plus this before reaping, and a chunk waiting for its PUT
+/// keeps its room in the quota for as long.
+pub const PUT_URL_GRACE: Duration = Duration::from_secs(15 * 60);
+
 #[derive(Clone)]
 pub struct R2 {
     shadow_client: Client,

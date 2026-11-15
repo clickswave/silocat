@@ -29,6 +29,12 @@ pub fn stored_len(declared: i64, encrypted: bool) -> i64 {
     if encrypted { declared.saturating_add(ENCRYPTION_TAG_BYTES) } else { declared }
 }
 
+/// The bytes an upload will store once every chunk lands: what quota admission
+/// adds to the account's usage.
+pub fn stored_total(chunk_sizes: &[i64], encrypted: bool) -> i64 {
+    chunk_sizes.iter().fold(0i64, |sum, &size| sum.saturating_add(stored_len(size, encrypted)))
+}
+
 /// Check a declared upload before any URL is minted. An empty file may have no
 /// chunks (the drive page) or one empty chunk (the drop page and the client
 /// library).
@@ -118,5 +124,7 @@ mod tests {
         assert_eq!(stored_len(16 * MIB, true), 16 * MIB + 16);
         assert_eq!(stored_len(16 * MIB, false), 16 * MIB);
         assert_eq!(stored_len(0, true), 16);
+        assert_eq!(stored_total(&[16 * MIB, 5], true), 16 * MIB + 5 + 32);
+        assert_eq!(stored_total(&[], true), 0);
     }
 }

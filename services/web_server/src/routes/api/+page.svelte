@@ -101,7 +101,7 @@ const plaintext = await silo.download(file.id, {
 				{
 					method: 'POST',
 					path: '/api/v1/sanctum/file',
-					desc: 'Register a file and receive one presigned PUT per chunk.',
+					desc: 'Register a file and receive one presigned PUT per chunk. Sizes are plaintext bytes: the chunk sizes must add up to file_size, and no chunk may be over 100 MiB. An upload counts against your storage from this call, not from when its bytes land.',
 					body: {
 						storage_type: 'sanctum',
 						file_encrypted: true,
@@ -118,13 +118,13 @@ const plaintext = await silo.download(file.id, {
 				{
 					method: 'PUT',
 					path: '{presigned_url}',
-					desc: 'PUT the bytes for one chunk directly to storage: ciphertext when the file is encrypted.',
+					desc: 'PUT the bytes for one chunk directly to storage: ciphertext when the file is encrypted. The URL is signed for exactly the declared size, plus 16 bytes when encrypted, and expires after 2 hours.',
 					sample: '(request body is the raw chunk; the response is empty)'
 				},
 				{
 					method: 'POST',
 					path: '/api/v1/sanctum/file/mark-chunk-complete',
-					desc: 'Confirm a chunk landed. Unconfirmed uploads are reaped.',
+					desc: 'Confirm a chunk landed at the length its URL was signed for. A 503 means storage could not be checked: retry it. Unconfirmed uploads are reaped.',
 					body: { chunk_id: 'c_01H…' }
 				}
 			]
