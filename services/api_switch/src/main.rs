@@ -3,6 +3,8 @@ pub mod routes;
 pub mod middlewares;
 pub mod models;
 pub mod watchcat;
+#[cfg(test)]
+mod test_support;
 
 /// Fail-fast config gate. If any required environment variable is *unset*, print
 /// the full list and exit(1) before doing any work: never fall back to a silent

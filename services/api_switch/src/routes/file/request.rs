@@ -78,6 +78,27 @@ pub async fn create_request(
         Err(r) => return r,
     };
 
+    // A link puts files into the owner's account, so an account that may not
+    // upload may not open one either.
+    if let Some(ban) = crate::libs::bans::user_ban(&st.pg_pool, &owner).await {
+        return respond(
+            403,
+            "Account banned",
+            vec![ban.reason.clone().unwrap_or_else(|| "Your account has been banned.".to_string())],
+            json!({ "banned": true, "reason": ban.reason, "until": ban.until }),
+        )
+        .into_response();
+    }
+    if crate::libs::bans::user_restricted(&st.pg_pool, &owner).await {
+        return respond(
+            403,
+            "Account restricted",
+            vec!["Your account is restricted; uploads are disabled.".to_string()],
+            json!({ "restricted": true }),
+        )
+        .into_response();
+    }
+
     // Request-a-file is a paid delivery feature.
     if !crate::libs::plans::is_paid(&st.pg_pool, &owner).await {
         return respond(
@@ -273,10 +294,29 @@ struct ActiveRequest {
     upload_count: i32,
 }
 
-/// Resolve a token to an ACTIVE, unexpired, under-cap request, or an error
-/// response. Shared by the public info + upload handlers.
+/// Whether the owner may still take files through a request link: not under an
+/// active ban, not restricted, and still on a paid plan. These are the account
+/// checks create_files and create_request make, applied to links that were
+/// opened before the owner was banned, restricted or stopped paying.
+async fn owner_receives(pool: &sqlx::PgPool, owner: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT NOT (u.is_banned AND (u.banned_until IS NULL OR u.banned_until > NOW())) \
+                AND NOT COALESCE(u.is_restricted, false) \
+                AND EXISTS (SELECT 1 FROM subscriptions s \
+                            WHERE s.created_by = u.id AND s.expires_on > NOW()) \
+         FROM users u WHERE u.id = $1",
+    )
+    .bind(owner)
+    .fetch_optional(pool)
+    .await
+    .map(|open| open.unwrap_or(false))
+}
+
+/// Resolve a token to an ACTIVE, unexpired, under-cap request whose owner may
+/// still receive files, or an error response. Shared by the public info and
+/// upload handlers.
 async fn resolve_active(
-    st: &crate::AppState,
+    pool: &sqlx::PgPool,
     token: &str,
 ) -> Result<ActiveRequest, axum::response::Response> {
     let row = sqlx::query!(
@@ -284,7 +324,7 @@ async fn resolve_active(
          FROM file_requests WHERE token = $1",
         token
     )
-    .fetch_optional(&st.pg_pool)
+    .fetch_optional(pool)
     .await;
     let r = match row {
         Ok(Some(r)) => r,
@@ -303,6 +343,12 @@ async fn resolve_active(
         if r.upload_count >= cap {
             return Err(respond(410, "This request is full.", vec![], json!({})).into_response());
         }
+    }
+    // The uploader is told only that the link is closed, nothing about why.
+    match owner_receives(pool, &r.owner_user_id).await {
+        Ok(true) => {}
+        Ok(false) => return Err(respond(410, "This request is closed.", vec![], json!({})).into_response()),
+        Err(_e) => return Err(respond(500, "Database error", vec![], json!({})).into_response()),
     }
     Ok(ActiveRequest {
         id: r.id,
@@ -361,7 +407,8 @@ pub async fn public_info(
         Ok(Some(r)) => {
             let open = r.active
                 && r.expires_at.map(|e| e > Utc::now()).unwrap_or(true)
-                && r.max_uploads.map(|c| r.upload_count < c).unwrap_or(true);
+                && r.max_uploads.map(|c| r.upload_count < c).unwrap_or(true)
+                && resolve_active(&st.pg_pool, &token).await.is_ok();
             respond(
                 200,
                 "Request",
@@ -403,7 +450,17 @@ pub async fn upload_create(
     if !request_allowed(&st, &ip, &p.token, "up", 20, 40) {
         return too_many();
     }
-    let req = match resolve_active(&st, &p.token).await {
+    // The uploader has no account, so this is the anonymous upload gate.
+    if let Some(ban) = crate::libs::bans::ip_ban(&st.pg_pool, &ip).await {
+        return respond(
+            403,
+            "You are banned",
+            vec![ban.reason.clone().unwrap_or_else(|| "Your access has been banned.".to_string())],
+            json!({ "banned": true, "reason": ban.reason, "until": ban.until }),
+        )
+        .into_response();
+    }
+    let req = match resolve_active(&st.pg_pool, &p.token).await {
         Ok(r) => r,
         Err(resp) => return resp,
     };
@@ -510,7 +567,7 @@ pub async fn upload_mark_complete(
     if !request_allowed(&st, &ip, &p.token, "done", 2000, 4000) {
         return too_many();
     }
-    let req = match resolve_active(&st, &p.token).await {
+    let req = match resolve_active(&st.pg_pool, &p.token).await {
         Ok(r) => r,
         Err(resp) => return resp,
     };
@@ -588,4 +645,194 @@ pub async fn upload_mark_complete(
     let _ = req.max_uploads; // (cap already enforced at create time)
     let _ = req.upload_count;
     respond(200, "Chunk complete", vec![], json!({})).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    //! These call the handlers against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset. Each deletes the
+    //! accounts it made.
+
+    use super::*;
+    use crate::test_support::{account, forget, state, subscribe};
+    use axum::extract::ConnectInfo;
+    use axum::http::{HeaderMap, StatusCode};
+
+    /// A paying owner with one open request link. Returns (owner, token).
+    async fn open_link(st: &crate::AppState) -> (String, String) {
+        let (owner, _) = account(&st.pg_pool).await;
+        subscribe(&st.pg_pool, &owner).await;
+        let token = crate::libs::rng::uuid().replace('-', "");
+        sqlx::query("INSERT INTO file_requests (token, owner_user_id) VALUES ($1, $2)")
+            .bind(&token)
+            .bind(&owner)
+            .execute(&st.pg_pool)
+            .await
+            .expect("seed request");
+        (owner, token)
+    }
+
+    async fn upload(st: &crate::AppState, token: &str, ip: &str) -> StatusCode {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-client-ip", ip.parse().unwrap());
+        let payload: UploadCreatePayload = serde_json::from_value(json!({
+            "token": token,
+            "uploader_name": "someone",
+            "file_encrypted": false,
+            "file_name": "notes.txt",
+            "file_mime": "text/plain",
+            "file_size": 5,
+            "chunks": [{ "start": 0, "end": 5, "size": 5, "checksum": "c" }],
+            "sha256_checksum": "s",
+            "blake3_checksum": "b"
+        }))
+        .unwrap();
+        upload_create(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
+            .await
+            .into_response()
+            .status()
+    }
+
+    async fn files_of(st: &crate::AppState, owner: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE user_id = $1")
+            .bind(owner)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap()
+    }
+
+    async fn set(st: &crate::AppState, sql: &str, owner: &str) {
+        sqlx::query(sql).bind(owner).execute(&st.pg_pool).await.expect(sql);
+    }
+
+    fn some_ip() -> String {
+        format!("2001:db8::{}", &crate::libs::rng::uuid()[..4])
+    }
+
+    #[tokio::test]
+    async fn an_open_link_of_a_paying_owner_still_takes_uploads() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let status = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(made, 1);
+    }
+
+    #[tokio::test]
+    async fn a_banned_owner_link_takes_no_uploads() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, banned_until = NULL WHERE id = $1", &owner).await;
+        let status = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::GONE);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_lapsed_temporary_ban_reopens_the_link() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        set(
+            &st,
+            "UPDATE users SET is_banned = TRUE, banned_until = NOW() - INTERVAL '1 hour' WHERE id = $1",
+            &owner,
+        )
+        .await;
+        let status = upload(&st, &token, &some_ip()).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_restricted_owner_link_takes_no_uploads() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        set(&st, "UPDATE users SET is_restricted = TRUE WHERE id = $1", &owner).await;
+        let status = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::GONE);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_link_stops_taking_uploads_when_the_plan_lapses() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        set(&st, "UPDATE subscriptions SET expires_on = NOW() - INTERVAL '1 day' WHERE created_by = $1", &owner).await;
+        let status = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::GONE);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn an_ip_banned_uploader_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let ip = some_ip();
+        let ban = crate::libs::rng::uuid();
+        sqlx::query("INSERT INTO ip_bans (id, ip, reason) VALUES ($1, $2, 'abuse')")
+            .bind(&ban)
+            .bind(&ip)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let status = upload(&st, &token, &ip).await;
+        let made = files_of(&st, &owner).await;
+        sqlx::query("DELETE FROM ip_bans WHERE id = $1").bind(&ban).execute(&st.pg_pool).await.unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn the_upload_page_shows_a_restricted_owner_link_as_closed() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let open = |st: crate::AppState, token: String| async move {
+            let resp = public_info(
+                ConnectInfo("127.0.0.1:1".parse().unwrap()),
+                State(st),
+                HeaderMap::new(),
+                Path(token),
+            )
+            .await
+            .into_response();
+            let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            v.pointer("/data/open").cloned()
+        };
+        let before = open(st.clone(), token.clone()).await;
+        set(&st, "UPDATE users SET is_restricted = TRUE WHERE id = $1", &owner).await;
+        let after = open(st.clone(), token.clone()).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(before, Some(json!(true)));
+        assert_eq!(after, Some(json!(false)));
+    }
+
+    #[tokio::test]
+    async fn a_restricted_account_cannot_open_a_request_link() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, key_index) = account(&st.pg_pool).await;
+        subscribe(&st.pg_pool, &owner).await;
+        set(&st, "UPDATE users SET is_restricted = TRUE WHERE id = $1", &owner).await;
+        let caller = Some(Caller { api_key: key_index, user_id: Some(owner.clone()), email_verified: true });
+        let payload: CreateRequestPayload = serde_json::from_value(json!({})).unwrap();
+        let status =
+            create_request(State(st.clone()), Extension(caller), Json(payload)).await.into_response().status();
+        let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM file_requests WHERE owner_user_id = $1")
+            .bind(&owner)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(links, 0);
+    }
 }

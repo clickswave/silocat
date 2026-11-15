@@ -69,6 +69,89 @@ pub struct GoogleUserInfo {
     pub picture: String,
 }
 
+/// What a Google sign-in answers for an account that already holds this
+/// email: the status, message, errors and body handed to `respond`.
+type Answer = (i32, &'static str, Vec<String>, serde_json::Value);
+
+async fn sign_in_existing(st: &crate::AppState, google_user: &GoogleUserInfo, mut user: User) -> Answer {
+    // Banned accounts get no session here either, the same refusal password
+    // login gives. Checked before a claim so a refused sign-in changes nothing.
+    let ban_active = user.is_banned && user.banned_until.map(|u| u > chrono::Utc::now()).unwrap_or(true);
+    if ban_active {
+        return (
+            403,
+            "Account banned",
+            vec![user.ban_reason.clone().unwrap_or_else(|| "Your account has been banned.".to_string())],
+            json!({ "banned": true, "reason": user.ban_reason, "until": user.banned_until }),
+        );
+    }
+
+    // An unverified account was made by someone who never proved this
+    // address, and Google has just shown the caller owns it. Take it
+    // from the registrant before signing the caller in: new API key,
+    // no password, new username, no share links. See account_claim.
+    if !user.email_verified {
+        use super::account_claim::{self, Claim};
+        let key = match libs::apikey::mint() {
+            Some(k) => k,
+            None => return (500, "Server misconfigured", vec![], json!({})),
+        };
+        let base = username_base(google_user);
+        let picture = Some(google_user.picture.as_str()).filter(|p| !p.is_empty());
+        let claimed = async {
+            let mut tx = st.pg_pool.begin().await?;
+            let claim =
+                account_claim::google_sign_in(&mut tx, &user.id, &user.email, &base, picture, &key).await?;
+            tx.commit().await?;
+            let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+                .bind(&user.id)
+                .fetch_one(&st.pg_pool)
+                .await?;
+            Ok::<_, sqlx::Error>((claim, row))
+        }
+        .await;
+        user = match claimed {
+            Ok((Claim::Moved, _)) => {
+                return (
+                    409,
+                    "Account changed",
+                    vec!["This account changed while you were signing in. Please try again.".to_string()],
+                    json!({}),
+                );
+            }
+            Ok((claim, u)) => {
+                if claim == Claim::TakenOver {
+                    // The registrant's uploaded avatar, if any. The row
+                    // no longer points at it.
+                    let _ = st.r2.delete_object("dp", &u.id).await;
+                }
+                u
+            }
+            Err(e) => {
+                eprintln!("[google_auth] claim failed: {:?}", e);
+                return (500, "Database error", vec![], json!({}));
+            }
+        };
+    }
+
+    // Resolve the active subscription exactly as password login does.
+    // Passing None here handed a paying user a free-tier session, so the
+    // sidebar showed the wrong storage total until something else
+    // refreshed it, and paid-only affordances read as locked.
+    let subscription = sqlx::query_as!(
+        crate::models::Subscription,
+        "SELECT * FROM subscriptions WHERE id = $1 AND expires_on > NOW() \
+         ORDER BY created_on DESC",
+        user.subscription_id
+    )
+    .fetch_optional(&st.pg_pool)
+    .await
+    .unwrap_or(None);
+
+    let token_data = crate::models::token_data(user, subscription);
+    (200, "Login successful", vec![], json!(token_data))
+}
+
 pub async fn handle(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(axum_state): State<crate::AppState>,
@@ -153,71 +236,9 @@ pub async fn handle(
         .await;
 
     match existing_user {
-        Ok(Some(mut user)) => {
-            // An unverified account was made by someone who never proved this
-            // address, and Google has just shown the caller owns it. Take it
-            // from the registrant before signing the caller in: new API key,
-            // no password, new username, no share links. See account_claim.
-            if !user.email_verified {
-                use super::account_claim::{self, Claim};
-                let key = match libs::apikey::mint() {
-                    Some(k) => k,
-                    None => return respond(500, "Server misconfigured", vec![], json!({})),
-                };
-                let base = username_base(&google_user);
-                let picture = Some(google_user.picture.as_str()).filter(|p| !p.is_empty());
-                let claimed = async {
-                    let mut tx = axum_state.pg_pool.begin().await?;
-                    let claim =
-                        account_claim::google_sign_in(&mut tx, &user.id, &user.email, &base, picture, &key).await?;
-                    tx.commit().await?;
-                    let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-                        .bind(&user.id)
-                        .fetch_one(&axum_state.pg_pool)
-                        .await?;
-                    Ok::<_, sqlx::Error>((claim, row))
-                }
-                .await;
-                user = match claimed {
-                    Ok((Claim::Moved, _)) => {
-                        return respond(
-                            409,
-                            "Account changed",
-                            vec!["This account changed while you were signing in. Please try again.".to_string()],
-                            json!({}),
-                        );
-                    }
-                    Ok((claim, u)) => {
-                        if claim == Claim::TakenOver {
-                            // The registrant's uploaded avatar, if any. The row
-                            // no longer points at it.
-                            let _ = axum_state.r2.delete_object("dp", &u.id).await;
-                        }
-                        u
-                    }
-                    Err(e) => {
-                        eprintln!("[google_auth] claim failed: {:?}", e);
-                        return respond(500, "Database error", vec![], json!({}));
-                    }
-                };
-            }
-
-            // Resolve the active subscription exactly as password login does.
-            // Passing None here handed a paying user a free-tier session, so the
-            // sidebar showed the wrong storage total until something else
-            // refreshed it, and paid-only affordances read as locked.
-            let subscription = sqlx::query_as!(
-                crate::models::Subscription,
-                "SELECT * FROM subscriptions WHERE id = $1 AND expires_on > NOW() \
-                 ORDER BY created_on DESC",
-                user.subscription_id
-            )
-            .fetch_optional(&axum_state.pg_pool)
-            .await
-            .unwrap_or(None);
-
-            let token_data = crate::models::token_data(user, subscription);
-            return respond(200, "Login successful", vec![], json!(token_data));
+        Ok(Some(user)) => {
+            let (status, message, errors, data) = sign_in_existing(&axum_state, &google_user, user).await;
+            return respond(status, message, errors, data);
         },
         Ok(None) => {
             // First Google sign-in: create the account. Google already verified the
@@ -271,5 +292,87 @@ pub async fn handle(
         Err(_e) => {
              return respond(500, "Database error", vec![], json!({}));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! These sign in to accounts in a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset. Each deletes the
+    //! account it made.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+
+    async fn google_sign_in(st: &crate::AppState, id: &str) -> Answer {
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        let google_user = GoogleUserInfo {
+            id: "google-id".to_string(),
+            email: user.email.clone(),
+            verified_email: true,
+            name: "Someone".to_string(),
+            picture: String::new(),
+        };
+        sign_in_existing(st, &google_user, user).await
+    }
+
+    async fn set(st: &crate::AppState, sql: &str, id: &str) {
+        sqlx::query(sql).bind(id).execute(&st.pg_pool).await.expect(sql);
+    }
+
+    #[tokio::test]
+    async fn an_account_in_good_standing_signs_in() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        let (status, _, _, data) = google_sign_in(&st, &id).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(status, 200);
+        assert_eq!(data["id"], json!(id));
+    }
+
+    #[tokio::test]
+    async fn a_banned_account_gets_no_session() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, banned_until = NULL, ban_reason = 'abuse' WHERE id = $1", &id)
+            .await;
+        let (status, _, _, data) = google_sign_in(&st, &id).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(status, 403);
+        assert!(data.get("api_key").is_none(), "a refused sign-in must not carry the key");
+        assert_eq!(data["banned"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn a_temporarily_banned_account_gets_no_session_until_it_ends() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, banned_until = NOW() + INTERVAL '1 day' WHERE id = $1", &id).await;
+        let (during, _, _, _) = google_sign_in(&st, &id).await;
+        set(&st, "UPDATE users SET banned_until = NOW() - INTERVAL '1 minute' WHERE id = $1", &id).await;
+        let (after, _, _, _) = google_sign_in(&st, &id).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(during, 403);
+        assert_eq!(after, 200);
+    }
+
+    #[tokio::test]
+    async fn a_banned_unverified_account_is_not_claimed() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, key_index) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET email_verified = FALSE, is_banned = TRUE WHERE id = $1", &id).await;
+        let (status, _, _, _) = google_sign_in(&st, &id).await;
+        let still: String = sqlx::query_scalar("SELECT api_key FROM users WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(status, 403);
+        assert_eq!(still, key_index, "a refused sign-in must leave the account as it was");
     }
 }
