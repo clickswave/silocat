@@ -3,6 +3,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use chrono::{DateTime, Utc};
 
 /// The authenticated caller behind an `X-Api-Key`. The file/folder routes serve
 /// both registered users ("sanctum") and anonymous ("shadow") sessions, so a
@@ -39,6 +40,26 @@ impl Caller {
     }
 }
 
+/// The caller for a key that matched a row in `users`, or `None` while that
+/// account is banned. A key that matched a banned account never falls through
+/// to the anonymous lookup: it resolves to no caller at all, so every file and
+/// folder route treats it as unauthenticated.
+fn account_caller(
+    api_key: String,
+    user_id: String,
+    email_verified: bool,
+    is_banned: bool,
+    banned_until: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Option<Caller> {
+    // Same rule as validate_token and login: a ban with no end date is permanent.
+    let banned = is_banned && banned_until.map(|u| u > now).unwrap_or(true);
+    if banned {
+        return None;
+    }
+    Some(Caller { api_key, user_id: Some(user_id), email_verified })
+}
+
 /// Non-rejecting identity resolver for the file/folder routers. Attaches an
 /// `Option<Caller>` to every request: `Some` when the `X-Api-Key` resolves to a
 /// user or a shadow session, `None` otherwise. Handlers decide what to require: /// reads allow public objects with no caller; writes demand ownership.
@@ -61,8 +82,8 @@ pub async fn resolve_identity(
     let caller: Option<Caller> = match key {
         Some(k) => {
             // Registered user?
-            let user = sqlx::query_as::<_, (String, bool)>(
-                "SELECT id, email_verified FROM users WHERE api_key = $1",
+            let user = sqlx::query_as::<_, (String, bool, bool, Option<DateTime<Utc>>)>(
+                "SELECT id, email_verified, is_banned, banned_until FROM users WHERE api_key = $1",
             )
             .bind(&k)
             .fetch_optional(&state.pg_pool)
@@ -70,9 +91,19 @@ pub async fn resolve_identity(
             .ok()
             .flatten();
             match user {
-                Some((uid, email_verified)) => {
-                    crate::libs::activity::touch(&state.pg_pool, &uid);
-                    Some(Caller { api_key: k, user_id: Some(uid), email_verified })
+                Some((uid, email_verified, is_banned, banned_until)) => {
+                    let caller = account_caller(
+                        k,
+                        uid.clone(),
+                        email_verified,
+                        is_banned,
+                        banned_until,
+                        Utc::now(),
+                    );
+                    if caller.is_some() {
+                        crate::libs::activity::touch(&state.pg_pool, &uid);
+                    }
+                    caller
                 }
                 None => {
                     // Known shadow (anonymous) session?
@@ -102,7 +133,8 @@ pub async fn resolve_identity(
 
 #[cfg(test)]
 mod tests {
-    use super::Caller;
+    use super::{account_caller, Caller};
+    use chrono::{Duration, Utc};
 
     // owns() only ever sees blind indexes, so plain strings stand in for them.
     const OLD: &str = "index-of-the-rotated-out-key";
@@ -165,5 +197,27 @@ mod tests {
         // rotation moves to the new one.
         assert!(account("u1", NEW).owns(&None, &some(NEW)));
         assert!(!account("u1", NEW).owns(&None, &some(OLD)));
+    }
+
+    #[test]
+    fn a_banned_account_resolves_to_no_caller() {
+        // A permanent ban (no expiry) and a temporary one still running both
+        // leave the key with no identity on the file and folder routes, so it
+        // cannot restore, re-share, list or download what it owns.
+        let now = Utc::now();
+        assert!(account_caller(NEW.into(), "u1".into(), true, true, None, now).is_none());
+        let later = Some(now + Duration::days(30));
+        assert!(account_caller(NEW.into(), "u1".into(), true, true, later, now).is_none());
+    }
+
+    #[test]
+    fn an_account_whose_ban_has_lapsed_or_was_lifted_is_a_caller_again() {
+        let now = Utc::now();
+        let earlier = Some(now - Duration::minutes(1));
+        let c = account_caller(NEW.into(), "u1".into(), true, true, earlier, now).unwrap();
+        assert_eq!(c.user_id.as_deref(), Some("u1"));
+        let c = account_caller(NEW.into(), "u1".into(), false, false, None, now).unwrap();
+        assert_eq!(c.user_id.as_deref(), Some("u1"));
+        assert!(!c.email_verified);
     }
 }
