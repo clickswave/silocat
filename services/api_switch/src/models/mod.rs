@@ -128,7 +128,13 @@ pub struct File {
     pub total_chunks: i64,
     pub uploaded_chunks: i64,
     pub deleted: bool,
+    // Hashes of the plaintext, as the uploader sent them. Never serialised: this
+    // struct goes out whole to anyone holding a drop link, and a plaintext hash
+    // lets someone without the password confirm a guess at the content, or
+    // brute force short content outright.
+    #[serde(skip_serializing)]
     pub sha256_checksum: String,
+    #[serde(skip_serializing)]
     pub blake3_checksum: String,
     pub public_access: bool,
     pub folder_id: Option<String>,

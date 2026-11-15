@@ -328,4 +328,53 @@ mod tests {
         assert!(!folder_readable_by_id(DROP, &FolderAccess { published: true, protected: true }));
         assert!(!folder_readable_by_id(DROP, &FolderAccess { published: false, protected: false }));
     }
+
+    fn encrypted_drop() -> crate::models::File {
+        // SHA-256 of "4821", a four digit PIN: anyone handed this hash finds
+        // the PIN in microseconds without ever trying the unlock password.
+        crate::models::File {
+            id: "drop-1".into(),
+            user_id: None,
+            name: "pin.txt".into(),
+            mime: "text/plain".into(),
+            size: 4,
+            encrypted: true,
+            downloads: 0,
+            created_on: chrono::Utc::now(),
+            total_chunks: 1,
+            uploaded_chunks: 1,
+            deleted: false,
+            sha256_checksum: "a388f562e286fdf28986f9253579f4d096446e01dd0c771996a51ff11b390fa2".into(),
+            blake3_checksum: "".into(),
+            public_access: true,
+            folder_id: None,
+            owner_api_key: None,
+            starred: false,
+            share_token: None,
+            share_type: None,
+            link_downloads: None,
+            link_max_downloads: None,
+            share_expires_at: None,
+            share_password_hash: None,
+            deleted_on: None,
+        }
+    }
+
+    #[test]
+    fn a_served_file_carries_no_plaintext_hash() {
+        // fetch-resource and fetch-files serialise the File as is, to anyone
+        // holding a drop link. The hash is over the plaintext, so it lets a
+        // link holder without the password confirm or brute force the content.
+        let file = encrypted_drop();
+        let direct = serde_json::to_value(&file).unwrap();
+        assert!(direct.get("sha256_checksum").is_none(), "{direct}");
+        assert!(direct.get("blake3_checksum").is_none(), "{direct}");
+
+        // A folder listing goes through file_with_path.
+        let listed = file_with_path(&file, "photos");
+        assert!(listed.get("sha256_checksum").is_none(), "{listed}");
+        assert!(listed.get("blake3_checksum").is_none(), "{listed}");
+        assert_eq!(listed["path"], "photos");
+        assert_eq!(listed["size"], 4);
+    }
 }

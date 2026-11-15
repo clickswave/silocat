@@ -601,9 +601,6 @@
 					<div><dt>Size</dt><dd>{fmtSize(fileMeta.size)}</dd></div>
 					<div><dt>Uploaded</dt><dd>{fmtDate(fileMeta.created_on)}</dd></div>
 					<div><dt>Type</dt><dd class="ellipsis">{fileMeta.mime || 'file'}</dd></div>
-					{#if fileMeta.sha256_checksum}
-						<div class="full"><dt>SHA-256</dt><dd class="mono ellipsis">{fileMeta.sha256_checksum}</dd></div>
-					{/if}
 				</dl>
 			{:else}
 				<div class="state">
@@ -899,9 +896,6 @@
 		div {
 			min-width: 0;
 		}
-		.full {
-			grid-column: 1 / -1;
-		}
 		dt {
 			font-size: var(--fs-xs);
 			color: var(--ink-faint);
@@ -911,10 +905,6 @@
 			margin: 0;
 			font-size: var(--fs-sm);
 			color: var(--ink);
-			&.mono {
-				font-family: var(--font-mono);
-				font-size: var(--fs-xs);
-			}
 			&.ellipsis {
 				overflow: hidden;
 				text-overflow: ellipsis;
