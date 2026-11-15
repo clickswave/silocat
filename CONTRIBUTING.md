@@ -20,9 +20,9 @@ git checkout -b your-change
 ## Before you start
 
 For anything beyond a bug fix or a typo, open an issue first and say what you
-intend to do. It is a zero-knowledge product, so changes that touch the crypto,
-the share links, or the auth path need a design conversation before code, not
-after.
+intend to do. Encrypted uploads are zero-knowledge, so changes that touch the
+crypto, the share links, or the auth path need a design conversation before
+code, not after.
 
 **Do not open an issue for a security problem.** Read
 [SECURITY.md](SECURITY.md) and email team@silo.cat instead.

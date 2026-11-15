@@ -1,11 +1,12 @@
 /**
  * Silocat client.
  *
- * Silocat is zero-knowledge: the server holds ciphertext and never sees your
- * password or the key derived from it. That is a real constraint on any client,
- * not a detail this library hides. What it does hide is the *mechanics* of
- * getting it right, because those are easy to get subtly wrong in a way that
- * produces files nobody can ever open.
+ * Silocat encrypts on the client. Upload with a password and the server holds
+ * ciphertext and never sees the password or the key derived from it; upload
+ * without one and it holds the plain file. That is a real constraint on any
+ * client, not a detail this library hides. What it does hide is the
+ * *mechanics* of getting it right, because those are easy to get subtly wrong
+ * in a way that produces files nobody can ever open.
  *
  *   import { Silocat } from '@clickswave/silocat-client';
  *
@@ -131,7 +132,8 @@ export class Silocat {
 	// ---- upload -----------------------------------------------------------
 
 	/**
-	 * Encrypt and upload. The plaintext never leaves this process.
+	 * Upload a file. With a password it is encrypted here first and the
+	 * plaintext never leaves this process; without one it is uploaded as is.
 	 *
 	 * @param {Uint8Array|ArrayBuffer|Blob} data
 	 * @param {object} opts

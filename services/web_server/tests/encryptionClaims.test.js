@@ -198,3 +198,77 @@ test('page descriptions that mention encryption say it is optional', () => {
 		}
 	}
 });
+
+const repo = (/** @type {string} */ path) =>
+	readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8').replace(/\s+/g, ' ');
+
+test('the empty Files view does not say an upload is encrypted', () => {
+	const files = page('home/files/+page.svelte');
+	absent(files, /It is encrypted before it leaves your browser/i, 'home/files');
+	absent(page('home/+page.svelte'), /It is encrypted before it leaves your browser/i, 'home');
+});
+
+test('the sign-in page description does not call the storage encrypted', () => {
+	const signin = page('auth/signin/+page.svelte');
+	for (const [, d] of signin.matchAll(/description="([^"]*)"/g)) {
+		if (/encrypt|zero-knowledge|ciphertext/i.test(d)) {
+			assert.match(d, /optional|password/i, `auth/signin: ${d}`);
+		}
+	}
+});
+
+test('the security pipeline does not say every upload is ciphertext', () => {
+	const privacy = page('privacy/+page.svelte');
+	absent(privacy, /what: 'Only ciphertext travels/i, 'privacy');
+	absent(privacy, /what: "The recipient's browser fetches ciphertext/i, 'privacy');
+	const readme = repo('README.md');
+	absent(readme, /\| Upload \| Only ciphertext travels/i, 'README.md');
+	absent(readme, /\| Download \| The recipient's browser fetches ciphertext/i, 'README.md');
+});
+
+test('the drop page fallback preview matches the server one', () => {
+	const drop = page('[slug]/+page.svelte');
+	absent(drop, /Secure download on Silocat/i, '[slug]');
+	absent(drop, /A file shared securely/i, '[slug]');
+	const server = page('[slug]/+page.server.js');
+	const title = server.match(/title: '(Download on SiloCat)'/)?.[1];
+	assert.ok(title, 'server fallback title not found');
+	assert.ok(drop.includes(`title: '${title}'`), 'client fallback title differs from the server one');
+});
+
+test('the web manifest does not call every file encrypted', () => {
+	const manifest = JSON.parse(readFileSync(new URL('../static/site.webmanifest', import.meta.url), 'utf8'));
+	absent(manifest.name, /encrypt|zero-knowledge/i, 'manifest name');
+	if (/encrypt|zero-knowledge/i.test(manifest.description)) {
+		assert.match(manifest.description, /optional/i, `manifest description: ${manifest.description}`);
+	}
+	absent(manifest.description, /^Zero-knowledge, end-to-end encrypted/i, 'manifest description');
+});
+
+test('the npm client docs do not say it only ever sends ciphertext', () => {
+	const readme = repo('packages/client/README.md');
+	absent(readme, /Silocat is zero-knowledge\. Files are encrypted before upload/i, 'client README');
+	absent(readme, /it takes ciphertext and hands back/i, 'client README');
+	absent(readme, /so ciphertext is all that ever leaves your process/i, 'client README');
+	const index = repo('packages/client/src/index.js');
+	absent(index, /the server holds ciphertext and never sees/i, 'client index.js');
+	absent(index, /Encrypt and upload\. The plaintext never leaves this process/i, 'client index.js');
+	const pkg = JSON.parse(readFileSync(new URL('../../../packages/client/package.json', import.meta.url), 'utf8'));
+	absent(pkg.description, /ciphertext is all that ever leaves/i, 'client package.json');
+});
+
+test('the email templates do not say every file is encrypted', () => {
+	const sources = [
+		'email_templates/build.py',
+		...['account-suspended', 'password-reset', 'ticket-update', 'verify-email'].map(
+			(t) => `email_templates/transactional/${t}.html`
+		)
+	];
+	for (const path of sources) {
+		const src = repo(path);
+		absent(src, /&middot;&nbsp; end-to-end encrypted file sharing/i, path);
+		absent(src, /Your files stay encrypted throughout/i, path);
+		absent(src, /We hold ciphertext and never see/i, path);
+		absent(src, /remain encrypted exactly as you left them/i, path);
+	}
+});

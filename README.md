@@ -44,11 +44,11 @@ below, or read the code and decide for yourself whether to believe us.
 | Stage | What happens | Who can read it |
 |---|---|---|
 | Select | You pick files. Nothing has moved. | Only you |
-| Encrypt | libsodium encrypts each chunk with a key Argon2id derives from your password, on your device. | Only you |
-| Upload | Only ciphertext travels. TLS wraps it again in transit. | Only you |
+| Encrypt | With password protection on, libsodium encrypts each chunk with a key Argon2id derives from your password, on your device. With it off, nothing is encrypted. | Only you |
+| Upload | An encrypted file travels as ciphertext, an unencrypted one as the plain file. TLS wraps either in transit. | Only you if encrypted, otherwise us too |
 | Store | We hold the blobs (ciphertext when encrypted) plus metadata we can read: filenames, folder names, size, timestamps, and a hash of the file's plaintext. | You, plus metadata to us |
 | Share | The link carries no key. You pass the password separately. | Anyone with link + password |
-| Download | The recipient's browser fetches ciphertext and decrypts locally. | Only you |
+| Download | For an encrypted file, the recipient's browser fetches ciphertext and decrypts locally. An unencrypted file downloads as uploaded. | Only you |
 | Delete | Blobs are unlinked immediately and scrubbed in the next sweep. | No one |
 
 Zero-knowledge is not zero-metadata. Even for encrypted uploads, we can see the

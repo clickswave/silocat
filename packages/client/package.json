@@ -1,7 +1,7 @@
 {
   "name": "@clickswave/silocat-client",
   "version": "0.1.0",
-  "description": "Client for the Silocat API. Does the end-to-end encryption for you, so ciphertext is all that ever leaves the process.",
+  "description": "Client for the Silocat API. Give it a password and it does the end-to-end encryption for you, so only ciphertext leaves the process.",
   "author": "Clickswave Labs",
   "license": "AGPL-3.0-only",
   "homepage": "https://silo.cat",

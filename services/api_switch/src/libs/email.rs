@@ -194,7 +194,7 @@ fn render_otp_email(
                 <a href="https://silo.cat/policies/terms-of-service" target="_blank" style="color:#9a9aa3;">Terms</a> &nbsp;&middot;&nbsp;
                 <a href="mailto:team@silo.cat" style="color:#9a9aa3;">Support</a>
               </p>
-              <p style="margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#52525b;">&copy; 2026 Clickswave Labs Private Limited. Zero-knowledge by design.</p>
+              <p style="margin:0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;color:#52525b;">&copy; 2026 Clickswave Labs Private Limited.</p>
               <p style="margin:6px 0 0;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#3f3f46;">You received this email because this address was used on silo.cat.</p>
             </td>
           </tr>
@@ -342,6 +342,20 @@ fn ses_enabled(cfg: &SmtpConfig) -> bool {
     cfg.use_ses_templates
 }
 
+/// The SMTP body of the verification email sent to every new account.
+fn verification_email_body(to_name: &str, otp: &str) -> String {
+    render_otp_email(
+        to_name,
+        "Confirm your email",
+        "Welcome to SiloCat. Enter the code below to verify your email and finish setting up your account.",
+        otp,
+        "Open SiloCat",
+        "https://silo.cat/auth/signin",
+        "Your SiloCat verification code is inside. It expires in 15 minutes.",
+        "If you didn't create a SiloCat account, you can safely ignore this email.",
+    )
+}
+
 pub async fn send_verification_email(
     smtp_config: &SmtpConfig,
     to_name: &str,
@@ -360,16 +374,7 @@ pub async fn send_verification_email(
         .await;
     }
 
-    let email_body = render_otp_email(
-        to_name,
-        "Confirm your email",
-        "Welcome to SiloCat. Enter the code below to verify your email and unlock your encrypted vault.",
-        otp,
-        "Open SiloCat",
-        "https://silo.cat/auth/signin",
-        "Your SiloCat verification code is inside. It expires in 15 minutes.",
-        "If you didn't create a SiloCat account, you can safely ignore this email.",
-    );
+    let email_body = verification_email_body(to_name, otp);
 
     let email_data = EmailData {
         to_name: to_name.to_string(),
@@ -624,7 +629,19 @@ mod email_throttle_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::is_undeliverable;
+    use super::{is_undeliverable, verification_email_body};
+
+    // Uploads are unencrypted unless the sender sets a password, so the mail
+    // every new account gets must not promise an encrypted vault, and the
+    // shared footer must not call the whole product zero-knowledge.
+    #[test]
+    fn the_verification_email_does_not_say_every_file_is_encrypted() {
+        let body = verification_email_body("Asha", "123456");
+        assert!(body.contains("123456"), "code missing from the body");
+        for claim in ["encrypted vault", "Zero-knowledge by design"] {
+            assert!(!body.contains(claim), "verification email still says {claim:?}");
+        }
+    }
 
     #[test]
     fn reserved_domains_are_never_sent_to() {

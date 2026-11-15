@@ -1,7 +1,7 @@
 {
-	"name": "SiloCat: Encrypted File Sharing & Storage",
+	"name": "SiloCat: File Sharing & Storage",
 	"short_name": "SiloCat",
-	"description": "Zero-knowledge, end-to-end encrypted file sharing and cloud storage.",
+	"description": "File sharing and cloud storage with optional end-to-end encryption.",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",

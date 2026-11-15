@@ -124,7 +124,7 @@
 	}
 </script>
 
-<Seo title="Sign in | Silocat" description="Access your encrypted Silocat storage." noindex />
+<Seo title="Sign in | Silocat" description="Sign in to your Silocat account." noindex />
 
 <section class="auth-card">
 	<div class="card-header">

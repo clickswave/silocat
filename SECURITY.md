@@ -1,7 +1,8 @@
 # Security Policy
 
-Silocat is a zero-knowledge product: the security claims *are* the product. If
-those claims are wrong, we want to know before your users do.
+Silocat offers zero-knowledge encryption for any file uploaded with password
+protection: the security claims *are* the product. If those claims are wrong,
+we want to know before your users do.
 
 ## Reporting a vulnerability
 
@@ -37,8 +38,8 @@ we'd rather promise nothing than promise money we can't pay.
 
 **In scope**
 
-- Anything that breaks the zero-knowledge property: the server learning a
-  plaintext file, a password, or a derived key.
+- Anything that breaks the zero-knowledge property of an encrypted upload: the
+  server learning its plaintext, its password, or a derived key.
 - Weaknesses in the client-side crypto: key derivation (Argon2 parameters),
   chunk encryption (XChaCha20-Poly1305), nonce or salt handling, the share
   password generator.

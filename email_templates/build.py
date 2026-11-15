@@ -83,7 +83,7 @@ def shell(title: str, preheader: str, body: str, logo: str) -> str:
           <tr>
             <td align="center" class="sc-px" style="padding:22px 48px 26px;font-family:{SANS};font-size:12px;line-height:18px;color:{FAINT};">
               <a href="https://silo.cat" style="color:{FAINT};text-decoration:none;">silo.cat</a>
-              &nbsp;&middot;&nbsp; end-to-end encrypted file sharing
+              &nbsp;&middot;&nbsp; file sharing with optional end-to-end encryption
             </td>
           </tr>
 
@@ -157,9 +157,9 @@ def note(text: str) -> str:
 """
 
 
-ZK = ("Your files stay encrypted throughout. We hold ciphertext and never see "
-      "the passwords that unlock it, so nothing here gives us or anyone else "
-      "access to their contents.")
+ENCRYPTION_NOTE = ("Turn on password protection when you upload and the file is encrypted "
+                   "in your browser before it leaves. We never see that password, so nobody "
+                   "here can open the file. Files uploaded without it are stored unencrypted.")
 
 PAGES = {
     "password-reset": dict(
@@ -182,7 +182,7 @@ PAGES = {
             heading("Welcome", "Verify your email",
                     "Hi {{NAME}}, enter this code to confirm your address and activate your Silocat account.")
             + code_block("Expires in 15 minutes.")
-            + callout(ZK)
+            + callout(ENCRYPTION_NOTE)
             + note("Didn't create a Silocat account? Ignore this email and nothing further happens.")
         ),
     ),
@@ -227,7 +227,7 @@ PAGES = {
             </td>
           </tr>
 """
-            + callout("Your files have not been deleted and remain encrypted exactly as you left them. "
+            + callout("Your files have not been deleted and remain exactly as you left them. "
                       "Suspension removes access, not data.")
             + button("Appeal this decision", "https://silo.cat/home/support")
             + note("If you think this is a mistake, open an appeal and a human will read it.")

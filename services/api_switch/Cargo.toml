@@ -3,7 +3,7 @@ name = "api_switch"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-description = "Silocat API service: zero-knowledge encrypted file storage"
+description = "Silocat API service: file storage with optional end-to-end encryption"
 repository = "https://github.com/clickswave/silocat"
 
 [dependencies]

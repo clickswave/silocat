@@ -15,15 +15,15 @@
 		},
 		{
 			stage: 'Encrypt',
-			what: 'libsodium encrypts each chunk locally, with a key Argon2 derives from your password on your device.',
+			what: 'With password protection on, libsodium encrypts each chunk locally, with a key Argon2 derives from your password on your device. With it off, nothing is encrypted.',
 			who: 'Only you',
 			tone: 'ok'
 		},
 		{
 			stage: 'Upload',
-			what: 'Only ciphertext travels. TLS wraps it a second time in transit.',
-			who: 'Only you',
-			tone: 'ok'
+			what: 'An encrypted file travels as ciphertext; one uploaded without password protection travels as the plain file. TLS wraps either in transit.',
+			who: 'Only you if encrypted, otherwise us too',
+			tone: 'mute'
 		},
 		{
 			stage: 'Store',
@@ -43,7 +43,7 @@
 		},
 		{
 			stage: 'Download',
-			what: "The recipient's browser fetches ciphertext and decrypts it locally, once they enter the password.",
+			what: "For an encrypted file, the recipient's browser fetches ciphertext and decrypts it locally once they enter the password. An unencrypted file downloads as it was uploaded.",
 			who: 'Only you',
 			tone: 'ok'
 		},

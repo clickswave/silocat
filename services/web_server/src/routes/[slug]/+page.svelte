@@ -49,8 +49,8 @@
 	guardNavigation('A transfer is still running. Leaving this page will cancel it.');
 	const og = $derived(
 		data?.og || {
-			title: 'Secure download on Silocat',
-			description: 'A file shared securely and stored on silo.cat.'
+			title: 'Download on SiloCat',
+			description: 'A file shared on silo.cat. Open the link to download it.'
 		}
 	);
 	// Use the request origin so a self-hosted instance builds links to ITS own

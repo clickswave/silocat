@@ -1,7 +1,9 @@
 # @clickswave/silocat-client
 
-Client for the [Silocat](https://silo.cat) API. It does the end-to-end
-encryption for you, so ciphertext is all that ever leaves your process.
+Client for the [Silocat](https://silo.cat) API. Give `upload()` a password and
+it does the end-to-end encryption for you, so only ciphertext leaves your
+process. Without a password the file is uploaded unencrypted, and the server can
+read it.
 
 ```bash
 npm install @clickswave/silocat-client
@@ -9,11 +11,12 @@ npm install @clickswave/silocat-client
 
 ## Why this exists
 
-Silocat is zero-knowledge. Files are encrypted before upload with a key derived
-from a password the server never sees, and the raw HTTP API reflects that: it
-takes ciphertext and hands back presigned URLs. Talking to it directly means
-implementing Argon2id key derivation, chunking, and XChaCha20-Poly1305 with a
-fresh nonce per chunk, exactly as the web app does.
+Encryption in Silocat happens on the client. A file uploaded with a password is
+encrypted before upload with a key derived from that password, which the server
+never sees, and the raw HTTP API stores whatever bytes it is given and hands back
+presigned URLs. Encrypting through it directly means implementing Argon2id key
+derivation, chunking, and XChaCha20-Poly1305 with a fresh nonce per chunk,
+exactly as the web app does.
 
 Getting any of that subtly wrong produces files that upload cleanly and then
 cannot be decrypted by anyone, including you. This library is the reference
