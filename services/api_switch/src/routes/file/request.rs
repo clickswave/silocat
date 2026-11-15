@@ -290,8 +290,6 @@ struct ActiveRequest {
     id: String,
     owner_user_id: String,
     folder_id: Option<String>,
-    max_uploads: Option<i32>,
-    upload_count: i32,
 }
 
 /// Whether the owner may still take files through a request link: not under an
@@ -312,12 +310,16 @@ async fn owner_receives(pool: &sqlx::PgPool, owner: &str) -> Result<bool, sqlx::
     .map(|open| open.unwrap_or(false))
 }
 
-/// Resolve a token to an ACTIVE, unexpired, under-cap request whose owner may
-/// still receive files, or an error response. Shared by the public info and
-/// upload handlers.
+/// Resolve a token to an ACTIVE, unexpired request whose owner may still
+/// receive files, or an error response. Shared by the public upload handlers.
+///
+/// `starting` refuses a request whose upload slots are all taken. Each upload
+/// takes its slot when it starts (see upload_create), so a chunk of an upload
+/// already holding one is let through even when the request is full.
 async fn resolve_active(
     pool: &sqlx::PgPool,
     token: &str,
+    starting: bool,
 ) -> Result<ActiveRequest, axum::response::Response> {
     let row = sqlx::query!(
         "SELECT id, owner_user_id, folder_id, max_uploads, upload_count, expires_at, active \
@@ -340,8 +342,8 @@ async fn resolve_active(
         }
     }
     if let Some(cap) = r.max_uploads {
-        if r.upload_count >= cap {
-            return Err(respond(410, "This request is full.", vec![], json!({})).into_response());
+        if starting && r.upload_count >= cap {
+            return Err(full());
         }
     }
     // The uploader is told only that the link is closed, nothing about why.
@@ -354,9 +356,11 @@ async fn resolve_active(
         id: r.id,
         owner_user_id: r.owner_user_id,
         folder_id: r.folder_id,
-        max_uploads: r.max_uploads,
-        upload_count: r.upload_count,
     })
+}
+
+fn full() -> axum::response::Response {
+    respond(410, "This request is full.", vec![], json!({})).into_response()
 }
 
 /// Throttle the public side of a file request.
@@ -458,10 +462,18 @@ pub async fn upload_create(
         )
         .into_response();
     }
-    let req = match resolve_active(&st.pg_pool, &p.token).await {
+    let req = match resolve_active(&st.pg_pool, &p.token, true).await {
         Ok(r) => r,
         Err(resp) => return resp,
     };
+
+    // A file with no chunks never completes, and the orphan sweep only takes
+    // files with chunks still missing, so it would hold its slot for good. The
+    // upload page always sends at least one chunk, even for an empty file.
+    if p.chunks.is_empty() {
+        return respond(400, "Invalid upload", vec!["An upload needs at least one chunk.".to_string()], json!({}))
+            .into_response();
+    }
 
     // Same shape rules as create_files: the declared sizes are what the quota
     // check and the signed PUT lengths rely on.
@@ -493,6 +505,22 @@ pub async fn upload_create(
             )
             .into_response();
         }
+    }
+
+    // Take one of the request's upload slots now, in this transaction, so a
+    // capped link cannot start more uploads than its cap before any finishes.
+    // The orphan sweep gives the slot back if the upload is never finished.
+    let slot = sqlx::query_scalar::<_, String>(
+        "UPDATE file_requests SET upload_count = upload_count + 1 \
+         WHERE id = $1 AND (max_uploads IS NULL OR upload_count < max_uploads) RETURNING id",
+    )
+    .bind(&req.id)
+    .fetch_optional(&mut *tx)
+    .await;
+    match slot {
+        Ok(Some(_)) => {}
+        Ok(None) => return full(),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
     }
 
     // The received file is a normal sanctum file owned by the request owner.
@@ -589,7 +617,7 @@ pub async fn upload_mark_complete(
     if !request_allowed(&st, &ip, &p.token, "done", 2000, 4000) {
         return too_many();
     }
-    let req = match resolve_active(&st.pg_pool, &p.token).await {
+    let req = match resolve_active(&st.pg_pool, &p.token, false).await {
         Ok(r) => r,
         Err(resp) => return resp,
     };
@@ -638,7 +666,9 @@ pub async fn upload_mark_complete(
         return respond(500, "Failed to update chunk status", vec![], json!({})).into_response();
     }
 
-    // Recount completed chunks; if the file is now complete, bump upload_count.
+    // Recount completed chunks. The upload already holds its slot on the
+    // request from upload_create, so finishing it, or marking a chunk of a
+    // finished file again, does not count it a second time.
     let count = sqlx::query!(
         "SELECT COUNT(*) as count FROM chunks WHERE file_id = $1 AND uploaded = true",
         file_id
@@ -650,28 +680,8 @@ pub async fn upload_mark_complete(
         let _ = sqlx::query!("UPDATE files SET uploaded_chunks = $1 WHERE id = $2", n, file_id)
             .execute(&st.pg_pool)
             .await;
-        let total: Option<i32> =
-            sqlx::query_scalar("SELECT total_chunks FROM files WHERE id = $1")
-                .bind(&file_id)
-                .fetch_optional(&st.pg_pool)
-                .await
-                .ok()
-                .flatten();
-        if let Some(t) = total {
-            if n >= t {
-                // Only count the request upload once, when the file completes.
-                let _ = sqlx::query!(
-                    "UPDATE file_requests SET upload_count = upload_count + 1 WHERE id = $1",
-                    req.id
-                )
-                .execute(&st.pg_pool)
-                .await;
-            }
-        }
     }
 
-    let _ = req.max_uploads; // (cap already enforced at create time)
-    let _ = req.upload_count;
     respond(200, "Chunk complete", vec![], json!({})).into_response()
 }
 
@@ -1015,5 +1025,97 @@ mod tests {
         forget(&st.pg_pool, &owner).await;
         assert!(accepted.is_empty(), "accepted: {accepted:?}");
         assert_eq!(made, 0);
+    }
+
+    /// A paying owner with one open request link capped at `cap` uploads.
+    async fn capped_link(st: &crate::AppState, cap: i32) -> (String, String) {
+        let (owner, token) = open_link(st).await;
+        sqlx::query("UPDATE file_requests SET max_uploads = $1 WHERE token = $2")
+            .bind(cap)
+            .bind(&token)
+            .execute(&st.pg_pool)
+            .await
+            .expect("cap request");
+        (owner, token)
+    }
+
+    #[tokio::test]
+    async fn a_capped_link_takes_no_more_uploads_than_its_cap_while_they_are_in_flight() {
+        // The cap was compared with a count that only moved when an upload
+        // finished, so a link holder could start any number of uploads first.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let first = upload(&st, &token, &some_ip()).await;
+        let second = upload(&st, &token, &some_ip()).await;
+        let third = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!((first, second, third), (StatusCode::OK, StatusCode::GONE, StatusCode::GONE));
+        assert_eq!(made, 1);
+    }
+
+    #[tokio::test]
+    async fn a_request_upload_with_no_chunks_is_refused() {
+        // A file with no chunks can never complete, and the orphan sweep only
+        // takes files with chunks still missing, so it stayed for good.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let (status, _) = upload_body(
+            &st,
+            &token,
+            json!({
+                "uploader_name": null,
+                "file_encrypted": false,
+                "file_name": "x",
+                "file_mime": "application/octet-stream",
+                "file_size": 0,
+                "chunks": [],
+                "sha256_checksum": "s",
+                "blake3_checksum": ""
+            }),
+        )
+        .await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn the_last_slot_of_a_capped_link_can_still_finish_its_upload() {
+        // The upload holding the last slot fills the cap, and its own chunks
+        // must still be accepted after that.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (created, v) = upload_body(
+            &st,
+            &token,
+            json!({
+                "uploader_name": null,
+                "file_encrypted": false,
+                "file_name": "x",
+                "file_mime": "application/octet-stream",
+                "file_size": 5,
+                "chunks": [{ "start": 0, "end": 5, "size": 5, "checksum": "c" }],
+                "sha256_checksum": "s",
+                "blake3_checksum": ""
+            }),
+        )
+        .await;
+        let chunk_id = v.pointer("/data/chunks/0/id").and_then(|c| c.as_str()).unwrap_or_default().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-client-ip", some_ip().parse().unwrap());
+        let payload: UploadCompletePayload =
+            serde_json::from_value(json!({ "token": token, "chunk_id": chunk_id })).unwrap();
+        let resp = upload_mark_complete(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
+            .await
+            .into_response();
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(created, StatusCode::OK);
+        // The test storage is a closed port, so the chunk cannot be confirmed;
+        // what matters is that the link did not call itself full.
+        assert_ne!(status, StatusCode::GONE, "{}", String::from_utf8_lossy(&body));
     }
 }

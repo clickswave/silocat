@@ -94,8 +94,15 @@ async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()>
             }
         }
 
-        // Drop the file row; chunk rows cascade via the FK.
-        match sqlx::query("DELETE FROM files WHERE id = $1").bind(file_id).execute(pool).await {
+        // Drop the file row; chunk rows cascade via the FK. An upload through a
+        // request link took one of the request's slots when it started, so the
+        // slot goes back with it, in the same statement.
+        let drop_file = "WITH gone AS (DELETE FROM files WHERE id = $1 RETURNING id), \
+                              slots AS (DELETE FROM request_uploads WHERE file_id IN (SELECT id FROM gone) \
+                                        RETURNING request_id) \
+                         UPDATE file_requests SET upload_count = GREATEST(upload_count - 1, 0) \
+                         WHERE id IN (SELECT request_id FROM slots)";
+        match sqlx::query(drop_file).bind(file_id).execute(pool).await {
             Ok(_) => reaped += 1,
             Err(e) => eprintln!("[watchcat] delete file {} failed: {:?}", file_id, e),
         }
@@ -420,5 +427,59 @@ mod tests {
                 ("file in the recent folder", 1),
             ]
         );
+    }
+
+    /// An upload through a capped request link holds a slot from the moment
+    /// it starts. When the sweep reaps it unfinished, the slot goes back, or a
+    /// stalled upload would close the link for the people it was sent to.
+    #[tokio::test]
+    async fn reaping_an_unfinished_request_upload_gives_its_slot_back() {
+        let Some(st) = crate::test_support::state().await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        let pool = &st.pg_pool;
+        let (owner, _key) = crate::test_support::account(pool).await;
+        let token = crate::libs::rng::uuid().replace('-', "");
+        let request: String = sqlx::query_scalar(
+            "INSERT INTO file_requests (token, owner_user_id, max_uploads, upload_count) \
+             VALUES ($1, $2, 1, 1) RETURNING id",
+        )
+        .bind(&token)
+        .bind(&owner)
+        .fetch_one(pool)
+        .await
+        .expect("seed request");
+        let stalled: String = sqlx::query_scalar(
+            "INSERT INTO files (user_id, name, mime, size, encrypted, total_chunks, uploaded_chunks, \
+             sha256_checksum, blake3_checksum, public_access, created_on) \
+             VALUES ($1, 'f.bin', 'application/octet-stream', 1, false, 1, 0, 's', '', false, \
+             NOW() - INTERVAL '31 days') RETURNING id",
+        )
+        .bind(&owner)
+        .fetch_one(pool)
+        .await
+        .expect("seed file");
+        sqlx::query("INSERT INTO request_uploads (request_id, file_id) VALUES ($1, $2)")
+            .bind(&request)
+            .bind(&stalled)
+            .execute(pool)
+            .await
+            .expect("seed request upload");
+
+        gc_orphan_uploads(pool, &st.r2).await.expect("sweep");
+
+        let files: i64 = sqlx::query_scalar("SELECT count(*) FROM files WHERE id = $1")
+            .bind(&stalled)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let count: i32 = sqlx::query_scalar("SELECT upload_count FROM file_requests WHERE id = $1")
+            .bind(&request)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        crate::test_support::forget(pool, &owner).await;
+        assert_eq!(files, 0);
+        assert_eq!(count, 0);
     }
 }
