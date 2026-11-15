@@ -82,14 +82,20 @@ pub async fn handle(
         Err(_) => return respond(500, "Internal Error", vec!["Failed to process password".to_string()], json!({})),
     };
 
-    if let Err(e) = sqlx::query(
-        "UPDATE users SET password_hash = $1, otp = '', email_verified = true WHERE id = $2",
-    )
-    .bind(&new_hash)
-    .bind(&user.id)
-    .execute(&state.pg_pool)
-    .await
-    {
+    // On an account nobody had verified, the code just proved who owns the
+    // address, so the registrant's key goes too (see account_claim). The new
+    // key is in the token data returned below.
+    let key = match libs::apikey::mint() {
+        Some(k) => k,
+        None => return respond(500, "Could not reset password", vec![], json!({})),
+    };
+    let reset = async {
+        let mut tx = state.pg_pool.begin().await?;
+        super::account_claim::password_reset(&mut tx, &user.id, &new_hash, &key).await?;
+        tx.commit().await
+    }
+    .await;
+    if let Err(e) = reset {
         println!("[RESET_PW] update failed: {:?}", e);
         return respond(500, "Could not reset password", vec![], json!({}));
     }

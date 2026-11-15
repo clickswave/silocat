@@ -67,13 +67,28 @@ async fn rotate(
     new_encrypted: &str,
 ) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    let found = replace_key(&mut tx, user_id, new_index, new_encrypted).await?;
+    if found {
+        tx.commit().await?;
+    }
+    Ok(found)
+}
 
+/// The body of a rotation, for callers that already hold a transaction (an
+/// account claimed by the owner of its address rotates the key the same way).
+/// `Ok(false)` when there is no such user.
+pub(super) async fn replace_key(
+    conn: &mut sqlx::PgConnection,
+    user_id: &str,
+    new_index: &str,
+    new_encrypted: &str,
+) -> Result<bool, sqlx::Error> {
     // Locked, so two rotations at once cannot both read the same old key and
     // leave the objects on the key the first one issued.
     let old: Option<Option<String>> =
         sqlx::query_scalar("SELECT api_key FROM users WHERE id = $1 FOR UPDATE")
             .bind(user_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut *conn)
             .await?;
     let Some(old) = old else { return Ok(false) };
 
@@ -81,12 +96,12 @@ async fn rotate(
         sqlx::query("UPDATE files SET owner_api_key = $1 WHERE owner_api_key = $2")
             .bind(new_index)
             .bind(old)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
         sqlx::query("UPDATE folders SET owner_api_key = $1 WHERE owner_api_key = $2")
             .bind(new_index)
             .bind(old)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
     }
 
@@ -96,9 +111,8 @@ async fn rotate(
     .bind(new_index)
     .bind(new_encrypted)
     .bind(user_id)
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await?;
 
-    tx.commit().await?;
     Ok(true)
 }

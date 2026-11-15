@@ -28,6 +28,22 @@ fn sanitize_country(raw: Option<&str>) -> Option<String> {
     })
 }
 
+/// The username stem for an account a Google sign-in makes or claims: the
+/// Google name in lowercase alphanumerics, or the email's local part.
+fn username_base(google_user: &GoogleUserInfo) -> String {
+    let base: String = google_user
+        .name
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    if base.is_empty() {
+        google_user.email.split('@').next().unwrap_or("user").to_string()
+    } else {
+        base
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct GoogleTokenResponse {
     pub access_token: String,
@@ -132,15 +148,35 @@ pub async fn handle(
 
     match existing_user {
         Ok(Some(mut user)) => {
-            // User exists, log them in.
-            // If email verified on Google but not in DB, update it?
-            if google_user.verified_email && !user.email_verified {
-                let _ = sqlx::query!("UPDATE users SET email_verified = true, otp = '' WHERE id = $1", user.id)
-                    .execute(&axum_state.pg_pool)
-                    .await;
-                user.email_verified = true;
+            // An unverified account was made by someone who never proved this
+            // address, and Google has just shown the caller owns it. Take it
+            // from the registrant before signing the caller in: new API key,
+            // no password, new username. See account_claim.
+            if !user.email_verified {
+                let key = match libs::apikey::mint() {
+                    Some(k) => k,
+                    None => return respond(500, "Server misconfigured", vec![], json!({})),
+                };
+                let base = username_base(&google_user);
+                let claimed = async {
+                    let mut tx = axum_state.pg_pool.begin().await?;
+                    super::account_claim::google_sign_in(&mut tx, &user.id, &base, &key).await?;
+                    tx.commit().await?;
+                    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+                        .bind(&user.id)
+                        .fetch_one(&axum_state.pg_pool)
+                        .await
+                }
+                .await;
+                user = match claimed {
+                    Ok(u) => u,
+                    Err(e) => {
+                        eprintln!("[google_auth] claim failed: {:?}", e);
+                        return respond(500, "Database error", vec![], json!({}));
+                    }
+                };
             }
-            
+
             // Resolve the active subscription exactly as password login does.
             // Passing None here handed a paying user a free-tier session, so the
             // sidebar showed the wrong storage total until something else
@@ -162,17 +198,7 @@ pub async fn handle(
             // First Google sign-in: create the account. Google already verified the
             // email; there is no password (login is via Google). Storage comes from
             // libs::quota so it matches the password signup path exactly.
-            let base: String = google_user
-                .name
-                .to_lowercase()
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .collect();
-            let base = if base.is_empty() {
-                google_user.email.split('@').next().unwrap_or("user").to_string()
-            } else {
-                base
-            };
+            let base = username_base(&google_user);
             let username = format!("{}{}", base, libs::rng::number(4));
             let user_id = libs::rng::uuid();
             let minted = match libs::apikey::mint() {

@@ -15,6 +15,7 @@ mod forgot_password;
 mod reset_password;
 mod username_status;
 mod rotate_api_key;
+mod account_claim;
 
 use axum::routing::post;
 use axum::routing::get;
