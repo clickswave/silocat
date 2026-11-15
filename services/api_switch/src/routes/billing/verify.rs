@@ -205,6 +205,19 @@ pub async fn handle(
                     let _ = tx.rollback().await;
                     return respond(500, "Failed to link subscription", vec![], json!({}));
                 }
+                // The row this order granted, so a refund of it ends that row
+                // and not a later grant of the same plan.
+                if let Err(_e) = sqlx::query(
+                    "UPDATE orders SET transactions = array_append(transactions, $1) WHERE reference_id = $2",
+                )
+                .bind(json!({ "granted_subscription_id": sub_id }))
+                .bind(&reference)
+                .execute(&mut *tx)
+                .await
+                {
+                    let _ = tx.rollback().await;
+                    return respond(500, "Failed to link subscription", vec![], json!({}));
+                }
             }
             Err(_e) => {
                 let _ = tx.rollback().await;

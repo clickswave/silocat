@@ -203,8 +203,15 @@ async fn reconcile_and_grant(
         .await?;
         let sub_id: String = row.get("id");
         sqlx::query("UPDATE users SET subscription_id = $1 WHERE id = $2")
-            .bind(sub_id)
+            .bind(&sub_id)
             .bind(&order.user_id)
+            .execute(&mut *tx)
+            .await?;
+        // The row this order granted, so a refund of it ends that row and not
+        // a later grant of the same plan.
+        sqlx::query("UPDATE orders SET transactions = array_append(transactions, $1) WHERE reference_id = $2")
+            .bind(json!({ "granted_subscription_id": sub_id }))
+            .bind(order_id)
             .execute(&mut *tx)
             .await?;
     }
@@ -246,7 +253,7 @@ async fn handle_subscription_charged(state: &crate::AppState, event: &Value) -> 
     // Note the payment on the subscription's order, so a refund of it, which
     // carries the order of Razorpay's invoice rather than ours, finds it.
     if let Some(payment_id) = event.pointer("/payload/payment/entity/id").and_then(|v| v.as_str()) {
-        sqlx::query(
+        let noted = sqlx::query(
             "UPDATE orders SET transactions = array_append(transactions, $2) \
              WHERE reference_id = $1 \
                AND NOT EXISTS (SELECT 1 FROM unnest(transactions) t WHERE t->>'payment_id' = $3)",
@@ -255,7 +262,12 @@ async fn handle_subscription_charged(state: &crate::AppState, event: &Value) -> 
         .bind(json!({ "payment_id": payment_id, "event": "subscription.charged" }))
         .bind(payment_id)
         .execute(&state.pg_pool)
-        .await?;
+        .await;
+        // The renewal is paid for either way, so a failed note does not hold
+        // back the extension below. Only a refund of this payment loses track.
+        if let Err(e) = noted {
+            eprintln!("[razorpay-webhook] could not note payment {} on {}: {:?}", payment_id, sub_id, e);
+        }
     }
 
     let paid_count = event
@@ -366,16 +378,33 @@ async fn revoke_for_payment(state: &crate::AppState, event: &Value, chargeback: 
         .execute(&mut *tx)
         .await?;
     } else if let Some((plan_display, _)) = plan_grant(&plan) {
-        // The plan this order bought: a paid row, never an invite or promo grant.
-        sqlx::query(
-            "UPDATE subscriptions SET expires_on = NOW() \
-             WHERE created_by = $1 AND name = $2 AND invited = FALSE \
-               AND razorpay_subscription_id IS NULL AND expires_on > NOW()",
+        // The row this order granted, when the grant noted it. A later plan,
+        // bought or given by a code, replaced that row and is not touched.
+        let granted: Option<String> = sqlx::query_scalar(
+            "SELECT t->>'granted_subscription_id' FROM orders, unnest(transactions) t \
+             WHERE reference_id = $1 AND t ? 'granted_subscription_id' LIMIT 1",
         )
-        .bind(&user_id)
-        .bind(plan_display)
-        .execute(&mut *tx)
+        .bind(&reference)
+        .fetch_optional(&mut *tx)
         .await?;
+        if let Some(granted) = granted {
+            sqlx::query("UPDATE subscriptions SET expires_on = NOW() WHERE id = $1 AND expires_on > NOW()")
+                .bind(granted)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            // Settled before grants were noted: the paid row of this plan,
+            // never an invite or promo grant.
+            sqlx::query(
+                "UPDATE subscriptions SET expires_on = NOW() \
+                 WHERE created_by = $1 AND name = $2 AND invited = FALSE \
+                   AND razorpay_subscription_id IS NULL AND expires_on > NOW()",
+            )
+            .bind(&user_id)
+            .bind(plan_display)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     tx.commit().await?;
@@ -585,6 +614,67 @@ mod tests {
         let ended = !live(&st, &sub).await;
         teardown(&st, &user).await;
         assert!(ended, "the refunded renewal must end the subscription");
+    }
+
+    /// A pending one-time order for Pro, settled by a signed payment.captured.
+    /// Returns (order id, payment id, the row the order granted).
+    async fn bought_through_the_webhook(st: &crate::AppState, user: &str) -> (String, String, String) {
+        let order = rid("order");
+        sqlx::query(
+            "INSERT INTO orders (reference_id, user_id, subscription_name, subscription_cycle, additional_space, \
+             payment_gateway, currency, amount, status, details) \
+             VALUES ($1, $2, 'pro', 'monthly', 0, 'razorpay', 'USD', 1000, 'pending', '{}')",
+        )
+        .bind(&order)
+        .bind(user)
+        .execute(&st.pg_pool)
+        .await
+        .unwrap();
+        let pay = rid("pay");
+        let captured = json!({
+            "event": "payment.captured",
+            "payload": { "payment": { "entity": payment(&pay, &order, 1000, 0) } },
+        });
+        assert_eq!(send(st, captured).await, 200);
+        let granted: String = sqlx::query_scalar(
+            "SELECT id FROM subscriptions WHERE created_by = $1 AND expires_on > NOW() AND invited = FALSE",
+        )
+        .bind(user)
+        .fetch_one(&st.pg_pool)
+        .await
+        .unwrap();
+        (order, pay, granted)
+    }
+
+    #[tokio::test]
+    async fn refunding_a_plan_ends_the_row_it_granted() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let _settling = SETTLING_ORDERS.lock().await;
+        let (user, _) = account(&st.pg_pool).await;
+        let (order, pay, granted) = bought_through_the_webhook(&st, &user).await;
+        send(&st, refund_event("payment.refunded", payment(&pay, &order, 1000, 1000))).await;
+        let ended = !live(&st, &granted).await;
+        teardown(&st, &user).await;
+        assert!(ended, "the refunded plan ends");
+    }
+
+    #[tokio::test]
+    async fn refunding_an_older_plan_leaves_a_later_grant_of_it() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let _settling = SETTLING_ORDERS.lock().await;
+        let (user, _) = account(&st.pg_pool).await;
+        let (order, pay, _) = bought_through_the_webhook(&st, &user).await;
+        // A later Pro from a 100% code replaces the bought one, as order.rs does.
+        sqlx::query("UPDATE subscriptions SET expires_on = NOW() WHERE created_by = $1 AND invited = FALSE")
+            .bind(&user)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let later = grant(&st, &user, "Pro", false, None).await;
+        send(&st, refund_event("payment.refunded", payment(&pay, &order, 1000, 1000))).await;
+        let kept = live(&st, &later).await;
+        teardown(&st, &user).await;
+        assert!(kept, "a refund of the older order must not end the later grant");
     }
 
     #[tokio::test]

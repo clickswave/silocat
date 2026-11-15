@@ -295,13 +295,15 @@ struct ActiveRequest {
 /// Whether the owner may still take files through a request link: not under an
 /// active ban, not restricted, and still on a paid plan. These are the account
 /// checks create_files and create_request make, applied to links that were
-/// opened before the owner was banned, restricted or stopped paying.
+/// opened before the owner was banned, restricted or stopped paying. "Paid" is
+/// the same as plans::is_paid: a signup promo row gives storage, not this.
 async fn owner_receives(pool: &sqlx::PgPool, owner: &str) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar::<_, bool>(
         "SELECT NOT (u.is_banned AND (u.banned_until IS NULL OR u.banned_until > NOW())) \
                 AND NOT COALESCE(u.is_restricted, false) \
                 AND EXISTS (SELECT 1 FROM subscriptions s \
-                            WHERE s.created_by = u.id AND s.expires_on > NOW()) \
+                            WHERE s.created_by = u.id AND s.expires_on > NOW() \
+                              AND s.name <> 'Promo') \
          FROM users u WHERE u.id = $1",
     )
     .bind(owner)
@@ -891,6 +893,31 @@ mod tests {
         forget(&st.pg_pool, &owner).await;
         assert_eq!(status, StatusCode::GONE);
         assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_link_of_an_owner_left_with_only_a_signup_promo_is_closed() {
+        // A link opened while the owner paid, or while a signup promo still
+        // counted as paid, kept taking files on the promo row alone.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        set(&st, "UPDATE subscriptions SET name = 'Promo' WHERE created_by = $1", &owner).await;
+        let status = upload(&st, &token, &some_ip()).await;
+        let made = files_of(&st, &owner).await;
+        let page = public_info(
+            ConnectInfo("127.0.0.1:1".parse().unwrap()),
+            State(st.clone()),
+            HeaderMap::new(),
+            Path(token.clone()),
+        )
+        .await
+        .into_response();
+        let body = axum::body::to_bytes(page.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::GONE);
+        assert_eq!(made, 0);
+        assert_eq!(v.pointer("/data/open").cloned(), Some(json!(false)));
     }
 
     #[tokio::test]
