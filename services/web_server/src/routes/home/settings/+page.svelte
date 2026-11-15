@@ -45,6 +45,9 @@
 	let emailStage = $state('idle'); // 'idle' | 'sent'
 	let emailBusy = $state(false);
 	let otpInput = $state('');
+	// The account password, asked for before the code goes out when the
+	// account has one. Kept until the change ends, for Resend.
+	let emailPassword = $state('');
 	let otpBusy = $state(false);
 	let resendBusy = $state(false);
 
@@ -58,14 +61,24 @@
 		emailInput.trim().toLowerCase() !== (user.email || '').toLowerCase()
 	);
 
+	function emailChangeBody() {
+		const body = { email: emailInput.trim() };
+		if (hasPassword) body.current_password = emailPassword;
+		return JSON.stringify(body);
+	}
+
 	async function requestEmailChange() {
 		if (!emailChanged || !emailValid || emailBusy) return;
+		if (hasPassword && !emailPassword) {
+			toast.error('Enter your current password');
+			return;
+		}
 		emailBusy = true;
 		try {
 			const res = await fetch('/api/v1/user/request-email-change', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: emailInput.trim() })
+				body: emailChangeBody()
 			});
 			const d = await res.json();
 			if (!res.ok) {
@@ -89,7 +102,7 @@
 			const res = await fetch('/api/v1/user/request-email-change', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: emailInput.trim() })
+				body: emailChangeBody()
 			});
 			const d = await res.json();
 			if (!res.ok) toast.error(d.message || d.error || 'Could not resend code');
@@ -115,6 +128,7 @@
 			} else {
 				emailStage = 'idle';
 				otpInput = '';
+				emailPassword = '';
 				await invalidateAll();
 			}
 		} catch (e) {
@@ -128,6 +142,7 @@
 	function cancelEmailChange() {
 		emailStage = 'idle';
 		otpInput = '';
+		emailPassword = '';
 		emailInput = user.email || '';
 	}
 
@@ -540,6 +555,16 @@
 							</button>
 						{/if}
 					</div>
+					{#if emailChanged && hasPassword}
+						<label for="email-password">Current password</label>
+						<input
+							type="password"
+							id="email-password"
+							class="mono"
+							bind:value={emailPassword}
+							autocomplete="current-password"
+						/>
+					{/if}
 					{#if user.email_verified === false}
 						<span class="note warn">Your email is not verified.</span>
 					{:else}

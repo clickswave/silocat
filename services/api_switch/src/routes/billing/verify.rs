@@ -1,4 +1,4 @@
-use axum::{extract::State, Json, response::IntoResponse};
+use axum::{extract::State, Extension, Json, response::IntoResponse};
 use serde::Deserialize;
 use serde_json::json;
 use crate::{libs, routes::respond};
@@ -26,6 +26,7 @@ pub struct VerifyPayload {
 
 pub async fn handle(
     State(state): State<crate::AppState>,
+    Extension(caller): Extension<crate::models::UserTokenData>,
     Json(payload): Json<VerifyPayload>,
 ) -> impl IntoResponse {
     // Orders and subscriptions share this endpoint. A subscription checkout
@@ -43,8 +44,11 @@ pub async fn handle(
         .fetch_optional(&state.pg_pool)
         .await
     {
-        Ok(Some(o)) => o,
-        Ok(None) => return respond(404, "Order not found", vec![], json!({})),
+        // Someone else's order is answered as one that does not exist, so a
+        // reference cannot be used to learn about or complete another account's
+        // purchase.
+        Ok(Some(o)) if o.user_id == caller.id => o,
+        Ok(_) => return respond(404, "Order not found", vec![], json!({})),
         Err(_e) => return respond(500, "Database Error", vec![], json!({})),
     };
 

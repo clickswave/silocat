@@ -64,6 +64,11 @@ export const handle = async ({ event, resolve }) => {
 			return sess?.user;
 		}, // set user data in session
 		set: async (userData) => {
+			// A caller that proved itself with X-Api-Key gets no cookie. Writing
+			// one would turn a leaked key into a browser session (the thing the
+			// session-only routes check for), or put the key's account into a
+			// session cookie that belongs to someone else.
+			if (await resolveApiKeyUser()) return false;
 			let sessionData = await session.get();
 			let cookie;
 			if (!sessionData) {
@@ -77,6 +82,7 @@ export const handle = async ({ event, resolve }) => {
 			return true;
 		}, // update one key in user data
 		update: async ({ key, value }) => {
+			if (await resolveApiKeyUser()) return false;
 			let sessionData = await session.get();
 			let cookie;
 			if (!sessionData) {

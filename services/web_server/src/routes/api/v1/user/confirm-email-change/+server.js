@@ -2,9 +2,15 @@ import { json } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network.js';
 
 export async function POST({ request, locals }) {
-	let user = await locals.session.user.get();
+	// Session only, like rotate-api-key. A new address that a code confirms
+	// is verified, and a password reset sent there then owns the account. An
+	// API key is handed to scripts and CI, so it must not be enough to take the
+	// account over, and with both a key and a cookie the cookie's account is
+	// the one acted on.
+	const session = await locals.session.get();
+	const user = session?.user;
 	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401 });
+		return json({ error: 'Session required' }, { status: 401 });
 	}
 	try {
 		const payload = await request.json();

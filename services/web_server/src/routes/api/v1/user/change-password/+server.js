@@ -5,9 +5,15 @@ import { ApiServerClient } from '$lib/network.js';
 // current_password is omitted when a Google account sets a password for the
 // first time. Updates the session's password_set flag on success.
 export async function POST({ request, locals }) {
-	const user = await locals.session.user.get();
+	// Session only, like rotate-api-key. An account that never set a password
+	// takes a new one with no current password, and whoever then knows it can
+	// sign in. An API key is handed to scripts and CI, so it must not be enough
+	// for that, and with both a key and a cookie the cookie's account is the
+	// one acted on.
+	const session = await locals.session.get();
+	const user = session?.user;
 	if (!user) {
-		return json({ error: 'Unauthorized' }, { status: 401 });
+		return json({ error: 'Session required' }, { status: 401 });
 	}
 
 	let payload;
