@@ -3,6 +3,12 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_sdk_s3::presigning::PresigningConfig;
 
+/// How long a chunk's presigned PUT URL stays valid. It was 24 hours, far past
+/// the orphan sweep's two, so a URL kept working after the sweep had deleted
+/// the rows that track its object. The sweep now waits this out first, and
+/// uploads already had to finish inside its two hours.
+pub const PUT_URL_TTL: Duration = Duration::from_secs(2 * 60 * 60);
+
 #[derive(Clone)]
 pub struct R2 {
     shadow_client: Client,
@@ -94,25 +100,32 @@ impl R2 {
         Ok(())
     }
 
-    /// Generate a pre-signed URL for uploading a file
+    /// Generate a pre-signed URL for uploading one chunk of exactly
+    /// `content_length` bytes.
+    ///
+    /// The length is signed into the URL (`X-Amz-SignedHeaders` gains
+    /// `content-length`), so storage refuses a PUT of any other size. Unsigned,
+    /// a URL issued for a 1-byte chunk accepted a 5 GiB body.
     pub async fn presigned_put_url(
         &self,
         storage: &str,
         key: &str,
+        content_length: i64,
     ) -> anyhow::Result<String> {
 
-        let (client, bucket, time) = match storage {
-            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str(), 24),
-            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str(), 24),
+        let (client, bucket) = match storage {
+            "shadow" => (&self.shadow_client, self.shadow_bucket.as_str()),
+            "sanctum" => (&self.sanctum_client, self.sanctum_bucket.as_str()),
             _ => return Err(anyhow::anyhow!("Invalid storage option")),
         };
 
-        let link_expiry = Duration::from_secs(60 * 60 * time);
+        let link_expiry = PUT_URL_TTL;
 
         let presigned_req = client
             .put_object()
             .bucket(bucket)
             .key(key)
+            .content_length(content_length)
             .presigned(
                 PresigningConfig::expires_in(link_expiry)
                     .map_err(|e| anyhow::anyhow!("Failed presigning config: {:?}", e))?,

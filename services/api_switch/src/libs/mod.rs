@@ -12,6 +12,7 @@ pub mod image_dp;
 pub mod bans;
 pub mod otp;
 pub mod quota;
+pub mod uploads;
 pub mod plans;
 pub mod ratelimit;
 pub mod sharing;

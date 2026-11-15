@@ -45,18 +45,22 @@ pub async fn run(pool: Pool<Postgres>, r2: R2) {
 }
 
 async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> {
-    // Floor at 1h so a misconfigured TTL of 0 can never reap uploads that are
-    // still actively in progress.
-    let ttl_hours = env_u64("WATCHCAT_GC_TTL_HOURS", 2).max(1) as i64;
+    // Never reap an upload while its PUT URLs still work. Deleting the rows
+    // first would let a late PUT land an object that no row, quota or sweep
+    // ever finds again. The margin covers clock skew and a slow final PUT.
+    let ttl_minutes = env_u64("WATCHCAT_GC_TTL_HOURS", 2)
+        .saturating_mul(60)
+        .max(crate::libs::r2::PUT_URL_TTL.as_secs() / 60 + 15);
+    let ttl_minutes = i64::try_from(ttl_minutes).unwrap_or(i64::MAX);
     let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
 
-    // ttl_hours/batch are our own integers: safe to inline into the interval.
+    // ttl_minutes/batch are our own integers: safe to inline into the interval.
     let q = format!(
         "SELECT id, user_id FROM files \
          WHERE deleted = false AND uploaded_chunks < total_chunks \
-           AND created_on < NOW() - INTERVAL '{} hours' \
+           AND created_on < NOW() - INTERVAL '{} minutes' \
          ORDER BY created_on ASC LIMIT {}",
-        ttl_hours, batch
+        ttl_minutes, batch
     );
     let files: Vec<(String, Option<String>)> = sqlx::query_as(&q).fetch_all(pool).await?;
     if files.is_empty() {

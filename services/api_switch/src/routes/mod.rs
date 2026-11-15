@@ -55,6 +55,7 @@ pub fn respond(
         429 => status_code = StatusCode::TOO_MANY_REQUESTS,
         // server error
         500 => status_code = StatusCode::INTERNAL_SERVER_ERROR,
+        503 => status_code = StatusCode::SERVICE_UNAVAILABLE,
         _ => status_code = StatusCode::INTERNAL_SERVER_ERROR,
     }
 

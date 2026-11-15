@@ -8,9 +8,13 @@
 //! `used` is summed from each chunk's real R2 object size (`size_on_server`),
 //! which mark-chunk-complete records via HeadObject, so a client that
 //! under-declares `file_size` cannot understate its usage. The create-time
-//! pre-check still admits on the client-declared `file_size` (the bytes aren't
-//! stored yet), so a single upload can transiently overshoot, but the next
-//! check counts the real stored bytes.
+//! pre-check admits on the declared `file_size` (the bytes aren't stored yet).
+//! That is only sound because `libs::uploads` holds the declaration to what is
+//! stored: chunk sizes must add up to it, each PUT URL is signed for its
+//! chunk's exact length, and a chunk counts only once measured at that length.
+//!
+//! Trashed files do not count, though their bytes stay stored until the trash
+//! is emptied, so restoring one checks the plan again (restore_files).
 
 use sqlx::{Pool, Postgres};
 
@@ -96,7 +100,9 @@ pub async fn for_user(pool: &Pool<Postgres>, user_id: &str) -> Option<Quota> {
     // the plan. Uploaded chunks of any non-deleted file count (bytes are stored
     // whether or not the file is fully assembled yet).
     let used = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(SUM(c.size_on_server), 0)::BIGINT \
+        // GREATEST: a size recorded negative before sizes were checked must
+        // not lower the total and with it every later admission.
+        "SELECT COALESCE(SUM(GREATEST(c.size_on_server, 0)), 0)::BIGINT \
          FROM chunks c JOIN files f ON f.id = c.file_id \
          WHERE f.user_id = $1 AND f.deleted = false AND c.uploaded = true",
     )

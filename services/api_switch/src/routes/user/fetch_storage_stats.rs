@@ -45,7 +45,7 @@ pub async fn handle(
     //    counter and the upload gate agree, and can't be gamed by a client that
     //    under-declares files.size.
     let usage = sqlx::query_scalar::<_, Option<i64>>(
-        "SELECT COALESCE(SUM(c.size_on_server), 0)::BIGINT \
+        "SELECT COALESCE(SUM(GREATEST(c.size_on_server, 0)), 0)::BIGINT \
          FROM chunks c JOIN files f ON f.id = c.file_id \
          WHERE f.user_id = $1 AND f.deleted = false AND c.uploaded = true"
     )

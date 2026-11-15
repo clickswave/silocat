@@ -82,7 +82,9 @@
 			await loadTrash();
 		} catch (e) {
 			console.error(e);
-			toast.error('Could not restore that item');
+			// A restore that would go over the plan comes back 413 with the reason.
+			if (e?.response?.status === 413) toast.error('Not enough storage to restore this. Free up space or upgrade.');
+			else toast.error('Could not restore that item');
 		}
 	}
 

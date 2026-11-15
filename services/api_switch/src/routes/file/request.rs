@@ -463,6 +463,13 @@ pub async fn upload_create(
         Err(resp) => return resp,
     };
 
+    // Same shape rules as create_files: the declared sizes are what the quota
+    // check and the signed PUT lengths rely on.
+    let chunk_sizes: Vec<i64> = p.chunks.iter().map(|c| c.size).collect();
+    if let Err(why) = crate::libs::uploads::check_declared(p.file_size, &chunk_sizes) {
+        return respond(400, "Invalid upload", vec![why.to_string()], json!({})).into_response();
+    }
+
     // The upload counts against the OWNER's quota.
     if let Some(q) = crate::libs::quota::for_user(&st.pg_pool, &req.owner_user_id).await {
         if q.would_exceed(p.file_size) {
@@ -516,7 +523,8 @@ pub async fn upload_create(
     let mut idx = 0i32;
     for chunk in &p.chunks {
         let chunk_id = format!("{}-{}", crate::libs::rng::uuid(), crate::libs::rng::uuid());
-        let url = match st.r2.presigned_put_url("sanctum", &chunk_id).await {
+        let len = crate::libs::uploads::stored_len(chunk.size, p.file_encrypted);
+        let url = match st.r2.presigned_put_url("sanctum", &chunk_id, len).await {
             Ok(u) => u,
             Err(_e) => return respond(500, "Failed to generate presigned URL", vec![], json!({})).into_response(),
         };
@@ -586,24 +594,30 @@ pub async fn upload_mark_complete(
         Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
     };
 
-    // Record the real stored size (like the main path), best effort.
-    let real = st.r2.object_size("sanctum", &p.chunk_id).await.ok();
-    let upd = if let Some(sz) = real {
-        sqlx::query!(
-            "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2",
-            sz,
-            p.chunk_id
-        )
-        .execute(&st.pg_pool)
-        .await
-    } else {
-        sqlx::query!(
-            "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = size WHERE id = $1",
-            p.chunk_id
-        )
-        .execute(&st.pg_pool)
-        .await
+    // Count the chunk only once its object is measured at the length its URL
+    // was signed for, as the main path does. The declared size is never used.
+    let expected = match crate::libs::uploads::chunk_expected_len(&st.pg_pool, &p.chunk_id).await {
+        Ok(Some(n)) => n,
+        Ok(None) => return respond(404, "Chunk not found", vec![], json!({})).into_response(),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
     };
+    let sz = match crate::libs::uploads::measure_chunk(&st.r2, "sanctum", &p.chunk_id, expected).await {
+        crate::libs::uploads::Measured::Stored(sz) => sz,
+        crate::libs::uploads::Measured::WrongSize => {
+            return respond(400, "Chunk does not match its declared size", vec![], json!({})).into_response()
+        }
+        crate::libs::uploads::Measured::Unconfirmed => {
+            return respond(503, "Could not confirm the chunk was stored. Try again.", vec![], json!({}))
+                .into_response()
+        }
+    };
+    let upd = sqlx::query!(
+        "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2",
+        sz,
+        p.chunk_id
+    )
+    .execute(&st.pg_pool)
+    .await;
     if upd.is_err() {
         return respond(500, "Failed to update chunk status", vec![], json!({})).into_response();
     }
@@ -854,5 +868,87 @@ mod tests {
         forget(&st.pg_pool, &owner).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(links, 0);
+    }
+
+    async fn upload_body(st: &crate::AppState, token: &str, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-client-ip", some_ip().parse().unwrap());
+        let mut body = body;
+        body["token"] = json!(token);
+        let payload: UploadCreatePayload = serde_json::from_value(body).unwrap();
+        let resp = upload_create(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
+            .await
+            .into_response();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(json!({})))
+    }
+
+    #[tokio::test]
+    async fn a_request_link_refuses_a_negative_chunk() {
+        // Through a link, an outsider could drive the OWNER's counted usage
+        // negative (or to +2^62, locking the owner out of their own uploads).
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let (status, _) = upload_body(
+            &st,
+            &token,
+            json!({
+                "uploader_name": null,
+                "file_encrypted": false,
+                "file_name": "x",
+                "file_mime": "application/octet-stream",
+                "file_size": 0,
+                "chunks": [{ "start": 0, "end": 0, "size": -4611686018427387904i64, "checksum": "c" }],
+                "sha256_checksum": "s",
+                "blake3_checksum": ""
+            }),
+        )
+        .await;
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_request_chunk_that_was_never_stored_is_not_marked() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let (created, v) = upload_body(
+            &st,
+            &token,
+            json!({
+                "uploader_name": null,
+                "file_encrypted": false,
+                "file_name": "x",
+                "file_mime": "application/octet-stream",
+                "file_size": 5,
+                "chunks": [{ "start": 0, "end": 5, "size": 5, "checksum": "c" }],
+                "sha256_checksum": "s",
+                "blake3_checksum": ""
+            }),
+        )
+        .await;
+        let chunk_id = v.pointer("/data/chunks/0/id").and_then(|c| c.as_str()).unwrap_or_default().to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-client-ip", some_ip().parse().unwrap());
+        let payload: UploadCompletePayload =
+            serde_json::from_value(json!({ "token": token, "chunk_id": chunk_id })).unwrap();
+        let status = upload_mark_complete(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
+            .await
+            .into_response()
+            .status();
+        let (uploaded, on_server): (bool, i64) =
+            sqlx::query_as("SELECT uploaded, size_on_server FROM chunks WHERE id = $1")
+                .bind(&chunk_id)
+                .fetch_one(&st.pg_pool)
+                .await
+                .unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(created, StatusCode::OK);
+        assert_ne!(status, StatusCode::OK);
+        assert!(!uploaded);
+        assert_eq!(on_server, 0);
     }
 }

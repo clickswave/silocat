@@ -84,6 +84,14 @@ pub async fn handle(
         }
     }
 
+    // The declared sizes decide quota admission below and each chunk's signed
+    // PUT length, so they have to describe a real file: no negative sizes, no
+    // chunk over the largest any client sends, and chunks that add up.
+    let chunk_sizes: Vec<i64> = payload.chunks.iter().map(|c| c.size).collect();
+    if let Err(why) = libs::uploads::check_declared(payload.file_size, &chunk_sizes) {
+        return respond(400, "Invalid upload", vec![why.to_string()], json!({}));
+    }
+
     // A destination folder, if given, must belong to the caller: no planting
     // files into another user's folder.
     if let Some(folder_id) = &payload.folder_id {
@@ -300,7 +308,8 @@ pub async fn handle(
 
         let presigned_url = match axum_state.r2.presigned_put_url(
             if file.user_id.is_some() { "sanctum" } else { "shadow" },
-            &chunk_id
+            &chunk_id,
+            libs::uploads::stored_len(chunk.size, payload.file_encrypted),
         ).await {
             Ok(url) => url,
             Err(_e) => {
@@ -351,4 +360,179 @@ pub async fn handle(
         vec![],
         json!({"file": file, "chunks": chunks}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    //! These call the handler against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset. Each deletes what it
+    //! made.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+    use axum::http::StatusCode;
+
+    const MIB: i64 = 1024 * 1024;
+
+    async fn create(st: &crate::AppState, caller: Caller, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let payload: PayloadBody = serde_json::from_value(body).unwrap();
+        let resp = handle(
+            ConnectInfo("127.0.0.1:1".parse().unwrap()),
+            State(st.clone()),
+            Extension(Some(caller)),
+            HeaderMap::new(),
+            Json(payload),
+        )
+        .await
+        .into_response();
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&body).unwrap_or(json!({})))
+    }
+
+    fn body(file_size: i64, encrypted: bool, sizes: &[i64]) -> serde_json::Value {
+        let mut start = 0i64;
+        let chunks: Vec<serde_json::Value> = sizes
+            .iter()
+            .map(|s| {
+                let c = json!({ "start": start, "end": start.wrapping_add(*s), "size": s, "checksum": "pending" });
+                start = start.wrapping_add(*s);
+                c
+            })
+            .collect();
+        json!({
+            "file_encrypted": encrypted,
+            "file_name": "f.bin",
+            "file_mime": "application/octet-stream",
+            "file_size": file_size,
+            "chunks": chunks,
+            "sha256_checksum": "s",
+            "blake3_checksum": ""
+        })
+    }
+
+    async fn files_of(st: &crate::AppState, user: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE user_id = $1")
+            .bind(user)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap()
+    }
+
+    async fn as_user(st: &crate::AppState, file_size: i64, encrypted: bool, sizes: &[i64]) -> (StatusCode, serde_json::Value, i64) {
+        let (user, key) = account(&st.pg_pool).await;
+        let caller = Caller { api_key: key, user_id: Some(user.clone()), email_verified: true };
+        let (status, v) = create(st, caller, body(file_size, encrypted, sizes)).await;
+        let made = files_of(st, &user).await;
+        forget(&st.pg_pool, &user).await;
+        (status, v, made)
+    }
+
+    #[tokio::test]
+    async fn a_negative_chunk_size_is_refused() {
+        // Admitted on file_size 0, then marked complete without an upload, this
+        // chunk used to drive the account's counted usage near -2^62.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, _, made) = as_user(&st, 0, false, &[-4611686018427387904]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_negative_file_size_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, _, made) = as_user(&st, -5 * MIB, false, &[]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn chunks_that_do_not_add_up_to_the_file_are_refused() {
+        // Declaring 1 byte admits the upload; the chunk then claims 50 MiB.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, _, made) = as_user(&st, 1, false, &[50 * MIB]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_chunk_larger_than_any_client_sends_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, _, made) = as_user(&st, 300 * MIB, false, &[300 * MIB]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn a_flood_of_tiny_chunks_is_refused() {
+        // Each chunk is a presigned PUT and, if abandoned, a delete for the
+        // orphan sweep to make. 5,000 one-byte chunks is not a real upload.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let sizes = vec![1i64; 5000];
+        let (status, _, made) = as_user(&st, 5000, false, &sizes).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn an_anonymous_drop_with_a_negative_size_is_refused() {
+        // A negative file_size used to lower the IP's recorded daily usage.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let key = format!("shadow-{}", crate::libs::rng::uuid());
+        let caller = Caller { api_key: key.clone(), user_id: None, email_verified: true };
+        let (status, _) = create(&st, caller, body(-20 * 1024 * MIB, false, &[])).await;
+        let made: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE owner_api_key = $1")
+            .bind(&key)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        let _ = sqlx::query("DELETE FROM files WHERE owner_api_key = $1").bind(&key).execute(&st.pg_pool).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    fn query_param(url: &str, name: &str) -> Option<String> {
+        let q = url.split_once('?')?.1;
+        q.split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            (k == name).then(|| v.replace("%3B", ";").replace("%3b", ";"))
+        })
+    }
+
+    #[tokio::test]
+    async fn each_upload_url_is_bound_to_its_chunk_length() {
+        // The web app's shape: 16 MiB chunks, encrypted, so each PUT carries the
+        // plaintext length plus a 16-byte tag. Unbound, one URL took up to 5 GiB.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, v, made) = as_user(&st, 16 * MIB + 5, true, &[16 * MIB, 5]).await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(made, 1);
+        let chunks = v.pointer("/data/chunks").and_then(|c| c.as_array()).cloned().unwrap();
+        assert_eq!(chunks.len(), 2);
+        for c in &chunks {
+            let url = c["presigned_url"].as_str().unwrap();
+            let signed = query_param(url, "X-Amz-SignedHeaders").unwrap();
+            assert!(signed.split(';').any(|h| h == "content-length"), "length not signed: {signed}");
+            let expires: u64 = query_param(url, "X-Amz-Expires").unwrap().parse().unwrap();
+            assert!(expires <= 2 * 60 * 60, "PUT url lives {expires}s");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_file_with_no_chunks_is_still_accepted() {
+        // The drive page sends an empty file as zero chunks.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, _, made) = as_user(&st, 0, false, &[]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(made, 1);
+    }
+
+    #[tokio::test]
+    async fn the_client_library_chunk_size_is_still_accepted() {
+        // packages/client and the API docs use 100 MB chunks.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (status, _, made) = as_user(&st, 150 * MIB, true, &[100 * MIB, 50 * MIB]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(made, 1);
+    }
 }
