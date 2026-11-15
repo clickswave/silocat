@@ -118,8 +118,8 @@ const plaintext = await silo.download(file.id, {
 				{
 					method: 'PUT',
 					path: '{presigned_url}',
-					desc: 'PUT the ciphertext for one chunk directly to storage.',
-					sample: '(request body is raw ciphertext; the response is empty)'
+					desc: 'PUT the bytes for one chunk directly to storage: ciphertext when the file is encrypted.',
+					sample: '(request body is the raw chunk; the response is empty)'
 				},
 				{
 					method: 'POST',
@@ -131,7 +131,7 @@ const plaintext = await silo.download(file.id, {
 		},
 		{
 			title: 'Download',
-			desc: 'Fetch ciphertext, then decrypt locally.',
+			desc: 'Fetch the chunks, then decrypt locally if the file is encrypted.',
 			endpoints: [
 				{
 					method: 'POST',
@@ -168,7 +168,7 @@ const plaintext = await silo.download(file.id, {
 				{
 					method: 'POST',
 					path: '/api/v1/sanctum/file/permanent-delete',
-					desc: 'Delete forever. Ciphertext is scrubbed from storage.',
+					desc: 'Delete forever. The stored chunks are scrubbed from storage.',
 					body: { file_id: 'f_01H…' }
 				},
 				{ method: 'POST', path: '/api/v1/sanctum/file/star', desc: 'Star or unstar.', body: { file_id: 'f_01H…', starred: true } },
@@ -197,7 +197,7 @@ const plaintext = await silo.download(file.id, {
 
 <Seo
 	title="API documentation | Silocat"
-	description="Integrate Silocat's zero-knowledge encrypted storage. The official client does the end-to-end encryption for you, so ciphertext is all that ever leaves your process."
+	description="Integrate Silocat's file storage and sharing. Give the official client a password and it does the end-to-end encryption in your process, so only ciphertext leaves it."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'API', path: '/api' }
@@ -212,8 +212,9 @@ const plaintext = await silo.download(file.id, {
 			<span class="eyebrow">developers</span>
 			<h1>API</h1>
 			<p class="sub">
-				Everything the web app does, your code can do too. Encryption always happens on your side;
-				the API only ever sees ciphertext.
+				Everything the web app does, your code can do too. Encryption is optional and happens on
+				your side: with a password, the API only sees ciphertext. Without one, the file is stored as
+				sent and we can read it.
 			</p>
 			<div class="base">
 				<span class="base-label">base</span>
@@ -294,8 +295,8 @@ const plaintext = await silo.download(file.id, {
 			</div>
 			<div class="note-card">
 				<p>
-					Silocat is zero-knowledge, so the API cannot accept a file. It accepts ciphertext. Doing
-					that by hand means deriving a key with Argon2id at libsodium's MODERATE limits, splitting
+					The server never sees your password, so encrypting a file is your code's job: the API
+					stores whatever bytes you send. Doing that by hand means deriving a key with Argon2id at libsodium's MODERATE limits, splitting
 					the file into 100&nbsp;MB chunks, and encrypting each one with XChaCha20-Poly1305 under a
 					24-byte nonce that records the chunk's place in the file (8 random bytes per file, the
 					ASCII tag <code>silocat1</code>, then the chunk index and the chunk count as big-endian

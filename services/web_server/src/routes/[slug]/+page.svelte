@@ -7,6 +7,7 @@
 	import sodium from 'libsodium-wrappers-sumo';
 	import { decryptChunk, deriveKey } from '$lib/cryptoClient.js';
 	import { chunkOrderCheck } from '$lib/chunkOrder.js';
+	import { allEncrypted } from '$lib/encryption.js';
 	import { createFileSink } from '$lib/fileSink.js';
 	import { toast } from 'svelte-sonner';
 	import Icon from '$lib/ui/Icon.svelte';
@@ -618,7 +619,7 @@
 			{#if !error}
 				<p class="secure-note">
 					<Icon icon="ri:shield-check-line" width="13" />
-					<span>{#if isFolder ? folderFiles.some((f) => f.encrypted) : fileMeta?.encrypted}Encrypted end to end · shared via{:else}Shared via{/if}
+					<span>{#if isFolder ? allEncrypted(folderFiles) : fileMeta?.encrypted}Encrypted end to end · shared via{:else}Shared via{/if}
 						<a class="via" href="/?ref=dl-drop-footer">Silocat</a></span>
 				</p>
 			{/if}

@@ -25,8 +25,8 @@
 			tagline: 'Everything, 10 GB of space.',
 			badge: '',
 			features: [
-				'10 GB encrypted storage',
-				'End-to-end encryption',
+				'10 GB of storage',
+				'Optional end-to-end encryption',
 				'Password + expiring share links',
 				'Up to 20 GB anonymous drops'
 			],
@@ -43,7 +43,7 @@
 			tagline: '20× the space.',
 			badge: 'Recommended',
 			features: [
-				'200 GB encrypted storage',
+				'200 GB of storage',
 				'Everything in Free',
 				'Request a file (secure inbox)',
 				'Delivery receipts',
@@ -64,7 +64,7 @@
 			tagline: 'Room for everything.',
 			badge: '',
 			features: [
-				'2 TB encrypted storage',
+				'2 TB of storage',
 				'Everything in Plus',
 				'Request a file (secure inbox)',
 				'Delivery receipts',
@@ -80,7 +80,7 @@
 
 <Seo
 	title="Pricing: Simple, transparent, secure | Silocat"
-	description="Silocat plans for anonymous and power users. Zero-knowledge end-to-end encrypted file sharing and storage, with a free tier, affordable upgrades, and a free self-host option."
+	description="Silocat plans for anonymous and power users. File sharing and storage with optional end-to-end encryption, a free tier, affordable upgrades, and a free self-host option."
 	schema={[
 		softwareApplicationSchema(),
 		breadcrumbSchema([

@@ -114,7 +114,7 @@
 			per: '/mo',
 			billNote: 'free forever',
 			tagline: 'Everything, 10 GB of space.',
-			features: ['10 GB encrypted storage', 'End-to-end encryption', 'Password + expiring links']
+			features: ['10 GB of storage', 'Optional end-to-end encryption', 'Password + expiring links']
 		},
 		{
 			id: 'plus',
@@ -123,7 +123,7 @@
 			per: annual ? '/yr' : '/mo',
 			billNote: annual ? 'billed annually · 2 months free' : `or ${price('plus', 'annual')}/yr`,
 			tagline: '20× the space.',
-			features: ['200 GB encrypted storage', 'Everything in Free', 'Email support']
+			features: ['200 GB of storage', 'Everything in Free', 'Email support']
 		},
 		{
 			id: 'pro',
@@ -132,7 +132,7 @@
 			per: annual ? '/yr' : '/mo',
 			billNote: annual ? 'billed annually · 2 months free' : `or ${price('pro', 'annual')}/yr`,
 			tagline: 'Room for everything.',
-			features: ['2 TB encrypted storage', 'Everything in Free', 'Priority support']
+			features: ['2 TB of storage', 'Everything in Free', 'Priority support']
 		}
 	]);
 

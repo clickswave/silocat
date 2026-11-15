@@ -3,8 +3,9 @@
 // Uploads are unencrypted unless the sender turns on password protection, and
 // the server can read those. The link preview for a drop used to call every
 // file "Encrypted" and every folder "this encrypted vault", and the Terms,
-// landing, Home and signup copy said the server never sees plaintext. These
-// check the preview against the file's own flag and keep those claims out.
+// landing, Home, signup, DMCA, privacy, API and plan copy said the server never
+// sees plaintext. These check the preview and the drop page footer against the
+// files' own flags and keep those claims out of the copy.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -120,4 +121,80 @@ test('landing, Home and signup do not promise that every upload is encrypted', (
 	assert.doesNotMatch(page('+page.svelte'), /ciphertext and nothing else/i);
 	assert.doesNotMatch(page('home/+page.svelte'), /encrypted end to end/i);
 	assert.doesNotMatch(page('auth/signup/+page.svelte'), /encrypted end to end/i);
+});
+
+/** Fails with a short message, not the whole page, when `re` is in `src`. */
+function absent(/** @type {string} */ src, /** @type {RegExp} */ re, /** @type {string} */ name) {
+	const hit = src.match(re);
+	assert.equal(hit, null, `${name} still says "${hit?.[0]}"`);
+}
+
+test('the drop page footer calls a folder encrypted only when every file in it is', async () => {
+	const drop = page('[slug]/+page.svelte');
+	const footer = drop.slice(drop.indexOf('class="secure-note"'));
+	const claim = footer.slice(0, footer.indexOf('Encrypted end to end'));
+	assert.ok(claim.length > 0, 'footer not found');
+	absent(claim, /folderFiles\.some/, 'claim');
+	assert.ok(/allEncrypted\(folderFiles\)/.test(claim), 'footer does not use allEncrypted');
+
+	const { allEncrypted } = await import('../src/lib/encryption.js');
+	assert.equal(allEncrypted([file(true), file(true)]), true);
+	assert.equal(allEncrypted([file(true), file(false)]), false);
+	assert.equal(allEncrypted([file(false)]), false);
+	assert.equal(allEncrypted([]), false);
+	assert.equal(allEncrypted(undefined), false);
+});
+
+test('the DMCA and privacy policies do not say every file is ciphertext', () => {
+	const dmca = page('policies/dmca-policy/+page.svelte');
+	absent(dmca, /architecture prevents us from viewing user content/i, 'dmca');
+	absent(dmca, /encrypted blob/i, 'dmca');
+	assert.ok(/unencrypted/i.test(dmca), 'DMCA policy never mentions unencrypted files');
+	const privacy = page('policies/privacy-policy/+page.svelte');
+	absent(privacy, /ciphertext plus metadata, and nothing more/i, 'privacy');
+	absent(privacy, /for encrypted storage/i, 'privacy');
+});
+
+test('the API docs do not say the API only accepts ciphertext', () => {
+	const api = page('api/+page.svelte');
+	absent(api, /the API cannot accept a file/i, 'api');
+	absent(api, /the API only ever sees ciphertext/i, 'api');
+	absent(api, /ciphertext is all that ever leaves your process/i, 'api');
+	absent(api, /Ciphertext is scrubbed/i, 'api');
+});
+
+test('plan features do not call the storage itself encrypted', () => {
+	for (const path of ['pricing/+page.svelte', 'home/billing/+page.svelte']) {
+		const src = page(path);
+		absent(src, /\d+ [GT]B encrypted storage/i, path);
+		absent(src, /'End-to-end encryption'/, path);
+	}
+});
+
+test('page descriptions that mention encryption say it is optional', () => {
+	const sources = [
+		'../lib/seo.js',
+		'+page.svelte',
+		'about/+page.svelte',
+		'pricing/+page.svelte',
+		'api/+page.svelte',
+		'policies/terms-of-service/+page.svelte',
+		'policies/acceptable-use/+page.svelte',
+		'policies/disclaimer/+page.svelte',
+		'policies/dmca-policy/+page.svelte',
+		'policies/privacy-policy/+page.svelte'
+	];
+	for (const path of sources) {
+		const src = page(path);
+		const descriptions = [
+			...src.matchAll(/description="([^"]*)"/g),
+			...src.matchAll(/defaultDescription: '([^']*)'/g)
+		].map((m) => m[1]);
+		assert.ok(descriptions.length > 0, `no description in ${path}`);
+		for (const d of descriptions) {
+			if (/encrypt|zero-knowledge|ciphertext/i.test(d)) {
+				assert.match(d, /optional|password|encryption is off/i, `${path}: ${d}`);
+			}
+		}
+	}
 });

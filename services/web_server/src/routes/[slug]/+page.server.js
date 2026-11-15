@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { ApiServerClient, ApiServerRoutes } from '$lib/network.js';
 import { formatSize } from '$lib/format.js';
+import { allEncrypted } from '$lib/encryption.js';
 
 // Every bare drop link is `/<id>`, and files and folders get their ids from
 // gen_random_uuid(). Anything else at one path segment is not a drop, and it
@@ -51,10 +52,7 @@ export const load = async ({ params }) => {
 			const totalSize = formatSize(files.reduce((sum, f) => sum + (Number(f?.size) || 0), 0));
 			const count = files.length;
 			const label = count === 1 ? '1 file' : `${count} files`;
-			// Encryption is chosen per file, so a folder is only called encrypted
-			// when every file in it is.
-			const encrypted = count > 0 && files.every((f) => f?.encrypted === true);
-			const description = encrypted
+			const description = allEncrypted(files)
 				? `${label} (${totalSize}), encrypted in the sender's browser and stored on silo.cat: open the link to decrypt and download them.`
 				: `${label} (${totalSize}) stored on silo.cat: open the link to download them.`;
 			return { og: { title: `${name}: shared on SiloCat`, description } };

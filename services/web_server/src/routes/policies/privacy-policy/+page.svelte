@@ -14,7 +14,7 @@
 
 <div class="policy-document">
 	<h1>Privacy Policy</h1>
-	<p class="last-updated">Last Updated: 2026-11-13</p>
+	<p class="last-updated">Last Updated: 2026-11-15</p>
 
 	<section>
 		<h2>1. Who We Are</h2>
@@ -32,11 +32,11 @@
 	</section>
 
 	<section>
-		<h2>2. Zero Knowledge Philosophy</h2>
+		<h2>2. What We Hold</h2>
 		<p>
-			SiloCat is built on a simple premise: <strong>we hold ciphertext plus metadata, and nothing
-			more.</strong> When you enable password protection, the file contents are ciphertext we cannot
-			open; either way, we hold the metadata around the transfer: filenames, folder names, file size,
+			SiloCat is built to hold as little as it can. When you enable password protection, the file
+			contents are ciphertext we cannot open. Without it, the file is stored unencrypted and we can
+			read it. Either way, we hold the metadata around the transfer: filenames, folder names, file size,
 			timestamps, and a hash of the file's plaintext (which lets us confirm whether a specific known
 			file was uploaded). We collect the minimum required to facilitate the transfer. Your IP address
 			is used for abuse prevention and rate limiting, but it is not permanently linked to your files
@@ -94,7 +94,7 @@
 		</p>
 		<ul>
 			<li><strong>Razorpay</strong> for payment processing.</li>
-			<li><strong>Cloudflare and Backblaze</strong> for encrypted storage.</li>
+			<li><strong>Cloudflare and Backblaze</strong> for file storage.</li>
 			<li>Our transactional email provider for account and service notifications.</li>
 			<li><strong>Google</strong> for Google Analytics on silo.cat, as described in section 4.</li>
 		</ul>

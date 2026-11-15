@@ -5,7 +5,7 @@
 
 <Seo
 	title="Terms of Service | SiloCat"
-	description="SiloCat's Terms of Service: the agreement covering our zero-knowledge encrypted storage and sharing service, billing, liability, and your rights."
+	description="SiloCat's Terms of Service: the agreement covering our storage and sharing service with optional encryption, billing, liability, and your rights."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'Terms of Service', path: '/policies/terms-of-service' }

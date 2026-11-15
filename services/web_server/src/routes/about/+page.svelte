@@ -7,7 +7,7 @@
 
 <Seo
 	title="About Silocat: Privacy-first encrypted storage"
-	description="Silocat's mission is private, zero-knowledge file sharing and cloud storage. Learn how end-to-end encryption keeps your files yours, and yours alone."
+	description="Silocat's mission is private file sharing and cloud storage. Turn on password protection and a file is encrypted end to end, readable only by you and whoever you give the password."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'About', path: '/about' }

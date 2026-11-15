@@ -11,7 +11,7 @@ export const SITE = {
 	defaultTitle: 'SiloCat: End-to-end encrypted file sharing & cloud storage',
 	titleSuffix: 'SiloCat',
 	defaultDescription:
-		'SiloCat is zero-knowledge, end-to-end encrypted file sharing and cloud storage. Upload up to 20 GB, share an anonymous link, and keep full control. Built for the privacy-conscious.',
+		'SiloCat is file sharing and cloud storage with optional end-to-end encryption. Upload up to 20 GB, share an anonymous link, and keep full control. Built for the privacy-conscious.',
 	ogImage: '/og-image.png',
 	ogImageWidth: 1200,
 	ogImageHeight: 630

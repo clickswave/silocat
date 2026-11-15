@@ -5,7 +5,7 @@
 
 <Seo
 	title="Disclaimer | SiloCat"
-	description="Legal disclaimer for SiloCat, the zero-knowledge, end-to-end encrypted file sharing and cloud storage service operated by Clickswave Labs Private Limited."
+	description="Legal disclaimer for SiloCat, the file sharing and cloud storage service with optional end-to-end encryption operated by Clickswave Labs Private Limited."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'Disclaimer', path: '/policies/disclaimer' }

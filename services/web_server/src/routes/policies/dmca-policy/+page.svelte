@@ -14,18 +14,19 @@
 
 <div class="policy-document">
 	<h1>DMCA Policy</h1>
-	<p class="last-updated">Last Updated: 2026-07-20</p>
+	<p class="last-updated">Last Updated: 2026-11-15</p>
 
 	<section>
 		<h2>1. Reporting Copyright Infringement</h2>
 		<p>
-			SiloCat respects intellectual property rights. Even though our <strong>zero-knowledge</strong>
-			architecture prevents us from viewing user content, we honour valid copyright takedown notices
-			under the Digital Millennium Copyright Act (DMCA) and applicable Indian law.
+			SiloCat respects intellectual property rights. Files uploaded with password protection are
+			encrypted in the uploader's browser and we cannot view them; files uploaded without it are
+			stored unencrypted. Either way, we honour valid copyright takedown notices under the Digital
+			Millennium Copyright Act (DMCA) and applicable Indian law.
 		</p>
 		<p>
 			To file a notice, you must provide the <strong>exact URL</strong> of the infringing file. On
-			receiving a valid notice, we will delete the corresponding <strong>encrypted blob</strong> from
+			receiving a valid notice, we will delete the corresponding <strong>stored file</strong> from
 			our storage backends (Cloudflare R2 or Backblaze B2).
 		</p>
 	</section>

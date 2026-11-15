@@ -5,7 +5,7 @@
 
 <Seo
 	title="Acceptable Use Policy | SiloCat"
-	description="SiloCat's Acceptable Use Policy: the content and activities that are prohibited on our zero-knowledge platform, your responsibilities, and how we enforce these rules."
+	description="SiloCat's Acceptable Use Policy: the content and activities that are prohibited on our platform, your responsibilities, and how we enforce these rules."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'Acceptable Use Policy', path: '/policies/acceptable-use' }
