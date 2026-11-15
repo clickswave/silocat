@@ -2,6 +2,7 @@ use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
 use crate::{libs, models};
+use crate::middlewares::validate_token::PresentedKey;
 use crate::routes::respond;
 
 #[derive(Deserialize, Debug)]
@@ -15,6 +16,7 @@ pub struct ChangePasswordInput {
 pub async fn handle(
     State(axum_state): State<crate::AppState>,
     Extension(token_user): Extension<models::UserTokenData>,
+    Extension(key): Extension<PresentedKey>,
     Json(payload): Json<ChangePasswordInput>,
 ) -> impl IntoResponse {
     // Validate the new password.
@@ -67,17 +69,20 @@ pub async fn handle(
         }
     };
 
-    match sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
-        .bind(&new_hash)
-        .bind(&user.id)
-        .execute(&axum_state.pg_pool)
-        .await
-    {
-        Ok(_) => respond(
+    match set_password(&axum_state.pg_pool, &user.id, &key.0, &user.password_hash, &new_hash).await {
+        Ok(true) => respond(
             200,
             if has_password { "Password updated" } else { "Password set" },
             vec![],
             json!({ "password_set": true }),
+        ),
+        // The key this request came in with was replaced, or the password
+        // changed, while the hashes were being worked out.
+        Ok(false) => respond(
+            409,
+            "Account changed",
+            vec!["Your account changed while this was being saved. Sign in again and retry.".to_string()],
+            json!({}),
         ),
         Err(_) => respond(
             500,
@@ -86,4 +91,30 @@ pub async fn handle(
             json!({}),
         ),
     }
+}
+
+/// Store `new_hash` only while the account still has the key the request
+/// authenticated with and the password hash it was checked against. Either
+/// can change between the check and this write: the owner of the address may
+/// have claimed the account (new key, password reset or cleared), or another
+/// change landed first. Writing anyway would let a request from the old
+/// holder of the account set the password the owner then signs in under, or
+/// skip the current-password check on a password the owner just cleared.
+pub(super) async fn set_password<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    user_id: &str,
+    key_index: &str,
+    checked_hash: &str,
+    new_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query(
+        "UPDATE users SET password_hash = $1 WHERE id = $2 AND api_key = $3 AND password_hash = $4",
+    )
+    .bind(new_hash)
+    .bind(user_id)
+    .bind(key_index)
+    .bind(checked_hash)
+    .execute(db)
+    .await?;
+    Ok(done.rows_affected() == 1)
 }

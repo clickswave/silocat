@@ -15,6 +15,7 @@
 //! the new key in the same transaction as the user row, the way apikey_backfill
 //! moved them to the blind index.
 
+use crate::middlewares::validate_token::PresentedKey;
 use crate::models::UserTokenData;
 use crate::routes::respond;
 use axum::{extract::State, response::IntoResponse, Extension};
@@ -26,6 +27,7 @@ pub async fn handle(
     // Same extension the other /user routes use: this router is wrapped in
     // `validate_token`, so reaching this handler already proves an account.
     Extension(token_user): Extension<UserTokenData>,
+    Extension(key): Extension<PresentedKey>,
 ) -> impl IntoResponse {
     let user_id = token_user.id;
 
@@ -38,6 +40,7 @@ pub async fn handle(
     let result = rotate(
         &axum_state.pg_pool,
         &user_id,
+        &key.0,
         &minted.blind_index,
         &minted.encrypted,
     )
@@ -50,7 +53,13 @@ pub async fn handle(
             vec![],
             json!({ "api_key": new_key }),
         ),
-        Ok(false) => respond(404, "User not found", vec![], json!({})),
+        // The key this request came in with is no longer the account's.
+        Ok(false) => respond(
+            401,
+            "Unauthorized",
+            vec!["Invalid or missing API key".to_string()],
+            json!({}),
+        ),
         Err(e) => {
             eprintln!("[rotate_api_key] {:?}", e);
             respond(500, "Could not rotate API key", vec![], json!({}))
@@ -59,19 +68,36 @@ pub async fn handle(
 }
 
 /// Replace the account's key and move the objects stamped with the old one.
-/// `Ok(false)` when there is no such user.
+/// `Ok(false)` when the account no longer has the key `presented` (the index
+/// of the key the request authenticated with), or there is no such user. A
+/// rotation let in on a key that has since been replaced would otherwise hand
+/// whoever held that key a fresh one.
 async fn rotate(
     pool: &sqlx::PgPool,
     user_id: &str,
+    presented: &str,
     new_index: &str,
     new_encrypted: &str,
 ) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let found = replace_key(&mut tx, user_id, new_index, new_encrypted).await?;
-    if found {
-        tx.commit().await?;
+    if !rotate_in(&mut tx, user_id, presented, new_index, new_encrypted).await? {
+        return Ok(false);
     }
-    Ok(found)
+    tx.commit().await?;
+    Ok(true)
+}
+
+pub(super) async fn rotate_in(
+    conn: &mut sqlx::PgConnection,
+    user_id: &str,
+    presented: &str,
+    new_index: &str,
+    new_encrypted: &str,
+) -> Result<bool, sqlx::Error> {
+    if !crate::libs::key_guard::still_current(conn, user_id, presented).await? {
+        return Ok(false);
+    }
+    replace_key(conn, user_id, new_index, new_encrypted).await
 }
 
 /// The body of a rotation, for callers that already hold a transaction (an

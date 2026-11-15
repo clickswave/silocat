@@ -30,6 +30,30 @@ pub struct CreateRequestPayload {
     pub max_uploads: Option<i32>,
 }
 
+/// Open a transaction holding the account row, for a write that must not land
+/// for a key the account has dropped since the request was let in: a request
+/// link lets anyone with it put files into the owner's drive (libs::key_guard).
+async fn bound_to_key(
+    st: &crate::AppState,
+    caller: &Option<Caller>,
+    owner: &str,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, axum::response::Response> {
+    let db_error = || respond(500, "Database error", vec![], json!({})).into_response();
+    let key_index = caller.as_ref().map(|c| c.api_key.as_str()).unwrap_or_default();
+    let mut tx = st.pg_pool.begin().await.map_err(|_| db_error())?;
+    match crate::libs::key_guard::still_current(&mut tx, owner, key_index).await {
+        Ok(true) => Ok(tx),
+        Ok(false) => Err(respond(
+            401,
+            "Unauthorized",
+            vec!["A logged-in account is required.".to_string()],
+            json!({}),
+        )
+        .into_response()),
+        Err(_) => Err(db_error()),
+    }
+}
+
 fn require_account(caller: &Option<Caller>) -> Result<String, axum::response::Response> {
     match caller.as_ref().and_then(|c| c.user_id.clone()) {
         Some(u) => Ok(u),
@@ -82,6 +106,10 @@ pub async fn create_request(
         .filter(|d| *d > 0)
         .map(|d| Utc::now() + chrono::Duration::days(d));
 
+    let mut tx = match bound_to_key(&st, &caller, &owner).await {
+        Ok(tx) => tx,
+        Err(r) => return r,
+    };
     let row = sqlx::query!(
         "INSERT INTO file_requests (token, owner_user_id, label, message, folder_id, max_uploads, expires_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, token",
@@ -93,8 +121,12 @@ pub async fn create_request(
         p.max_uploads,
         expires_at
     )
-    .fetch_one(&st.pg_pool)
+    .fetch_one(&mut *tx)
     .await;
+    let row = match row {
+        Ok(r) => tx.commit().await.map(|()| r),
+        Err(e) => Err(e),
+    };
 
     match row {
         Ok(r) => respond(
@@ -206,14 +238,22 @@ pub async fn set_active(
         Ok(u) => u,
         Err(r) => return r,
     };
+    let mut tx = match bound_to_key(&st, &caller, &owner).await {
+        Ok(tx) => tx,
+        Err(r) => return r,
+    };
     let res = sqlx::query!(
         "UPDATE file_requests SET active = $1 WHERE id = $2 AND owner_user_id = $3 RETURNING id",
         p.active,
         p.id,
         owner
     )
-    .fetch_optional(&st.pg_pool)
+    .fetch_optional(&mut *tx)
     .await;
+    let res = match res {
+        Ok(found) => tx.commit().await.map(|()| found),
+        Err(e) => Err(e),
+    };
     match res {
         Ok(Some(_)) => respond(200, "Updated", vec![], json!({ "active": p.active })).into_response(),
         Ok(None) => respond(404, "Not found", vec![], json!({})).into_response(),

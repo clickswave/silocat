@@ -6,6 +6,13 @@ use axum::{
 };
 use serde_json::json;
 
+/// The blind index of the key this request authenticated with. Handlers that
+/// hand out a credential bind their write to it (see libs::key_guard), so a
+/// request that was let in just before the key changed cannot act on the
+/// account afterwards.
+#[derive(Clone, Debug)]
+pub struct PresentedKey(pub String);
+
 pub async fn validate_token(
     State(state): State<crate::AppState>,
     mut request: Request,
@@ -76,6 +83,7 @@ pub async fn validate_token(
 
     let user_token_data = models::token_data(user, subscription);
     request.extensions_mut().insert(user_token_data);
+    request.extensions_mut().insert(PresentedKey(api_key_index));
 
     next.run(request).await
 }

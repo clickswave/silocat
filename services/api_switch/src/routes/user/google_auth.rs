@@ -44,6 +44,12 @@ fn username_base(google_user: &GoogleUserInfo) -> String {
     }
 }
 
+/// A username nobody has yet, for a first Google sign-in.
+async fn acquire_free_username(pool: &sqlx::PgPool, base: &str) -> Result<String, sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+    super::account_claim::free_username(&mut conn, base).await
+}
+
 #[derive(Deserialize, Debug)]
 pub struct GoogleTokenResponse {
     pub access_token: String,
@@ -151,25 +157,44 @@ pub async fn handle(
             // An unverified account was made by someone who never proved this
             // address, and Google has just shown the caller owns it. Take it
             // from the registrant before signing the caller in: new API key,
-            // no password, new username. See account_claim.
+            // no password, new username, no share links. See account_claim.
             if !user.email_verified {
+                use super::account_claim::{self, Claim};
                 let key = match libs::apikey::mint() {
                     Some(k) => k,
                     None => return respond(500, "Server misconfigured", vec![], json!({})),
                 };
                 let base = username_base(&google_user);
+                let picture = Some(google_user.picture.as_str()).filter(|p| !p.is_empty());
                 let claimed = async {
                     let mut tx = axum_state.pg_pool.begin().await?;
-                    super::account_claim::google_sign_in(&mut tx, &user.id, &base, &key).await?;
+                    let claim =
+                        account_claim::google_sign_in(&mut tx, &user.id, &user.email, &base, picture, &key).await?;
                     tx.commit().await?;
-                    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+                    let row = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
                         .bind(&user.id)
                         .fetch_one(&axum_state.pg_pool)
-                        .await
+                        .await?;
+                    Ok::<_, sqlx::Error>((claim, row))
                 }
                 .await;
                 user = match claimed {
-                    Ok(u) => u,
+                    Ok((Claim::Moved, _)) => {
+                        return respond(
+                            409,
+                            "Account changed",
+                            vec!["This account changed while you were signing in. Please try again.".to_string()],
+                            json!({}),
+                        );
+                    }
+                    Ok((claim, u)) => {
+                        if claim == Claim::TakenOver {
+                            // The registrant's uploaded avatar, if any. The row
+                            // no longer points at it.
+                            let _ = axum_state.r2.delete_object("dp", &u.id).await;
+                        }
+                        u
+                    }
                     Err(e) => {
                         eprintln!("[google_auth] claim failed: {:?}", e);
                         return respond(500, "Database error", vec![], json!({}));
@@ -199,7 +224,10 @@ pub async fn handle(
             // email; there is no password (login is via Google). Storage comes from
             // libs::quota so it matches the password signup path exactly.
             let base = username_base(&google_user);
-            let username = format!("{}{}", base, libs::rng::number(4));
+            let username = match acquire_free_username(&axum_state.pg_pool, &base).await {
+                Ok(u) => u,
+                Err(_e) => return respond(500, "Could not create account", vec![], json!({})),
+            };
             let user_id = libs::rng::uuid();
             let minted = match libs::apikey::mint() {
                 Some(k) => k,

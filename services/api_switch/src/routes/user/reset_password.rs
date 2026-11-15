@@ -83,21 +83,40 @@ pub async fn handle(
     };
 
     // On an account nobody had verified, the code just proved who owns the
-    // address, so the registrant's key goes too (see account_claim). The new
-    // key is in the token data returned below.
+    // address, so whatever the registrant set goes too: key, share links,
+    // username (see account_claim). The new key is in the token data returned
+    // below.
+    use super::account_claim::{self, Claim};
     let key = match libs::apikey::mint() {
         Some(k) => k,
         None => return respond(500, "Could not reset password", vec![], json!({})),
     };
     let reset = async {
         let mut tx = state.pg_pool.begin().await?;
-        super::account_claim::password_reset(&mut tx, &user.id, &new_hash, &key).await?;
-        tx.commit().await
+        let claim = account_claim::password_reset(&mut tx, &user.id, &user.email, &new_hash, &key).await?;
+        tx.commit().await?;
+        Ok::<_, sqlx::Error>(claim)
     }
     .await;
-    if let Err(e) = reset {
-        println!("[RESET_PW] update failed: {:?}", e);
-        return respond(500, "Could not reset password", vec![], json!({}));
+    match reset {
+        Ok(Claim::Moved) => {
+            return respond(
+                409,
+                "Account changed",
+                vec!["This account changed while the password was being reset. Please request a new code.".to_string()],
+                json!({}),
+            );
+        }
+        Ok(Claim::TakenOver) => {
+            // The registrant's uploaded avatar, if any. The row no longer
+            // points at it.
+            let _ = state.r2.delete_object("dp", &user.id).await;
+        }
+        Ok(Claim::Verified) => {}
+        Err(e) => {
+            println!("[RESET_PW] update failed: {:?}", e);
+            return respond(500, "Could not reset password", vec![], json!({}));
+        }
     }
 
     // Return fresh token data (with the subscription) so the caller can sign in.

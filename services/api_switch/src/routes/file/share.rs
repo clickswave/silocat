@@ -176,8 +176,8 @@ pub async fn toggle_share(
 ) -> impl IntoResponse {
     let new_token = generate_token();
     // Sharing is managed by the owning registered user; identity from the token.
-    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
-        Some(uid) => uid,
+    let (user_id, key_index) = match caller.as_ref().and_then(|c| Some((c.user_id.clone()?, c.api_key.clone()))) {
+        Some(found) => found,
         None => {
             return respond(
                 401,
@@ -228,6 +228,14 @@ pub async fn toggle_share(
             Ok(tx) => tx,
             Err(_e) => return respond(500, "Database error", vec![], json!({})),
         };
+
+        // Publishing hands out a link, so it must not land for a key the
+        // account has dropped since this request was let in (libs::key_guard).
+        match crate::libs::key_guard::still_current(&mut tx, &user_id, &key_index).await {
+            Ok(true) => {}
+            Ok(false) => return respond(401, "Unauthorized", vec!["Authentication required".to_string()], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
+        }
 
         // Fetch current file to check ownership and current token
         let current_file = sqlx::query!(
@@ -297,6 +305,14 @@ pub async fn toggle_share(
             Ok(tx) => tx,
             Err(_e) => return respond(500, "Database error", vec![], json!({})),
         };
+
+        // Publishing hands out a link, so it must not land for a key the
+        // account has dropped since this request was let in (libs::key_guard).
+        match crate::libs::key_guard::still_current(&mut tx, &user_id, &key_index).await {
+            Ok(true) => {}
+            Ok(false) => return respond(401, "Unauthorized", vec!["Authentication required".to_string()], json!({})),
+            Err(_e) => return respond(500, "Database error", vec![], json!({})),
+        }
 
         let current_folder = sqlx::query!(
             "SELECT share_token FROM folders WHERE id = $1 AND user_id = $2",
@@ -368,8 +384,8 @@ pub async fn regenerate_token(
     Json(payload): Json<RegeneratePayload>,
 ) -> impl IntoResponse {
     let new_token = generate_token();
-    let user_id = match caller.as_ref().and_then(|c| c.user_id.clone()) {
-        Some(uid) => uid,
+    let (user_id, key_index) = match caller.as_ref().and_then(|c| Some((c.user_id.clone()?, c.api_key.clone()))) {
+        Some(found) => found,
         None => {
             return respond(
                 401,
@@ -379,7 +395,19 @@ pub async fn regenerate_token(
             )
         }
     };
-    
+
+    // A new token is a link the caller can hand out, and a later toggle keeps
+    // an existing token, so this is bound to the presenting key like a toggle.
+    let mut tx = match axum_state.pg_pool.begin().await {
+        Ok(tx) => tx,
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
+    };
+    match crate::libs::key_guard::still_current(&mut tx, &user_id, &key_index).await {
+        Ok(true) => {}
+        Ok(false) => return respond(401, "Unauthorized", vec!["Authentication required".to_string()], json!({})),
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
+    }
+
     if let Some(file_id) = payload.file_id {
         let result = sqlx::query!(
             "UPDATE files SET share_token = $1, link_downloads = 0 WHERE id = $2 AND user_id = $3 RETURNING share_token",
@@ -387,11 +415,14 @@ pub async fn regenerate_token(
             file_id,
             user_id
         )
-        .fetch_optional(&axum_state.pg_pool)
+        .fetch_optional(&mut *tx)
         .await;
 
         match result {
-            Ok(Some(r)) => respond(200, "Token regenerated", vec![], json!({ "share_token": r.share_token })),
+            Ok(Some(r)) => match tx.commit().await {
+                Ok(()) => respond(200, "Token regenerated", vec![], json!({ "share_token": r.share_token })),
+                Err(_e) => respond(500, "Database error", vec![], json!({})),
+            },
             Ok(None) => respond(404, "File not found", vec![], json!({})),
             Err(_e) => respond(500, "Database error", vec![], json!({})),
         }
@@ -402,11 +433,14 @@ pub async fn regenerate_token(
             folder_id,
             user_id
         )
-        .fetch_optional(&axum_state.pg_pool)
+        .fetch_optional(&mut *tx)
         .await;
 
         match result {
-            Ok(Some(r)) => respond(200, "Token regenerated", vec![], json!({ "share_token": r.share_token })),
+            Ok(Some(r)) => match tx.commit().await {
+                Ok(()) => respond(200, "Token regenerated", vec![], json!({ "share_token": r.share_token })),
+                Err(_e) => respond(500, "Database error", vec![], json!({})),
+            },
             Ok(None) => respond(404, "Folder not found", vec![], json!({})),
             Err(_e) => respond(500, "Database error", vec![], json!({})),
         }
