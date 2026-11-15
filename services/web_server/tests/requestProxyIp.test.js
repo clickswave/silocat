@@ -27,6 +27,7 @@ export function resolve(specifier, context, next) {
 const info = await import('../src/routes/api/v1/public/request/info/[token]/+server.js');
 const upload = await import('../src/routes/api/v1/public/request/upload/+server.js');
 const markComplete = await import('../src/routes/api/v1/public/request/mark-complete/+server.js');
+const abandon = await import('../src/routes/api/v1/public/request/abandon/+server.js');
 
 /** The headers of every call that reached api_switch. */
 let sent = [];
@@ -73,5 +74,13 @@ test('the request upload and mark-complete proxies forward the visitor address',
 	assert.deepEqual(
 		sent.map((h) => h['X-Client-IP']),
 		['203.0.113.8', '203.0.113.9']
+	);
+});
+
+test('the request abandon proxy forwards the visitor address', async () => {
+	await abandon.POST(event('203.0.113.10', { token: 't', file_id: 'f' }));
+	assert.deepEqual(
+		sent.map((h) => h['X-Client-IP']),
+		['203.0.113.10']
 	);
 });

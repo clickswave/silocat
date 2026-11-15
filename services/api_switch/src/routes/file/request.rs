@@ -622,18 +622,20 @@ pub async fn upload_mark_complete(
         Err(resp) => return resp,
     };
 
-    // The chunk's file must be one uploaded through this request.
-    let owner_check = sqlx::query!(
+    // The chunk's file must be one uploaded through this request, and not
+    // given up (see upload_abandon) or put in the trash by the owner.
+    let owner_check = sqlx::query_scalar::<_, String>(
         "SELECT c.file_id FROM chunks c \
          JOIN request_uploads ru ON ru.file_id = c.file_id \
-         WHERE c.id = $1 AND ru.request_id = $2",
-        p.chunk_id,
-        req.id
+         JOIN files f ON f.id = c.file_id \
+         WHERE c.id = $1 AND ru.request_id = $2 AND f.deleted = false",
     )
+    .bind(&p.chunk_id)
+    .bind(&req.id)
     .fetch_optional(&st.pg_pool)
     .await;
     let file_id = match owner_check {
-        Ok(Some(r)) => r.file_id,
+        Ok(Some(id)) => id,
         Ok(None) => return respond(404, "Chunk not found", vec![], json!({})).into_response(),
         Err(_e) => return respond(500, "Database error", vec![], json!({})).into_response(),
     };
@@ -677,12 +679,78 @@ pub async fn upload_mark_complete(
     .await;
     if let Ok(rec) = count {
         let n = rec.count.unwrap_or(0) as i32;
-        let _ = sqlx::query!("UPDATE files SET uploaded_chunks = $1 WHERE id = $2", n, file_id)
+        // Not on a file given up since the check above. This and the update in
+        // upload_abandon both take the file row, so a file cannot be finished
+        // and have its slot given back as well.
+        let _ = sqlx::query("UPDATE files SET uploaded_chunks = $1 WHERE id = $2 AND deleted = false")
+            .bind(n)
+            .bind(&file_id)
             .execute(&st.pg_pool)
             .await;
     }
 
     respond(200, "Chunk complete", vec![], json!({})).into_response()
+}
+
+#[derive(serde::Deserialize)]
+pub struct UploadAbandonPayload {
+    pub token: String,
+    pub file_id: String,
+}
+
+/// Public: give up an unfinished upload, so its slot on the request goes back
+/// at once. The upload page calls this when an upload fails, so that trying
+/// again works on a capped link instead of finding the link full until the
+/// orphan sweep reaps the dead upload hours later.
+///
+/// The file row stays, in the owner's trash and untied from the request, for
+/// the sweep to reap with its objects: a PUT already in flight may still land
+/// after this, and the sweep waits out every PUT URL before it deletes.
+/// A finished upload cannot be given up, so this never reopens a slot whose
+/// file was received.
+pub async fn upload_abandon(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    State(st): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
+    Json(p): Json<UploadAbandonPayload>,
+) -> impl IntoResponse {
+    let ip = crate::libs::geoip::client_ip(&headers, addr);
+    // At most one per upload started, so the same ceiling as upload_create.
+    if !request_allowed(&st, &ip, &p.token, "drop", 20, 40) {
+        return too_many();
+    }
+    let not_found = || respond(404, "Upload not found", vec![], json!({})).into_response();
+    let db_error = || respond(500, "Database error", vec![], json!({})).into_response();
+
+    let mut tx = match st.pg_pool.begin().await {
+        Ok(tx) => tx,
+        Err(_e) => return db_error(),
+    };
+    // Taking the file row here is what upload_mark_complete's last update
+    // waits on, so whichever of the two runs second sees the other's result.
+    let given_up = sqlx::query_scalar::<_, String>(
+        "UPDATE files SET deleted = true, deleted_on = NOW() \
+         WHERE id = $1 AND deleted = false AND uploaded_chunks < total_chunks \
+           AND id IN (SELECT ru.file_id FROM request_uploads ru \
+                      JOIN file_requests r ON r.id = ru.request_id WHERE r.token = $2) \
+         RETURNING id",
+    )
+    .bind(&p.file_id)
+    .bind(&p.token)
+    .fetch_optional(&mut *tx)
+    .await;
+    match given_up {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found(),
+        Err(_e) => return db_error(),
+    }
+    if crate::libs::uploads::release_request_slots(&mut *tx, std::slice::from_ref(&p.file_id)).await.is_err() {
+        return db_error();
+    }
+    if tx.commit().await.is_err() {
+        return db_error();
+    }
+    respond(200, "Upload abandoned", vec![], json!({})).into_response()
 }
 
 #[cfg(test)]
@@ -1081,15 +1149,12 @@ mod tests {
         assert_eq!(made, 0);
     }
 
-    #[tokio::test]
-    async fn the_last_slot_of_a_capped_link_can_still_finish_its_upload() {
-        // The upload holding the last slot fills the cap, and its own chunks
-        // must still be accepted after that.
-        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
-        let (owner, token) = capped_link(&st, 1).await;
-        let (created, v) = upload_body(
-            &st,
-            &token,
+    /// Start a one-chunk, 5-byte upload through `token`.
+    /// Returns (status, file id, chunk id); the ids are empty when refused.
+    async fn start(st: &crate::AppState, token: &str) -> (StatusCode, String, String) {
+        let (status, v) = upload_body(
+            st,
+            token,
             json!({
                 "uploader_name": null,
                 "file_encrypted": false,
@@ -1102,20 +1167,290 @@ mod tests {
             }),
         )
         .await;
-        let chunk_id = v.pointer("/data/chunks/0/id").and_then(|c| c.as_str()).unwrap_or_default().to_string();
+        let text = |ptr: &str| v.pointer(ptr).and_then(|c| c.as_str()).unwrap_or_default().to_string();
+        (status, text("/data/file/id"), text("/data/chunks/0/id"))
+    }
+
+    async fn mark(st: &crate::AppState, token: &str, chunk_id: &str) -> StatusCode {
         let mut headers = HeaderMap::new();
         headers.insert("x-client-ip", some_ip().parse().unwrap());
         let payload: UploadCompletePayload =
             serde_json::from_value(json!({ "token": token, "chunk_id": chunk_id })).unwrap();
-        let resp = upload_mark_complete(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
+        upload_mark_complete(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
             .await
-            .into_response();
-        let status = resp.status();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            .into_response()
+            .status()
+    }
+
+    async fn abandon(st: &crate::AppState, token: &str, file_id: &str) -> StatusCode {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-client-ip", some_ip().parse().unwrap());
+        let payload: UploadAbandonPayload =
+            serde_json::from_value(json!({ "token": token, "file_id": file_id })).unwrap();
+        upload_abandon(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), headers, Json(payload))
+            .await
+            .into_response()
+            .status()
+    }
+
+    async fn used(st: &crate::AppState, token: &str) -> i32 {
+        sqlx::query_scalar("SELECT upload_count FROM file_requests WHERE token = $1")
+            .bind(token)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap()
+    }
+
+    /// (uploaded_chunks, total_chunks, deleted) of a file.
+    async fn progress(st: &crate::AppState, file_id: &str) -> (i32, i32, bool) {
+        sqlx::query_as("SELECT uploaded_chunks::int, total_chunks::int, deleted FROM files WHERE id = $1")
+            .bind(file_id)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap()
+    }
+
+    /// State whose storage reports every chunk stored at 5 bytes, so mark-
+    /// complete can succeed.
+    async fn state_with_stored_chunks() -> Option<crate::AppState> {
+        let mut st = state().await?;
+        st.r2 = crate::test_support::storage_holding(5);
+        Some(st)
+    }
+
+    #[tokio::test]
+    async fn the_last_slot_of_a_capped_link_can_still_finish_its_upload() {
+        // The upload holding the last slot fills the cap, and its own chunks
+        // must still be accepted after that.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (created, file_id, chunk_id) = start(&st, &token).await;
+        let marked = mark(&st, &token, &chunk_id).await;
+        let (uploaded, total, _) = progress(&st, &file_id).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!((created, marked), (StatusCode::OK, StatusCode::OK));
+        assert_eq!(uploaded, total);
+    }
+
+    #[tokio::test]
+    async fn marking_a_finished_upload_again_does_not_fill_the_cap() {
+        // Each mark-complete call on the last chunk of a finished file counted
+        // it again, so one link holder could fill the cap and turn away the
+        // others the owner sent the link to.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 2).await;
+        let (created, _, chunk_id) = start(&st, &token).await;
+        let mut marks = vec![];
+        for _ in 0..3 {
+            marks.push(mark(&st, &token, &chunk_id).await);
+        }
+        let after_marks = used(&st, &token).await;
+        let (second, _, _) = start(&st, &token).await;
         forget(&st.pg_pool, &owner).await;
         assert_eq!(created, StatusCode::OK);
-        // The test storage is a closed port, so the chunk cannot be confirmed;
-        // what matters is that the link did not call itself full.
-        assert_ne!(status, StatusCode::GONE, "{}", String::from_utf8_lossy(&body));
+        assert_eq!(marks, vec![StatusCode::OK; 3]);
+        assert_eq!(after_marks, 1);
+        assert_eq!(second, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_failed_upload_given_up_lets_the_retry_through_a_capped_link() {
+        // The page starts a new upload when someone tries again. On a link
+        // capped at one, the dead upload held the only slot until the orphan
+        // sweep reaped it hours later.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (first, failed, _) = start(&st, &token).await;
+        let gave_up = abandon(&st, &token, &failed).await;
+        let (retry, _, _) = start(&st, &token).await;
+        let count = used(&st, &token).await;
+        let (_, _, trashed) = progress(&st, &failed).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!((first, gave_up, retry), (StatusCode::OK, StatusCode::OK, StatusCode::OK));
+        assert_eq!(count, 1);
+        assert!(trashed);
+    }
+
+    #[tokio::test]
+    async fn a_finished_upload_cannot_be_given_up() {
+        // Otherwise a link holder could finish a file, give it up, and send
+        // another, past any cap.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (_, file_id, chunk_id) = start(&st, &token).await;
+        let marked = mark(&st, &token, &chunk_id).await;
+        let gave_up = abandon(&st, &token, &file_id).await;
+        let (next, _, _) = start(&st, &token).await;
+        let (_, _, trashed) = progress(&st, &file_id).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(marked, StatusCode::OK);
+        assert_eq!(gave_up, StatusCode::NOT_FOUND);
+        assert_eq!(next, StatusCode::GONE);
+        assert!(!trashed);
+    }
+
+    #[tokio::test]
+    async fn an_upload_cannot_be_given_up_through_another_link() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (other_owner, other_token) = open_link(&st).await;
+        let (_, file_id, _) = start(&st, &token).await;
+        let gave_up = abandon(&st, &other_token, &file_id).await;
+        let count = used(&st, &token).await;
+        let (_, _, trashed) = progress(&st, &file_id).await;
+        forget(&st.pg_pool, &owner).await;
+        forget(&st.pg_pool, &other_owner).await;
+        assert_eq!(gave_up, StatusCode::NOT_FOUND);
+        assert_eq!(count, 1);
+        assert!(!trashed);
+    }
+
+    #[tokio::test]
+    async fn an_upload_given_up_cannot_be_finished() {
+        // Its slot went back, so finishing it would put one file past the cap.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (_, file_id, chunk_id) = start(&st, &token).await;
+        let gave_up = abandon(&st, &token, &file_id).await;
+        let marked = mark(&st, &token, &chunk_id).await;
+        let (uploaded, _, _) = progress(&st, &file_id).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(gave_up, StatusCode::OK);
+        assert_eq!(marked, StatusCode::NOT_FOUND);
+        assert_eq!(uploaded, 0);
+    }
+
+    /// Wait until a statement matching `like` is blocked on a lock.
+    async fn blocked(st: &crate::AppState, like: &str) {
+        for _ in 0..200 {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pg_stat_activity \
+                 WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1",
+            )
+            .bind(like)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+            if waiting > 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        panic!("nothing blocked on {like}");
+    }
+
+    #[tokio::test]
+    async fn an_upload_given_up_while_its_last_chunk_is_marked_does_not_finish() {
+        // Mark-complete checks the file before it measures the chunk, and only
+        // records the chunk count at the end. A give-up landing in between
+        // returned the slot, and the file still finished: one file past the cap.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (_, file_id, chunk_id) = start(&st, &token).await;
+
+        // Hold the file row so both calls queue on it in a known order.
+        let mut hold = st.pg_pool.begin().await.unwrap();
+        sqlx::query("SELECT id FROM files WHERE id = $1 FOR UPDATE").bind(&file_id).execute(&mut *hold).await.unwrap();
+        let give_up = tokio::spawn({
+            let (st, token, file_id) = (st.clone(), token.clone(), file_id.clone());
+            async move { abandon(&st, &token, &file_id).await }
+        });
+        blocked(&st, "UPDATE files SET deleted = true%").await;
+        let finish = tokio::spawn({
+            let (st, token, chunk_id) = (st.clone(), token.clone(), chunk_id.clone());
+            async move { mark(&st, &token, &chunk_id).await }
+        });
+        blocked(&st, "UPDATE files SET uploaded_chunks%").await;
+        hold.commit().await.unwrap();
+        let gave_up = give_up.await.unwrap();
+        finish.await.unwrap();
+
+        let (uploaded, total, _) = progress(&st, &file_id).await;
+        let count = used(&st, &token).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(gave_up, StatusCode::OK);
+        assert_eq!(count, 0);
+        assert!(uploaded < total, "the given-up file finished with its slot returned");
+    }
+
+    fn owner_caller(owner: &str) -> Option<Caller> {
+        Some(Caller { api_key: String::new(), user_id: Some(owner.to_string()), email_verified: true })
+    }
+
+    #[tokio::test]
+    async fn deleting_an_unfinished_received_file_gives_its_slot_back() {
+        // The owner sees a file still arriving in their received list and may
+        // delete it. Its slot stayed taken for good, closing a capped link.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (_, file_id, _) = start(&st, &token).await;
+        let payload: super::super::permanent_delete_files::DeletePayload =
+            serde_json::from_value(json!({ "file_id": file_id })).unwrap();
+        let deleted = super::super::permanent_delete_files::handle(State(st.clone()), Extension(owner_caller(&owner)), Json(payload))
+            .await
+            .into_response()
+            .status();
+        let (next, _, _) = start(&st, &token).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(deleted, StatusCode::OK);
+        assert_eq!(next, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_received_file_does_not_reopen_its_slot() {
+        // The cap counts files received, not files kept.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let (_, file_id, chunk_id) = start(&st, &token).await;
+        let marked = mark(&st, &token, &chunk_id).await;
+        let payload: super::super::permanent_delete_files::DeletePayload =
+            serde_json::from_value(json!({ "file_id": file_id })).unwrap();
+        let deleted = super::super::permanent_delete_files::handle(State(st.clone()), Extension(owner_caller(&owner)), Json(payload))
+            .await
+            .into_response()
+            .status();
+        let (next, _, _) = start(&st, &token).await;
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!((marked, deleted), (StatusCode::OK, StatusCode::OK));
+        assert_eq!(next, StatusCode::GONE);
+    }
+
+    #[tokio::test]
+    async fn deleting_the_folder_of_an_unfinished_received_file_gives_its_slot_back() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = capped_link(&st, 1).await;
+        let folder: String = sqlx::query_scalar("INSERT INTO folders (name, user_id) VALUES ('inbox', $1) RETURNING id")
+            .bind(&owner)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE file_requests SET folder_id = $1 WHERE token = $2")
+            .bind(&folder)
+            .bind(&token)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let (first, _, _) = start(&st, &token).await;
+        let payload: crate::routes::folder::permanent_delete_folders::DeletePayload =
+            serde_json::from_value(json!({ "folder_id": folder })).unwrap();
+        let deleted = crate::routes::folder::permanent_delete_folders::handle(
+            State(st.clone()),
+            Extension(owner_caller(&owner)),
+            Json(payload),
+        )
+        .await
+        .into_response()
+        .status();
+        // The link's folder is gone, so the next upload lands at the top.
+        sqlx::query("UPDATE file_requests SET folder_id = NULL WHERE token = $1")
+            .bind(&token)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let (next, _, _) = start(&st, &token).await;
+        sqlx::query("DELETE FROM folders WHERE user_id = $1").bind(&owner).execute(&st.pg_pool).await.unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!((first, deleted), (StatusCode::OK, StatusCode::OK));
+        assert_eq!(next, StatusCode::OK);
     }
 }

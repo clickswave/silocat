@@ -91,6 +91,50 @@ pub async fn measure_chunk(r2: &R2, storage: &str, key: &str, expected: i64) -> 
     }
 }
 
+/// Give back the request-link slot of each unfinished upload among `file_ids`
+/// and untie it from its request, so it can no longer finish through the link.
+/// Call it before deleting files, since afterwards nothing says which of them
+/// were unfinished. A finished upload keeps its slot even once deleted: the
+/// cap counts files received, not files kept.
+pub async fn release_request_slots<'e, E>(ex: E, file_ids: &[String]) -> Result<(), sqlx::Error>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "WITH slots AS ( \
+             DELETE FROM request_uploads ru USING files f \
+             WHERE ru.file_id = f.id AND f.id = ANY($1) AND f.uploaded_chunks < f.total_chunks \
+             RETURNING ru.request_id \
+         ), per AS (SELECT request_id, COUNT(*)::int AS n FROM slots GROUP BY request_id) \
+         UPDATE file_requests r SET upload_count = GREATEST(r.upload_count - per.n, 0) \
+         FROM per WHERE r.id = per.request_id",
+    )
+    .bind(file_ids)
+    .execute(ex)
+    .await
+    .map(|_| ())
+}
+
+/// release_request_slots for every file in a folder and the folders below it.
+pub async fn release_request_slots_in_folder(pool: &sqlx::PgPool, folder_id: &str) -> Result<(), sqlx::Error> {
+    // UNION, not UNION ALL, so a parent_id cycle ends the walk.
+    let ids: Vec<String> = sqlx::query_scalar(
+        "WITH RECURSIVE subtree AS ( \
+             SELECT id FROM folders WHERE id = $1 \
+             UNION \
+             SELECT f.id FROM folders f JOIN subtree s ON f.parent_id = s.id \
+         ) \
+         SELECT id FROM files WHERE folder_id IN (SELECT id FROM subtree)",
+    )
+    .bind(folder_id)
+    .fetch_all(pool)
+    .await?;
+    release_request_slots(pool, &ids).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

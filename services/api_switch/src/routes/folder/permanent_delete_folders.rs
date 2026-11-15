@@ -69,7 +69,16 @@ pub async fn handle(
                 }
             }
 
-            // 4. Permanently delete the folder (descendant folders/files/chunks
+            // 4. Files still arriving through a request link hold slots on
+            // their links, which go back before the rows do.
+            if crate::libs::uploads::release_request_slots_in_folder(&axum_state.pg_pool, &payload.folder_id)
+                .await
+                .is_err()
+            {
+                return respond(500, "Failed to delete folder", vec![], json!({}));
+            }
+
+            // 5. Permanently delete the folder (descendant folders/files/chunks
             // cascade via FK).
             let delete_result = sqlx::query!(
                 "DELETE FROM folders WHERE id = $1",

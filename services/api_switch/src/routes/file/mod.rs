@@ -54,6 +54,7 @@ pub fn router(state: crate::AppState) -> Router<crate::AppState> {
         .route("/public/request/info/{token}", axum::routing::get(request::public_info))
         .route("/public/request/upload", axum::routing::post(request::upload_create))
         .route("/public/request/mark-complete", axum::routing::post(request::upload_mark_complete))
+        .route("/public/request/abandon", axum::routing::post(request::upload_abandon))
 
         // Public routes (no auth middleware check if placed outside? No, router() is wrapped in auth check in main.rs!)
         // `authority_sign_check` validates the `X-Authority-Sign` header from the web server.

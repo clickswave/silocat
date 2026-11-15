@@ -119,3 +119,33 @@ pub async fn forget(pool: &Pool<Postgres>, user_id: &str) {
         sqlx::query(sql).bind(user_id).execute(pool).await.expect(sql);
     }
 }
+
+/// Storage that says every object it is asked about holds `size` bytes, and
+/// accepts any delete. Lets a test mark a chunk complete, which the closed
+/// port of `state()` never allows. The listener lives for the rest of the run.
+pub fn storage_holding(size: u64) -> crate::libs::r2::R2 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind fake storage");
+    let endpoint = format!("http://{}", listener.local_addr().expect("fake storage address"));
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 8192];
+                let mut seen = Vec::new();
+                while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => seen.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    if seen.starts_with(b"HEAD ") { size } else { 0 }
+                );
+                let _ = stream.write_all(head.as_bytes());
+            });
+        }
+    });
+    crate::libs::r2::R2::at(&endpoint)
+}

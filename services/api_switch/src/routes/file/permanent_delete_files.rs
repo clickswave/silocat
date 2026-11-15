@@ -63,7 +63,19 @@ pub async fn handle(
                 }
             }
 
-            // 4. Permanently delete the DB rows (chunk rows cascade via FK).
+            // 4. A file still arriving through a request link holds a slot on
+            // that link, which goes back before the row does.
+            if crate::libs::uploads::release_request_slots(
+                &axum_state.pg_pool,
+                std::slice::from_ref(&payload.file_id),
+            )
+            .await
+            .is_err()
+            {
+                return respond(500, "Failed to delete file", vec![], json!({}));
+            }
+
+            // 5. Permanently delete the DB rows (chunk rows cascade via FK).
             let delete_result = sqlx::query!(
                 "DELETE FROM files WHERE id = $1",
                 payload.file_id

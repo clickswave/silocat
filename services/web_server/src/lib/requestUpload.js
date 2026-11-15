@@ -3,7 +3,7 @@
 // Self-contained so it never touches the anonymous-drop upload code: it chunks a
 // File, optionally encrypts each chunk end to end (XChaCha20-Poly1305 with an
 // Argon2id key, exactly like a normal encrypted upload), PUTs each chunk to its
-// presigned URL, and marks it complete. All three request endpoints are public
+// presigned URL, and marks it complete. All the request endpoints are public
 // (authorized by the request token), so no account or api key is involved.
 
 import axios from 'axios';
@@ -101,22 +101,40 @@ export async function uploadToRequest(token, file, opts = {}) {
 
 	// 4. Encrypt (if enabled), PUT each chunk, then mark it complete.
 	let done = 0;
-	for (let i = 0; i < serverChunks.length; i++) {
-		const meta = chunksMeta[i];
-		const raw = new Uint8Array(await file.slice(meta.start, meta.end).arrayBuffer());
-		const body = encrypt ? await encryptChunk(raw, key, meta._rawNonce) : raw;
+	try {
+		for (let i = 0; i < serverChunks.length; i++) {
+			const meta = chunksMeta[i];
+			const raw = new Uint8Array(await file.slice(meta.start, meta.end).arrayBuffer());
+			const body = encrypt ? await encryptChunk(raw, key, meta._rawNonce) : raw;
 
-		await axios.put(serverChunks[i].presigned_url, body, {
-			headers: { 'Content-Type': 'application/octet-stream' }
-		});
-		await axios.post('/api/v1/public/request/mark-complete', {
-			token,
-			chunk_id: serverChunks[i].id
-		});
+			await axios.put(serverChunks[i].presigned_url, body, {
+				headers: { 'Content-Type': 'application/octet-stream' }
+			});
+			await axios.post('/api/v1/public/request/mark-complete', {
+				token,
+				chunk_id: serverChunks[i].id
+			});
 
-		done++;
-		if (onProgress) onProgress(Math.round((done / serverChunks.length) * 100));
+			done++;
+			if (onProgress) onProgress(Math.round((done / serverChunks.length) * 100));
+		}
+	} catch (err) {
+		// The upload took one of the link's slots when it was created. Give it
+		// back, or on a capped link trying again finds the link full until the
+		// server reaps the dead upload hours later.
+		await abandon(token, data.file?.id);
+		throw err;
 	}
 
 	return data.file;
+}
+
+/** Best effort: the upload already failed, and that is the error to show. */
+async function abandon(token, fileId) {
+	if (!fileId) return;
+	try {
+		await axios.post('/api/v1/public/request/abandon', { token, file_id: fileId });
+	} catch {
+		// The server reaps the upload and gives the slot back on its own later.
+	}
 }

@@ -79,6 +79,31 @@ impl R2 {
         Self { shadow_client, sanctum_client, dp_client, shadow_bucket, sanctum_bucket, dp_bucket }
     }
 
+    /// Every bucket served by one local endpoint, for tests that need storage
+    /// to answer. Reads no environment, so tests running at once cannot point
+    /// each other's clients somewhere else.
+    #[cfg(test)]
+    pub fn at(endpoint: &str) -> Self {
+        let client = || {
+            let conf = aws_sdk_s3::Config::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .region(Region::new("auto"))
+                .endpoint_url(endpoint)
+                .credentials_provider(Credentials::new("test", "test", None, None, "static"))
+                .force_path_style(true)
+                .build();
+            Client::from_conf(conf)
+        };
+        Self {
+            shadow_client: client(),
+            sanctum_client: client(),
+            dp_client: client(),
+            shadow_bucket: "shadow".to_string(),
+            sanctum_bucket: "sanctum".to_string(),
+            dp_bucket: "dp".to_string(),
+        }
+    }
+
     /// Upload bytes directly (server-side put). Used for normalized display
     /// pictures, which are small and produced in-process.
     pub async fn put_object(

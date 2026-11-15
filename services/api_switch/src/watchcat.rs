@@ -61,9 +61,11 @@ async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()>
     let batch = env_u64("WATCHCAT_GC_BATCH", 200).max(1) as i64;
 
     // ttl_minutes/batch are our own integers: safe to inline into the interval.
+    // Trashed uploads too: an unfinished file is no use in the trash, and an
+    // upload through a request link holds a slot on that link until reaped.
     let q = format!(
         "SELECT id, user_id FROM files \
-         WHERE deleted = false AND uploaded_chunks < total_chunks \
+         WHERE uploaded_chunks < total_chunks \
            AND created_on < NOW() - INTERVAL '{} minutes' \
          ORDER BY created_on ASC LIMIT {}",
         ttl_minutes, batch
@@ -94,15 +96,14 @@ async fn gc_orphan_uploads(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()>
             }
         }
 
-        // Drop the file row; chunk rows cascade via the FK. An upload through a
-        // request link took one of the request's slots when it started, so the
-        // slot goes back with it, in the same statement.
-        let drop_file = "WITH gone AS (DELETE FROM files WHERE id = $1 RETURNING id), \
-                              slots AS (DELETE FROM request_uploads WHERE file_id IN (SELECT id FROM gone) \
-                                        RETURNING request_id) \
-                         UPDATE file_requests SET upload_count = GREATEST(upload_count - 1, 0) \
-                         WHERE id IN (SELECT request_id FROM slots)";
-        match sqlx::query(drop_file).bind(file_id).execute(pool).await {
+        // An upload through a request link took one of the request's slots
+        // when it started, so the slot goes back first. Then drop the file
+        // row; chunk rows cascade via the FK.
+        if let Err(e) = crate::libs::uploads::release_request_slots(pool, std::slice::from_ref(file_id)).await {
+            eprintln!("[watchcat] release request slot of {} failed: {:?}", file_id, e);
+            continue;
+        }
+        match sqlx::query("DELETE FROM files WHERE id = $1").bind(file_id).execute(pool).await {
             Ok(_) => reaped += 1,
             Err(e) => eprintln!("[watchcat] delete file {} failed: {:?}", file_id, e),
         }
@@ -212,6 +213,10 @@ async fn gc_expired_trash(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> 
             continue;
         }
 
+        if let Err(e) = crate::libs::uploads::release_request_slots(pool, std::slice::from_ref(file_id)).await {
+            eprintln!("[watchcat] release request slot of {} failed: {:?}", file_id, e);
+            continue;
+        }
         match sqlx::query("DELETE FROM files WHERE id = $1").bind(file_id).execute(pool).await {
             Ok(_) => reaped_files += 1,
             Err(e) => eprintln!("[watchcat] delete trashed file {} failed: {:?}", file_id, e),
@@ -265,6 +270,10 @@ async fn gc_expired_trash(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> 
             continue;
         }
 
+        if let Err(e) = crate::libs::uploads::release_request_slots_in_folder(pool, folder_id).await {
+            eprintln!("[watchcat] release request slots in folder {} failed: {:?}", folder_id, e);
+            continue;
+        }
         // Folders, files and chunks below cascade.
         match sqlx::query("DELETE FROM folders WHERE id = $1").bind(folder_id).execute(pool).await {
             Ok(res) => reaped_folders += res.rows_affected(),
@@ -480,6 +489,105 @@ mod tests {
             .unwrap();
         crate::test_support::forget(pool, &owner).await;
         assert_eq!(files, 0);
+        assert_eq!(count, 0);
+    }
+
+    /// A capped link with one slot taken by an unfinished upload of the given
+    /// age, `trashed_days_ago` days in the trash if set. Returns (owner,
+    /// request id, file id).
+    async fn slot_held_by_unfinished_upload(
+        pool: &Pool<Postgres>,
+        age_minutes: i32,
+        trashed_days_ago: Option<i32>,
+    ) -> (String, String, String) {
+        let (owner, _key) = crate::test_support::account(pool).await;
+        let token = crate::libs::rng::uuid().replace('-', "");
+        let request: String = sqlx::query_scalar(
+            "INSERT INTO file_requests (token, owner_user_id, max_uploads, upload_count) \
+             VALUES ($1, $2, 1, 1) RETURNING id",
+        )
+        .bind(&token)
+        .bind(&owner)
+        .fetch_one(pool)
+        .await
+        .expect("seed request");
+        let file: String = sqlx::query_scalar(
+            "INSERT INTO files (user_id, name, mime, size, encrypted, total_chunks, uploaded_chunks, \
+             sha256_checksum, blake3_checksum, public_access, created_on, deleted, deleted_on) \
+             VALUES ($1, 'f.bin', 'application/octet-stream', 1, false, 1, 0, 's', '', false, \
+             NOW() - make_interval(mins => $2), $3 IS NOT NULL, NOW() - make_interval(days => $3)) RETURNING id",
+        )
+        .bind(&owner)
+        .bind(age_minutes)
+        .bind(trashed_days_ago)
+        .fetch_one(pool)
+        .await
+        .expect("seed file");
+        sqlx::query("INSERT INTO request_uploads (request_id, file_id) VALUES ($1, $2)")
+            .bind(&request)
+            .bind(&file)
+            .execute(pool)
+            .await
+            .expect("seed request upload");
+        (owner, request, file)
+    }
+
+    async fn slots_used(pool: &Pool<Postgres>, request: &str) -> i32 {
+        sqlx::query_scalar("SELECT upload_count FROM file_requests WHERE id = $1")
+            .bind(request)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn file_exists(pool: &Pool<Postgres>, file: &str) -> bool {
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM files WHERE id = $1)")
+            .bind(file)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// The owner can trash a file that is still arriving through a request
+    /// link. The sweep skipped trashed files, so its slot was never given back
+    /// and a link capped at one stayed full for good.
+    #[tokio::test]
+    async fn reaping_a_trashed_unfinished_request_upload_gives_its_slot_back() {
+        let Some(st) = crate::test_support::state().await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        let pool = &st.pg_pool;
+        let (owner, request, file) = slot_held_by_unfinished_upload(pool, 31 * 24 * 60, Some(0)).await;
+
+        gc_orphan_uploads(pool, &st.r2).await.expect("sweep");
+
+        let gone = !file_exists(pool, &file).await;
+        let count = slots_used(pool, &request).await;
+        crate::test_support::forget(pool, &owner).await;
+        assert!(gone);
+        assert_eq!(count, 0);
+    }
+
+    /// Trash retention deletes rows outright, so an unfinished request upload
+    /// it takes must give its slot back as the orphan sweep's would.
+    #[tokio::test]
+    async fn trash_retention_gives_back_the_slot_of_an_unfinished_request_upload() {
+        let Some(mut st) = crate::test_support::state().await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        // Storage that accepts deletes, or retention keeps the row to retry.
+        st.r2 = crate::test_support::storage_holding(0);
+        let pool = &st.pg_pool;
+        // Young enough that the orphan sweep of a test running alongside
+        // leaves it alone.
+        let (owner, request, file) = slot_held_by_unfinished_upload(pool, 0, Some(31)).await;
+
+        gc_expired_trash(pool, &st.r2).await.expect("retention");
+
+        let gone = !file_exists(pool, &file).await;
+        let count = slots_used(pool, &request).await;
+        crate::test_support::forget(pool, &owner).await;
+        assert!(gone);
         assert_eq!(count, 0);
     }
 }

@@ -21,3 +21,7 @@ export async function decryptChunk(chunk, key, nonce) {
 		null, new Uint8Array(chunk), null, new Uint8Array(nonce), new Uint8Array(key)
 	);
 }
+
+export async function hashFile() {
+	return 'checksum';
+}
