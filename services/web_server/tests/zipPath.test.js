@@ -28,7 +28,9 @@ function escapes(entry) {
 	return (
 		entry.startsWith('/') ||
 		entry.startsWith('\\') ||
-		/^[a-zA-Z]:/.test(entry) ||
+		// A drive prefix in any segment: "C:x" is drive relative, and an extractor
+		// that joins segment by segment restarts at the drive.
+		parts.some((p) => /^[a-zA-Z][:\uff1a]/.test(p)) ||
 		parts.some((p) => /^[.\s]+$/.test(p) && p.includes('..')) ||
 		parts.some((p) => p.trim() === '.') ||
 		// eslint-disable-next-line no-control-regex
@@ -51,7 +53,15 @@ test('a stored name or folder path cannot climb out of the extract folder', asyn
 		{ path: '/etc', name: 'passwd' },
 		{ path: '', name: '/etc/passwd' },
 		{ path: 'x', name: '.' },
-		{ path: '', name: 'line\nbreak\u0000.txt' }
+		{ path: '', name: 'line\nbreak\u0000.txt' },
+		{ path: 'C:', name: 'x.bat' },
+		{
+			path: 'C:/ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp',
+			name: 'x.bat'
+		},
+		{ path: '', name: 'C:evil.bat' },
+		{ path: 'ok', name: 'd:x.bat' },
+		{ path: '', name: 'C\uff1aevil.bat' }
 	]);
 	const bad = names.filter(escapes);
 	assert.deepEqual(bad, []);
@@ -67,10 +77,35 @@ test('ordinary names and folder structure come through unchanged', async () => {
 	assert.equal(zipEntryPath('名前', 'é.png'), '名前/é.png');
 });
 
+test('fullwidth look-alikes of / \\ and . cannot stand in for them', async () => {
+	// Windows code pages map these to their ASCII forms when a tool converts the
+	// name to the ANSI API, so "\uff0e\uff0e\uff0f" reads as "../" there.
+	const names = await entriesFor([
+		{ path: '', name: '\uff0e\uff0e\uff0f\uff0e\uff0e\uff0fx.bat' },
+		{ path: '\uff0e\uff0e', name: 'a.txt' },
+		{ path: 'ok/\uff0e\uff0e\uff3c\uff0e\uff0e', name: 'b.txt' },
+		{ path: '', name: 'a\u2215b\u2216c.txt' }
+	]);
+	const ascii = names.map((n) =>
+		n
+			.replace(/[\uff0f\u2215]/g, '/')
+			.replace(/[\uff3c\u2216]/g, '\\')
+			.replace(/\uff0e/g, '.')
+	);
+	assert.deepEqual(ascii.filter(escapes), []);
+	assert.deepEqual(
+		names.filter((n) => /[\uff0f\uff3c\u2215\u2216]/.test(n)),
+		[]
+	);
+});
+
 test('a hostile name stays one entry in its own folder', () => {
 	assert.equal(zipEntryPath('Photos', '../../x.bat'), 'Photos/.._.._x.bat');
 	assert.equal(zipEntryPath('..', 'a.txt'), '_/a.txt');
 	assert.equal(zipEntryPath('', '..'), '_');
+	assert.equal(zipEntryPath('C:', 'x.bat'), 'C_/x.bat');
+	assert.equal(zipEntryPath('', 'C:evil.bat'), 'C_evil.bat');
+	assert.equal(zipEntryPath('Docs', 'Report: Q3.pdf'), 'Docs/Report: Q3.pdf');
 });
 
 test('every zip the web app builds names its entries through zipEntryPath', () => {

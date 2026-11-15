@@ -133,6 +133,7 @@ pub fn uuid(uuid: &str) -> Result<(), Vec<String>> {
         Err(_) => Err(vec!["Uuid entered is invalid".to_string()]),
     };
 }
+
 /// A file or folder name as stored: one path segment, never a path.
 ///
 /// Folder downloads are zipped in the browser with each entry named after the

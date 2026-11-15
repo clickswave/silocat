@@ -11,7 +11,11 @@
  * So each folder in `folderPath` and the file name become one safe segment
  * each: separators and control characters turn into "_", and a segment that is
  * only dots and spaces (Windows reads "..." and ".. " as "..") becomes "_".
- * Ordinary names pass through unchanged.
+ * A segment that starts with a drive ("C:" or "C:evil.bat") gets "_" in place
+ * of the colon, since a Windows tool that joins it onto the extract folder
+ * lands on that drive instead. The fullwidth forms of "/", "\", "." and ":"
+ * count as the real ones, because Windows maps them to ASCII when a tool hands
+ * the name to an ANSI file API. Ordinary names pass through unchanged.
  *
  * @param {string | null | undefined} folderPath folders from the shared root, joined with "/"
  * @param {string} name the file's name
@@ -27,11 +31,14 @@ export function zipEntryPath(folderPath, name) {
 	return [...dirs, segment(name ?? '')].join('/');
 }
 
+// Separators, their fullwidth and math look-alikes, and control characters.
 // eslint-disable-next-line no-control-regex
-const UNSAFE = /[\\/\u0000-\u001f\u007f-\u009f]/g;
+const UNSAFE = /[\\/\uff0f\uff3c\u2215\u2216\u0000-\u001f\u007f-\u009f]/g;
 
 /** @param {string} part */
 function segment(part) {
-	const clean = String(part).replace(UNSAFE, '_');
-	return /^[.\s]*$/.test(clean) ? '_' : clean;
+	const clean = String(part)
+		.replace(UNSAFE, '_')
+		.replace(/^([A-Za-z])[:\uff1a]/, '$1_');
+	return /^[.\uff0e\s]*$/.test(clean) ? '_' : clean;
 }
