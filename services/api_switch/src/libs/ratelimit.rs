@@ -43,10 +43,48 @@ impl RateLimiter {
             entry.0 <= max
         }
     }
+
+    /// True while `key` has fewer than `max` hits in its current window. Counts
+    /// nothing; pair it with `hit` to meter only some outcomes, such as failures.
+    pub fn allows(&self, key: &str, max: u32, window: Duration) -> bool {
+        let map = match self.inner.lock() {
+            Ok(m) => m,
+            Err(p) => p.into_inner(),
+        };
+        match map.get(key) {
+            Some((count, start)) if Instant::now().duration_since(*start) <= window => *count < max,
+            _ => true,
+        }
+    }
+
+    /// Count one hit against `key`, starting a new window if the last one ran out.
+    pub fn hit(&self, key: &str, window: Duration) {
+        let _ = self.check(key, u32::MAX, window);
+    }
 }
 
 impl Default for RateLimiter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allows_counts_nothing_and_hit_counts_one() {
+        let limiter = RateLimiter::new();
+        let window = Duration::from_secs(300);
+        for _ in 0..50 {
+            assert!(limiter.allows("k", 3, window));
+        }
+        limiter.hit("k", window);
+        limiter.hit("k", window);
+        assert!(limiter.allows("k", 3, window));
+        limiter.hit("k", window);
+        assert!(!limiter.allows("k", 3, window));
+        assert!(limiter.allows("other", 3, window));
     }
 }

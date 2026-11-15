@@ -211,23 +211,65 @@ async fn gc_expired_trash(pool: &Pool<Postgres>, r2: &R2) -> anyhow::Result<()> 
         }
     }
 
-    // Folders only after their files, so an emptied folder disappears in the same
-    // sweep and a folder still holding un-reaped files waits for the next one.
+    // A trashed folder goes with everything under it, as a permanent delete
+    // from the Trash screen does. Trashing marks only the folder's own row, so
+    // its contents are not in the trash themselves; waiting for the folder to
+    // empty meant it never did, and links inside it outlived the 30 days.
     let folder_q = format!(
-        "DELETE FROM folders f \
-         WHERE f.deleted = true AND f.deleted_on IS NOT NULL \
-           AND f.deleted_on < NOW() - INTERVAL '{} days' \
-           AND NOT EXISTS (SELECT 1 FROM files x WHERE x.folder_id = f.id) \
-           AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = f.id)",
-        ttl_days
+        "SELECT id FROM folders \
+         WHERE deleted = true AND deleted_on IS NOT NULL \
+           AND deleted_on < NOW() - INTERVAL '{} days' \
+         ORDER BY deleted_on ASC LIMIT {}",
+        ttl_days, batch
     );
-    let folder_res = sqlx::query(&folder_q).execute(pool).await?;
+    let folders: Vec<(String,)> = sqlx::query_as(&folder_q).fetch_all(pool).await?;
 
-    if reaped_files > 0 || folder_res.rows_affected() > 0 {
+    let mut reaped_folders = 0u64;
+    for (folder_id,) in &folders {
+        // Every chunk in the subtree first, since the rows cascade away with the
+        // folder and the objects would be left behind. UNION, not UNION ALL, so
+        // a parent_id cycle ends the walk instead of looping.
+        let chunks: Vec<(String, Option<String>)> = sqlx::query_as(
+            "WITH RECURSIVE subtree AS ( \
+                 SELECT id FROM folders WHERE id = $1 \
+                 UNION \
+                 SELECT f.id FROM folders f JOIN subtree s ON f.parent_id = s.id \
+             ) \
+             SELECT c.id, fi.user_id FROM files fi \
+             JOIN chunks c ON c.file_id = fi.id \
+             WHERE fi.folder_id IN (SELECT id FROM subtree)",
+        )
+        .bind(folder_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut all_gone = true;
+        for (cid, user_id) in &chunks {
+            let storage = if user_id.is_some() { "sanctum" } else { "shadow" };
+            match r2.delete_object(storage, cid).await {
+                Ok(_) => objects += 1,
+                Err(e) => {
+                    all_gone = false;
+                    eprintln!("[watchcat] r2 delete {}/{} failed: {:?}", storage, cid, e);
+                }
+            }
+        }
+        if !all_gone {
+            continue;
+        }
+
+        // Folders, files and chunks below cascade.
+        match sqlx::query("DELETE FROM folders WHERE id = $1").bind(folder_id).execute(pool).await {
+            Ok(res) => reaped_folders += res.rows_affected(),
+            Err(e) => eprintln!("[watchcat] delete trashed folder {} failed: {:?}", folder_id, e),
+        }
+    }
+
+    if reaped_files > 0 || reaped_folders > 0 {
         println!(
             "[watchcat] trash retention: reaped {} file(s), {} folder(s), removed {} object(s) (ttl {}d)",
             reaped_files,
-            folder_res.rows_affected(),
+            reaped_folders,
             objects,
             ttl_days
         );
@@ -302,5 +344,81 @@ mod tests {
         unsafe { std::env::remove_var("WATCHCAT_GC_TTL_HOURS") };
         assert_eq!(huge, 30 * 24 * 60);
         assert_eq!(small, 135);
+    }
+
+    /// Trashing a folder marks that one row, so whatever is inside stays
+    /// live. The sweep only took folders with nothing left in them and only
+    /// files marked deleted themselves, so a trashed folder with anything in
+    /// it was never purged. Runs against a Postgres named by
+    /// SILOCAT_TEST_DATABASE_URL and skips when it is unset.
+    #[tokio::test]
+    async fn an_expired_trashed_folder_is_purged_with_everything_in_it() {
+        let Some(st) = crate::test_support::state().await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        let pool = &st.pg_pool;
+        let (user, _key) = crate::test_support::account(pool).await;
+
+        async fn folder(pool: &Pool<Postgres>, user: &str, parent: Option<&str>, trashed_days_ago: Option<i32>) -> String {
+            sqlx::query_scalar(
+                "INSERT INTO folders (name, user_id, parent_id, deleted, deleted_on) \
+                 VALUES ('dir', $1, $2, $3 IS NOT NULL, NOW() - make_interval(days => $3)) RETURNING id",
+            )
+            .bind(user)
+            .bind(parent)
+            .bind(trashed_days_ago)
+            .fetch_one(pool)
+            .await
+            .expect("seed folder")
+        }
+        async fn file(pool: &Pool<Postgres>, user: &str, folder_id: &str) -> String {
+            sqlx::query_scalar(
+                "INSERT INTO files (user_id, name, mime, size, encrypted, total_chunks, uploaded_chunks, \
+                 sha256_checksum, blake3_checksum, public_access, folder_id) \
+                 VALUES ($1, 'f.bin', 'application/octet-stream', 1, false, 1, 1, 's', '', false, $2) RETURNING id",
+            )
+            .bind(user)
+            .bind(folder_id)
+            .fetch_one(pool)
+            .await
+            .expect("seed file")
+        }
+
+        let expired = folder(pool, &user, None, Some(31)).await;
+        let child = folder(pool, &user, Some(&expired), None).await;
+        let deep_file = file(pool, &user, &child).await;
+        let top_file = file(pool, &user, &expired).await;
+        let recent = folder(pool, &user, None, Some(2)).await;
+        let recent_file = file(pool, &user, &recent).await;
+
+        gc_expired_trash(pool, &st.r2).await.expect("sweep");
+
+        let mut left = vec![];
+        for (what, sql, id) in [
+            ("expired folder", "SELECT count(*) FROM folders WHERE id = $1", &expired),
+            ("its child folder", "SELECT count(*) FROM folders WHERE id = $1", &child),
+            ("file in the child", "SELECT count(*) FROM files WHERE id = $1", &deep_file),
+            ("file at the top", "SELECT count(*) FROM files WHERE id = $1", &top_file),
+            ("recent folder", "SELECT count(*) FROM folders WHERE id = $1", &recent),
+            ("file in the recent folder", "SELECT count(*) FROM files WHERE id = $1", &recent_file),
+        ] {
+            let n: i64 = sqlx::query_scalar(sql).bind(id).fetch_one(pool).await.unwrap();
+            left.push((what, n));
+        }
+        let _ = sqlx::query("DELETE FROM files WHERE user_id = $1").bind(&user).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM folders WHERE user_id = $1").bind(&user).execute(pool).await;
+        crate::test_support::forget(pool, &user).await;
+
+        assert_eq!(
+            left,
+            vec![
+                ("expired folder", 0),
+                ("its child folder", 0),
+                ("file in the child", 0),
+                ("file at the top", 0),
+                ("recent folder", 1),
+                ("file in the recent folder", 1),
+            ]
+        );
     }
 }

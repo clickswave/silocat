@@ -39,14 +39,21 @@ pub async fn handle(
                 file.share_expires_at,
                 file.deleted,
             );
-            let allowed = caller
+            let owns = caller
                 .as_ref()
-                .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
+                .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+            // The folders above have a say too, as in fetch-chunks: a trashed
+            // or protected folder covers every file under it.
+            let folder_access = match file.folder_id.as_deref() {
+                Some(folder_id) if !owns => sharing::folder_access(&axum_state.pg_pool, folder_id).await,
+                _ => sharing::FolderAccess::none(),
+            };
+            let allowed = owns
                 || sharing::file_readable_by_id(
                     file.user_id.as_deref(),
                     file.public_access,
                     share_protected,
-                    &sharing::FolderAccess::none(),
+                    &folder_access,
                 );
             if !allowed {
                 return respond(404, "Resource not found", vec![], json!({}));
@@ -143,5 +150,67 @@ pub async fn handle(
         Err(_e) => {
             return respond(500, "Database error checking folder", vec![], json!({}));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! These call the handlers against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset.
+
+    use super::*;
+    use crate::test_support::state;
+    use axum::http::StatusCode;
+
+    /// An anonymous folder drop is opened by its id. Once the folder is in the
+    /// trash the folder id stops working, and so must the id of a file in it:
+    /// both by-id file reads used to look at the file row alone.
+    #[tokio::test]
+    async fn a_file_in_a_trashed_drop_folder_is_not_readable_by_id() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let pool = &st.pg_pool;
+        let drop_folder: String = sqlx::query_scalar(
+            "INSERT INTO folders (name, user_id, public_access) VALUES ('drop', NULL, true) RETURNING id",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("seed drop folder");
+        let file_id: String = sqlx::query_scalar(
+            "INSERT INTO files (user_id, name, mime, size, encrypted, total_chunks, uploaded_chunks, \
+             sha256_checksum, blake3_checksum, public_access, folder_id) \
+             VALUES (NULL, 'f.bin', 'application/octet-stream', 1, false, 1, 1, 's', '', true, $1) RETURNING id",
+        )
+        .bind(&drop_folder)
+        .fetch_one(pool)
+        .await
+        .expect("seed drop file");
+
+        async fn read(st: &crate::AppState, id: &str) -> (StatusCode, StatusCode) {
+            let by_resource = handle(State(st.clone()), Extension(None), Json(PayloadBody { id: id.to_string() }))
+                .await
+                .into_response()
+                .status();
+            let by_file = super::super::fetch_files::handle(
+                State(st.clone()),
+                Extension(None),
+                Json(super::super::fetch_files::PayloadBody { file_id: id.to_string() }),
+            )
+            .await
+            .into_response()
+            .status();
+            (by_resource, by_file)
+        }
+
+        let before = read(&st, &file_id).await;
+        sqlx::query("UPDATE folders SET deleted = true, deleted_on = NOW() WHERE id = $1")
+            .bind(&drop_folder)
+            .execute(pool)
+            .await
+            .expect("trash drop folder");
+        let after = read(&st, &file_id).await;
+        let _ = sqlx::query("DELETE FROM folders WHERE id = $1").bind(&drop_folder).execute(pool).await;
+
+        assert_eq!(before, (StatusCode::OK, StatusCode::OK), "a live drop reads by id");
+        assert_eq!(after, (StatusCode::NOT_FOUND, StatusCode::NOT_FOUND), "a file in a trashed drop folder");
     }
 }

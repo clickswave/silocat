@@ -40,14 +40,21 @@ pub async fn handle(
                 || file.share_type.as_deref() == Some("once")
                 || file.share_expires_at.map_or(false, |e| e <= now)
                 || file.deleted;
-            let allowed = caller
+            let owns = caller
                 .as_ref()
-                .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key))
+                .map_or(false, |c| c.owns(&file.user_id, &file.owner_api_key));
+            // The folders above have a say too, as in fetch-chunks: a trashed
+            // or protected folder covers every file under it.
+            let folder_access = match file.folder_id.as_deref() {
+                Some(folder_id) if !owns => crate::libs::sharing::folder_access(&axum_state.pg_pool, folder_id).await,
+                _ => crate::libs::sharing::FolderAccess::none(),
+            };
+            let allowed = owns
                 || crate::libs::sharing::file_readable_by_id(
                     file.user_id.as_deref(),
                     file.public_access,
                     share_protected,
-                    &crate::libs::sharing::FolderAccess::none(),
+                    &folder_access,
                 );
             if !allowed {
                 return respond(404, "File not found", vec![], json!({}));

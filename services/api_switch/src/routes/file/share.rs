@@ -64,6 +64,9 @@ fn is_legacy_share_pw(stored: &str) -> bool {
     !stored.starts_with("$argon2")
 }
 
+/// The window both password meters count in.
+const SHARE_PW_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// Throttle password attempts on a public share link.
 ///
 /// Applied only once we know the link actually has a password, so ordinary
@@ -71,10 +74,42 @@ fn is_legacy_share_pw(stored: &str) -> bool {
 /// per-token stops a distributed attack converging on a single link. This is
 /// also what keeps Argon2id from becoming a memory-exhaustion lever, so it must
 /// run before any verification work.
+///
+/// The per-IP bucket counts every attempt, since every attempt costs a KDF run.
+/// The per-token bucket counts only wrong passwords (see `check_share_pw`):
+/// when it counted right ones too, a link passed round a team, or a recipient
+/// retrying, hit the cap with nobody guessing at all, and a few guesses on top
+/// of real use were enough to shut the recipient out. Twenty wrong passwords in
+/// a window still close the link for the rest of that window.
 fn share_pw_allowed(limiter: &crate::libs::ratelimit::RateLimiter, ip: &str, token: &str) -> bool {
-    const WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
-    limiter.check(&format!("sharepw:{}", ip), 30, WINDOW)
-        && limiter.check(&format!("sharepwtok:{}", token), 20, WINDOW)
+    limiter.check(&format!("sharepw:{}", ip), 30, SHARE_PW_WINDOW)
+        && limiter.allows(&format!("sharepwtok:{}", token), 20, SHARE_PW_WINDOW)
+}
+
+#[derive(Debug, PartialEq)]
+enum SharePwRefusal {
+    Throttled,
+    Wrong,
+}
+
+/// Meter, then verify, a password supplied for a link. A wrong one is counted
+/// against the link; a right one is not.
+fn check_share_pw(
+    limiter: &crate::libs::ratelimit::RateLimiter,
+    ip: &str,
+    token: &str,
+    supplied: Option<&str>,
+    stored: &str,
+) -> Result<(), SharePwRefusal> {
+    // Meter before the KDF runs, not after.
+    if !share_pw_allowed(limiter, ip, token) {
+        return Err(SharePwRefusal::Throttled);
+    }
+    if !verify_share_pw(supplied, stored) {
+        limiter.hit(&format!("sharepwtok:{}", token), SHARE_PW_WINDOW);
+        return Err(SharePwRefusal::Wrong);
+    }
+    Ok(())
 }
 
 /// Why fetch-chunks refuses a file from a shared folder.
@@ -115,12 +150,10 @@ fn gate_folder_fetch(
     }
     let mut upgrade = false;
     if let Some(required) = folder.password_hash {
-        // Meter before the KDF runs, not after.
-        if !share_pw_allowed(limiter, ip, folder.token) {
-            return Err(FolderFetchRefusal::Throttled);
-        }
-        if !verify_share_pw(supplied_pw, required) {
-            return Err(FolderFetchRefusal::WrongPassword);
+        match check_share_pw(limiter, ip, folder.token, supplied_pw, required) {
+            Ok(()) => {}
+            Err(SharePwRefusal::Throttled) => return Err(FolderFetchRefusal::Throttled),
+            Err(SharePwRefusal::Wrong) => return Err(FolderFetchRefusal::WrongPassword),
         }
         upgrade = is_legacy_share_pw(required);
     }
@@ -648,6 +681,10 @@ pub async fn public_get_info(
 
     match file {
         Ok(Some(r)) => {
+            // A link to something inside a trashed folder is gone with it.
+            if crate::libs::sharing::in_trashed_folder(&axum_state.pg_pool, crate::libs::sharing::Shared::File(&r.id)).await {
+                return respond(404, "Invalid or expired link", vec!["Link not found".to_string()], json!({}));
+            }
             if let Some(exp) = r.share_expires_at {
                 if exp < Utc::now() {
                     return respond(410, "This link has expired.", vec!["Link expired".to_string()], json!({}));
@@ -716,6 +753,9 @@ pub async fn public_get_info(
 
     match folder {
         Ok(Some(r)) => {
+            if crate::libs::sharing::in_trashed_folder(&axum_state.pg_pool, crate::libs::sharing::Shared::Folder(&r.id)).await {
+                return respond(404, "Invalid or expired link", vec!["Link not found".to_string()], json!({}));
+            }
             if let Some(exp) = r.share_expires_at {
                 if exp < Utc::now() {
                     return respond(410, "This link has expired.", vec!["Link expired".to_string()], json!({}));
@@ -809,6 +849,9 @@ pub async fn public_fetch_file_chunks(
     .await;
 
     if let Ok(Some(folder_rec)) = folder {
+        if crate::libs::sharing::in_trashed_folder(&axum_state.pg_pool, crate::libs::sharing::Shared::Folder(&folder_rec.id)).await {
+            return respond(404, "Invalid folder token", vec![], json!({}));
+        }
         if let Some(exp) = folder_rec.share_expires_at {
             if exp < Utc::now() {
                 return respond(410, "This link has expired.", vec![], json!({}));
@@ -973,18 +1016,25 @@ pub async fn public_authorize_download(
     .await;
 
     if let Ok(Some(r)) = file_query {
+        // Before the password meter and the one-time spend: a link inside a
+        // trashed folder is gone, not merely refused.
+        if crate::libs::sharing::in_trashed_folder(&axum_state.pg_pool, crate::libs::sharing::Shared::File(&r.id)).await {
+            return respond(404, "Invalid link", vec![], json!({}));
+        }
         if let Some(exp) = r.share_expires_at {
             if exp < Utc::now() {
                 return respond(410, "This link has expired.", vec![], json!({}));
             }
         }
         if let Some(ref required) = r.share_password_hash {
-            // Meter before the KDF runs, not after.
-            if !share_pw_allowed(&axum_state.rate_limiter, &client_ip, &token) {
-                return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
-            }
-            if !verify_share_pw(supplied_pw, required) {
-                return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            match check_share_pw(&axum_state.rate_limiter, &client_ip, &token, supplied_pw, required) {
+                Ok(()) => {}
+                Err(SharePwRefusal::Throttled) => {
+                    return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
+                }
+                Err(SharePwRefusal::Wrong) => {
+                    return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+                }
             }
             if is_legacy_share_pw(required) {
                 if let Some(pw) = supplied_pw {
@@ -1081,6 +1131,9 @@ pub async fn public_authorize_download(
     .await;
 
     if let Ok(Some(r)) = folder {
+        if crate::libs::sharing::in_trashed_folder(&axum_state.pg_pool, crate::libs::sharing::Shared::Folder(&r.id)).await {
+            return respond(404, "Invalid link", vec![], json!({}));
+        }
         if let Some(exp) = r.share_expires_at {
             if exp < Utc::now() {
                 return respond(410, "This link has expired.", vec![], json!({}));
@@ -1090,12 +1143,14 @@ pub async fn public_authorize_download(
         // fetch-chunks will check a grant against.
         let mut stored_pw_hash = r.share_password_hash.clone();
         if let Some(ref required) = r.share_password_hash {
-            // Meter before the KDF runs, not after.
-            if !share_pw_allowed(&axum_state.rate_limiter, &client_ip, &token) {
-                return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
-            }
-            if !verify_share_pw(supplied_pw, required) {
-                return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+            match check_share_pw(&axum_state.rate_limiter, &client_ip, &token, supplied_pw, required) {
+                Ok(()) => {}
+                Err(SharePwRefusal::Throttled) => {
+                    return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
+                }
+                Err(SharePwRefusal::Wrong) => {
+                    return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
+                }
             }
             if is_legacy_share_pw(required) {
                 if let Some(pw) = supplied_pw {
@@ -1297,6 +1352,24 @@ mod folder_fetch_tests {
         assert_eq!(got, Err(FolderFetchRefusal::Throttled));
     }
 
+    /// Only wrong guesses count against the link. Right answers used to take a
+    /// slot too, so a recipient on a busy link was refused like a guesser.
+    #[test]
+    fn right_passwords_without_a_grant_are_not_metered_against_the_link() {
+        let limiter = RateLimiter::new();
+        let hash = hash_share_pw("k7-Fern-Ridge-92").unwrap();
+        let f = folder(false, false, Some(&hash));
+        for i in 0..25 {
+            let got = gate_folder_fetch(&limiter, IP, &f, Some("k7-Fern-Ridge-92"), false);
+            assert_eq!(got, Ok(false), "right answer {i} of 25");
+        }
+        // And a few wrong ones in between still leave room for the right one.
+        for _ in 0..5 {
+            assert_eq!(gate_folder_fetch(&limiter, "198.51.100.7", &f, Some("guess"), false), Err(FolderFetchRefusal::WrongPassword));
+        }
+        assert_eq!(gate_folder_fetch(&limiter, "198.51.100.8", &f, Some("k7-Fern-Ridge-92"), false), Ok(false));
+    }
+
     #[test]
     fn a_password_folder_without_a_grant_still_needs_the_password() {
         let limiter = RateLimiter::new();
@@ -1323,5 +1396,164 @@ mod folder_fetch_tests {
         let legacy = hex::encode(Sha256::digest("old-password".as_bytes()));
         let got = gate_folder_fetch(&limiter, IP, &folder(false, false, Some(&legacy)), Some("old-password"), false);
         assert_eq!(got, Ok(true));
+    }
+}
+
+#[cfg(test)]
+mod trashed_parent_tests {
+    //! These call the handlers against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+    use axum::extract::ConnectInfo;
+    use axum::http::{HeaderMap, StatusCode};
+
+    fn peer() -> ConnectInfo<std::net::SocketAddr> {
+        ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 40000)))
+    }
+
+    async fn folder(pool: &sqlx::PgPool, user: &str, parent: Option<&str>, token: Option<&str>) -> String {
+        sqlx::query_scalar(
+            "INSERT INTO folders (name, user_id, parent_id, share_token, share_type) \
+             VALUES ('dir', $1, $2, $3, CASE WHEN $3::text IS NULL THEN NULL ELSE 'public' END) RETURNING id",
+        )
+        .bind(user)
+        .bind(parent)
+        .bind(token)
+        .fetch_one(pool)
+        .await
+        .expect("seed folder")
+    }
+
+    async fn file(pool: &sqlx::PgPool, user: &str, folder_id: &str, token: Option<&str>) -> String {
+        sqlx::query_scalar(
+            "INSERT INTO files (user_id, name, mime, size, encrypted, total_chunks, uploaded_chunks, \
+             sha256_checksum, blake3_checksum, public_access, folder_id, share_token, share_type) \
+             VALUES ($1, 'f.bin', 'application/octet-stream', 1, false, 1, 1, 's', '', false, $2, $3, \
+             CASE WHEN $3::text IS NULL THEN NULL ELSE 'public' END) RETURNING id",
+        )
+        .bind(user)
+        .bind(folder_id)
+        .bind(token)
+        .fetch_one(pool)
+        .await
+        .expect("seed file")
+    }
+
+    async fn info(st: &crate::AppState, token: &str) -> StatusCode {
+        public_get_info(State(st.clone()), Path(token.to_string())).await.into_response().status()
+    }
+
+    async fn authorize(st: &crate::AppState, token: &str) -> StatusCode {
+        let payload = PublicDownloadPayload { token: token.to_string(), password: None };
+        public_authorize_download(peer(), State(st.clone()), HeaderMap::new(), Json(payload))
+            .await
+            .into_response()
+            .status()
+    }
+
+    async fn fetch(st: &crate::AppState, token: &str, file_id: &str) -> StatusCode {
+        let payload = PublicFetchChunksPayload {
+            token: token.to_string(),
+            file_id: file_id.to_string(),
+            password: None,
+            grant: None,
+        };
+        public_fetch_file_chunks(peer(), State(st.clone()), HeaderMap::new(), Json(payload))
+            .await
+            .into_response()
+            .status()
+    }
+
+    async fn cleanup(pool: &sqlx::PgPool, user: &str) {
+        let _ = sqlx::query("DELETE FROM share_access_events WHERE owner_user_id = $1").bind(user).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM files WHERE user_id = $1").bind(user).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM folders WHERE user_id = $1").bind(user).execute(pool).await;
+        forget(pool, user).await;
+    }
+
+    /// The owner shares a file and a subfolder that sit two levels down in a
+    /// folder, then puts the top folder in the trash. Trashing marks only that
+    /// one row, so the token paths, which looked at the shared row alone, kept
+    /// serving both links.
+    #[tokio::test]
+    async fn links_inside_a_trashed_folder_stop_working() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let pool = &st.pg_pool;
+        let (user, _key) = account(pool).await;
+        let file_token = generate_token();
+        let dir_token = generate_token();
+
+        let top = folder(pool, &user, None, None).await;
+        let mid = folder(pool, &user, Some(&top), None).await;
+        let shared_file = file(pool, &user, &mid, Some(&file_token)).await;
+        let shared_dir = folder(pool, &user, Some(&mid), Some(&dir_token)).await;
+        let inner = file(pool, &user, &shared_dir, None).await;
+
+        let before = (
+            info(&st, &file_token).await,
+            authorize(&st, &file_token).await,
+            info(&st, &dir_token).await,
+            authorize(&st, &dir_token).await,
+            fetch(&st, &dir_token, &inner).await,
+        );
+
+        sqlx::query("UPDATE folders SET deleted = true, deleted_on = NOW() WHERE id = $1")
+            .bind(&top)
+            .execute(pool)
+            .await
+            .expect("trash top folder");
+
+        let after = (
+            info(&st, &file_token).await,
+            authorize(&st, &file_token).await,
+            info(&st, &dir_token).await,
+            authorize(&st, &dir_token).await,
+            fetch(&st, &dir_token, &inner).await,
+        );
+        let _ = shared_file;
+        cleanup(pool, &user).await;
+
+        let ok = StatusCode::OK;
+        assert_eq!(before, (ok, ok, ok, ok, ok), "live links work before the trash");
+        let gone = StatusCode::NOT_FOUND;
+        assert_eq!(after, (gone, gone, gone, gone, gone), "links under a trashed folder");
+    }
+
+    /// A recipient who knows the password downloads a protected file more than
+    /// twenty times in five minutes (a team passing the link round, or reloads).
+    /// Right answers used to take a slot of the per-link meter, so the 21st got
+    /// 429 just as if someone were guessing.
+    #[tokio::test]
+    async fn right_passwords_do_not_use_up_the_link_meter() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let pool = &st.pg_pool;
+        let (user, _key) = account(pool).await;
+        let token = generate_token();
+        let dir = folder(pool, &user, None, None).await;
+        let id = file(pool, &user, &dir, Some(&token)).await;
+        sqlx::query("UPDATE files SET share_password_hash = $1 WHERE id = $2")
+            .bind(hash_share_pw("k7-Fern-Ridge-92").unwrap())
+            .bind(&id)
+            .execute(pool)
+            .await
+            .expect("set link password");
+
+        let mut statuses = vec![];
+        for i in 0..25u8 {
+            let mut headers = HeaderMap::new();
+            // A different address each time, so only the per-link meter is in play.
+            headers.insert("x-client-ip", format!("198.51.100.{}", i + 1).parse().unwrap());
+            let payload = PublicDownloadPayload { token: token.clone(), password: Some("k7-Fern-Ridge-92".into()) };
+            let status = public_authorize_download(peer(), State(st.clone()), headers, Json(payload))
+                .await
+                .into_response()
+                .status();
+            statuses.push(status);
+        }
+        cleanup(pool, &user).await;
+
+        assert!(statuses.iter().all(|s| *s == StatusCode::OK), "{statuses:?}");
     }
 }

@@ -279,6 +279,42 @@ pub async fn folder_access(pool: &sqlx::PgPool, folder_id: &str) -> FolderAccess
     }
 }
 
+/// A shared file or folder, named by its id, for `in_trashed_folder`.
+pub enum Shared<'a> {
+    File(&'a str),
+    Folder(&'a str),
+}
+
+/// Is this file or folder inside a folder that is in the trash, at any depth?
+///
+/// Trashing a folder marks that one row and leaves its contents as they were,
+/// so that restoring it brings everything back. A link to something inside
+/// has to look up the chain for itself, as the by-id paths do through
+/// `folder_access`; checking only the shared row kept such a link working
+/// after the owner had thrown the folder away. Fails closed.
+pub async fn in_trashed_folder(pool: &sqlx::PgPool, item: Shared<'_>) -> bool {
+    let (start, id) = match item {
+        Shared::File(id) => ("SELECT folder_id FROM files WHERE id = $1", id),
+        Shared::Folder(id) => ("SELECT parent_id FROM folders WHERE id = $1", id),
+    };
+    let sql = format!(
+        "WITH RECURSIVE chain AS ( \
+             SELECT id, parent_id, deleted, 0 AS depth FROM folders WHERE id = ({start}) \
+             UNION ALL \
+             SELECT f.id, f.parent_id, f.deleted, c.depth + 1 \
+               FROM folders f JOIN chain c ON f.id = c.parent_id \
+              WHERE c.depth < $2 \
+         ) \
+         SELECT EXISTS (SELECT 1 FROM chain WHERE deleted)"
+    );
+    sqlx::query_scalar::<_, bool>(&sql)
+        .bind(id)
+        .bind(MAX_DEPTH)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
