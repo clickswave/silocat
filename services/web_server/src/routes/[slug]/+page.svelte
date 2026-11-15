@@ -397,6 +397,7 @@
 		}
 	}
 	import JSZip from 'jszip';
+	import { zipEntryPath } from '$lib/zipPath.js';
 
 	async function startDownloadZip() {
 		if (isDownloading) return;
@@ -434,7 +435,7 @@
 					// instead of collapsing into one flat pile of names (where
 					// two files called the same thing in different directories
 					// would also have overwritten each other).
-					zip.file(file.path ? `${file.path}/${file.name}` : file.name, fileBlob);
+					zip.file(zipEntryPath(file.path, file.name), fileBlob);
 				} catch (e) {
 					console.error(`Failed to download ${file.name} for zip`, e);
 					toast.error(`Could not download ${file.name}: ${e.message}`);

@@ -28,6 +28,11 @@ pub async fn handle(
         }
     };
 
+    // Folder names become directories in a downloaded zip: one segment each.
+    if let Err(why) = crate::libs::input_validators::entry_name(&payload.name) {
+        return respond(400, "Invalid folder name", vec![why], json!({}));
+    }
+
     // If nesting under a parent, the parent must belong to the caller.
     if let Some(parent_id) = &payload.parent_id {
         let parent = sqlx::query!(
@@ -78,5 +83,61 @@ pub async fn handle(
             println!("Error creating folder: {:?}", e);
             respond(500, "Failed to create folder", vec![], json!({}))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! These call the handler against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+    use axum::http::StatusCode;
+
+    async fn create(st: &crate::AppState, caller: Caller, name: &str) -> StatusCode {
+        let payload = Payload { name: name.to_string(), parent_id: None };
+        handle(State(st.clone()), Extension(Some(caller)), Json(payload))
+            .await
+            .into_response()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn a_folder_named_as_a_path_is_refused() {
+        // A shared folder's files are zipped under their folder names, so a
+        // folder called ".." puts every file in it above the extract folder.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        let mut accepted = vec![];
+        for name in ["..", ".", "", "a/../..", "..\\..", "tab\there"] {
+            let caller = Caller { api_key: key.clone(), user_id: Some(user.clone()), email_verified: true };
+            let status = create(&st, caller, name).await;
+            if status != StatusCode::BAD_REQUEST {
+                accepted.push((name, status));
+            }
+        }
+        let anon = format!("shadow-{}", crate::libs::rng::uuid());
+        let caller = Caller { api_key: anon.clone(), user_id: None, email_verified: true };
+        let anon_status = create(&st, caller, "..").await;
+        let _ = sqlx::query("DELETE FROM folders WHERE user_id = $1 OR owner_api_key = $2")
+            .bind(&user)
+            .bind(&anon)
+            .execute(&st.pg_pool)
+            .await;
+        forget(&st.pg_pool, &user).await;
+        assert!(accepted.is_empty(), "accepted: {accepted:?}");
+        assert_eq!(anon_status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn an_ordinary_folder_name_is_still_accepted() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        let caller = Caller { api_key: key.clone(), user_id: Some(user.clone()), email_verified: true };
+        let status = create(&st, caller, "Photos 2026 (raw)").await;
+        let _ = sqlx::query("DELETE FROM folders WHERE user_id = $1").bind(&user).execute(&st.pg_pool).await;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(status, StatusCode::CREATED);
     }
 }

@@ -30,6 +30,12 @@ pub async fn handle(
         }
     };
 
+    if let Some(name) = &payload.new_name {
+        if let Err(why) = crate::libs::input_validators::entry_name(name) {
+            return respond(400, "Invalid folder name", vec![why], json!({}));
+        }
+    }
+
     // Verify ownership and update
     if let Some(parent_id) = &payload.new_parent_id {
         if parent_id == &payload.folder_id {
@@ -81,5 +87,59 @@ pub async fn handle(
              println!("Error updating folder: {:?}", e);
              respond(500, "Failed to update folder", vec![], json!({}))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! These call the handler against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+    use axum::http::StatusCode;
+
+    #[tokio::test]
+    async fn renaming_a_folder_to_a_path_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        let folder_id: String = sqlx::query_scalar(
+            "INSERT INTO folders (name, user_id, owner_api_key) VALUES ('Photos', $1, $2) RETURNING id",
+        )
+        .bind(&user)
+        .bind(&key)
+        .fetch_one(&st.pg_pool)
+        .await
+        .expect("seed folder");
+        let mut seen = vec![];
+        for name in ["..", "../../x", "Holiday"] {
+            let caller = Caller { api_key: key.clone(), user_id: Some(user.clone()), email_verified: true };
+            let payload = Payload {
+                folder_id: folder_id.clone(),
+                new_name: Some(name.to_string()),
+                new_parent_id: None,
+                move_to_root: None,
+            };
+            let status = handle(State(st.clone()), Extension(Some(caller)), Json(payload))
+                .await
+                .into_response()
+                .status();
+            let now: String = sqlx::query_scalar("SELECT name FROM folders WHERE id = $1")
+                .bind(&folder_id)
+                .fetch_one(&st.pg_pool)
+                .await
+                .unwrap();
+            seen.push((name, status, now));
+        }
+        let _ = sqlx::query("DELETE FROM folders WHERE user_id = $1").bind(&user).execute(&st.pg_pool).await;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(
+            seen,
+            vec![
+                ("..", StatusCode::BAD_REQUEST, "Photos".to_string()),
+                ("../../x", StatusCode::BAD_REQUEST, "Photos".to_string()),
+                ("Holiday", StatusCode::OK, "Holiday".to_string()),
+            ]
+        );
     }
 }

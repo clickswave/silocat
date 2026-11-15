@@ -31,6 +31,11 @@ pub async fn handle(
         }
     };
 
+    // Folder names become directories in a downloaded zip: one segment each.
+    if let Err(why) = crate::libs::input_validators::entry_name(&payload.name) {
+        return respond(400, "Invalid folder name", vec![why], json!({}));
+    }
+
     let uploaded_as_files = payload.uploaded_as_files.unwrap_or(false);
 
     // If a parent is requested, it must belong to the caller, by the same rule
@@ -93,5 +98,37 @@ pub async fn handle(
                 json!({}),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! These call the handler against a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+    use axum::http::StatusCode;
+
+    #[tokio::test]
+    async fn a_folder_named_as_a_path_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        let mut accepted = vec![];
+        for name in ["..", "a/b", "Photos"] {
+            let caller = Caller { api_key: key.clone(), user_id: Some(user.clone()), email_verified: true };
+            let payload = PayloadBody { name: name.to_string(), parent_id: None, uploaded_as_files: None };
+            let status = handle(State(st.clone()), Extension(Some(caller)), Json(payload))
+                .await
+                .into_response()
+                .status();
+            accepted.push((name, status));
+        }
+        let _ = sqlx::query("DELETE FROM folders WHERE user_id = $1").bind(&user).execute(&st.pg_pool).await;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!(
+            accepted,
+            vec![("..", StatusCode::BAD_REQUEST), ("a/b", StatusCode::BAD_REQUEST), ("Photos", StatusCode::OK)]
+        );
     }
 }

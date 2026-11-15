@@ -91,6 +91,11 @@ pub async fn handle(
     if let Err(why) = libs::uploads::check_declared(payload.file_size, &chunk_sizes) {
         return respond(400, "Invalid upload", vec![why.to_string()], json!({}));
     }
+    // The name ends up as a zip entry when a folder is downloaded, so it has to
+    // be a single path segment.
+    if let Err(why) = libs::input_validators::entry_name(&payload.file_name) {
+        return respond(400, "Invalid file name", vec![why], json!({}));
+    }
 
     // A destination folder, if given, must belong to the caller: no planting
     // files into another user's folder.
@@ -634,5 +639,78 @@ mod tests {
         let (status, _, made) = as_user(&st, 150 * MIB, true, &[100 * MIB, 50 * MIB]).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(made, 1);
+    }
+
+    /// Names a browser zip would turn into an entry outside the folder the
+    /// recipient extracts into, or that no real file can have.
+    const UNSAFE_NAMES: [&str; 8] = [
+        "../../../AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/update.bat",
+        "..",
+        ".",
+        "...",
+        "a/b.txt",
+        "..\\..\\evil.bat",
+        "nul\0byte",
+        "line\nbreak",
+    ];
+
+    #[tokio::test]
+    async fn a_file_name_that_is_a_path_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        let mut accepted = vec![];
+        for name in UNSAFE_NAMES {
+            let caller = Caller { api_key: key.clone(), user_id: Some(user.clone()), email_verified: true };
+            let mut b = body(5, false, &[5]);
+            b["file_name"] = json!(name);
+            let (status, _) = create(&st, caller, b).await;
+            if status != StatusCode::BAD_REQUEST {
+                accepted.push((name, status));
+            }
+        }
+        let made = files_of(&st, &user).await;
+        forget(&st.pg_pool, &user).await;
+        assert!(accepted.is_empty(), "accepted: {accepted:?}");
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn an_anonymous_drop_named_as_a_path_is_refused() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let key = format!("shadow-{}", crate::libs::rng::uuid());
+        let caller = Caller { api_key: key.clone(), user_id: None, email_verified: true };
+        let mut b = body(5, false, &[5]);
+        b["file_name"] = json!("../../../Startup/update.bat");
+        let (status, _) = create(&st, caller, b).await;
+        let made: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE owner_api_key = $1")
+            .bind(&key)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        let _ = sqlx::query("DELETE FROM chunks WHERE file_id IN (SELECT id FROM files WHERE owner_api_key = $1)")
+            .bind(&key)
+            .execute(&st.pg_pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM files WHERE owner_api_key = $1").bind(&key).execute(&st.pg_pool).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(made, 0);
+    }
+
+    #[tokio::test]
+    async fn ordinary_file_names_are_still_accepted() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, key) = account(&st.pg_pool).await;
+        let mut refused = vec![];
+        for name in [".env", "..hidden", "notes (v2).final.txt", "Report: Q3 #1 é 名前.pdf", "a..b", "x"] {
+            let caller = Caller { api_key: key.clone(), user_id: Some(user.clone()), email_verified: true };
+            let mut b = body(5, false, &[5]);
+            b["file_name"] = json!(name);
+            let (status, _) = create(&st, caller, b).await;
+            if status != StatusCode::OK {
+                refused.push((name, status));
+            }
+        }
+        forget(&st.pg_pool, &user).await;
+        assert!(refused.is_empty(), "refused: {refused:?}");
     }
 }

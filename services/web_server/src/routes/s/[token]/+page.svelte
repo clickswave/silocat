@@ -15,6 +15,7 @@
 	import Prompt from '$lib/ui/Prompt.svelte';
 	import sodium from 'libsodium-wrappers-sumo';
 	import JSZip from 'jszip';
+	import { zipEntryPath } from '$lib/zipPath.js';
 	import { holdTransfer, guardNavigation } from '$lib/transferGuard.js';
 	import SendYourOwn from '$lib/components/SendYourOwn.svelte';
 	import { track } from '$lib/track.js';
@@ -422,7 +423,7 @@
 					const fileBlob = new Blob(downloadedChunks);
 					// `path` is the file's folder relative to the shared root, so
 					// the zip keeps the structure the folder was shared with.
-					zip.file(f.path ? `${f.path}/${f.name}` : f.name, fileBlob);
+					zip.file(zipEntryPath(f.path, f.name), fileBlob);
 					processedCount++;
 				}
 			} catch (e) {

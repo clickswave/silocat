@@ -469,6 +469,9 @@ pub async fn upload_create(
     if let Err(why) = crate::libs::uploads::check_declared(p.file_size, &chunk_sizes) {
         return respond(400, "Invalid upload", vec![why.to_string()], json!({})).into_response();
     }
+    if let Err(why) = crate::libs::input_validators::entry_name(&p.file_name) {
+        return respond(400, "Invalid file name", vec![why], json!({})).into_response();
+    }
 
     // The upload counts against the OWNER's quota, along with every upload
     // into that account that is started but not finished. The lock is held
@@ -979,5 +982,38 @@ mod tests {
         assert_ne!(status, StatusCode::OK);
         assert!(!uploaded);
         assert_eq!(on_server, 0);
+    }
+
+    #[tokio::test]
+    async fn a_request_upload_named_as_a_path_is_refused() {
+        // The owner zips what came in from the dashboard; a name like this
+        // would extract outside the folder they chose.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        let mut accepted = vec![];
+        for name in ["../../../Startup/update.bat", "..", "a\\b", "x\u{1b}[2J"] {
+            let (status, _) = upload_body(
+                &st,
+                &token,
+                json!({
+                    "uploader_name": null,
+                    "file_encrypted": false,
+                    "file_name": name,
+                    "file_mime": "application/octet-stream",
+                    "file_size": 5,
+                    "chunks": [{ "start": 0, "end": 5, "size": 5, "checksum": "c" }],
+                    "sha256_checksum": "s",
+                    "blake3_checksum": ""
+                }),
+            )
+            .await;
+            if status != StatusCode::BAD_REQUEST {
+                accepted.push((name, status));
+            }
+        }
+        let made = files_of(&st, &owner).await;
+        forget(&st.pg_pool, &owner).await;
+        assert!(accepted.is_empty(), "accepted: {accepted:?}");
+        assert_eq!(made, 0);
     }
 }

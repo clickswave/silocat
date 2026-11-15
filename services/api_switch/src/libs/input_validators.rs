@@ -133,3 +133,42 @@ pub fn uuid(uuid: &str) -> Result<(), Vec<String>> {
         Err(_) => Err(vec!["Uuid entered is invalid".to_string()]),
     };
 }
+/// A file or folder name as stored: one path segment, never a path.
+///
+/// Folder downloads are zipped in the browser with each entry named after the
+/// folders and file it came from, joined with '/'. A name holding a separator,
+/// or one that is only dots, becomes an entry that extracts outside the folder
+/// the recipient picked. Windows drops trailing dots and spaces from a path
+/// segment, so "..." and ".. " count as "..". Control characters have no place
+/// in a name a browser or OS file picker produces either.
+pub fn entry_name(name: &str) -> Result<(), String> {
+    if name.chars().all(|c| c == '.' || c.is_whitespace()) {
+        return Err("Name cannot be empty or only dots".to_string());
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err("Name cannot contain / or \\".to_string());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("Name cannot contain control characters".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::entry_name;
+
+    #[test]
+    fn a_name_that_climbs_or_nests_is_refused() {
+        for name in ["", " ", ".", "..", "...", ".. ", "a/b", "../x", "/abs", "..\\x", "c:\\x", "a\0b", "a\nb", "a\u{7f}b", "a\u{85}b"] {
+            assert!(entry_name(name).is_err(), "{name:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn ordinary_names_pass() {
+        for name in ["x", ".env", "..hidden", "a..b", "notes (v2).txt", "Report: Q3 #1.pdf", "名前 é.png", " lead space"] {
+            assert!(entry_name(name).is_ok(), "{name:?} was refused");
+        }
+    }
+}

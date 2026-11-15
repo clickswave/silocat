@@ -198,6 +198,7 @@
 	import { copyShareLink as sharedCopyLink } from '$lib/share.js';
 	import { fade, scale } from 'svelte/transition';
 	import JSZip from 'jszip';
+	import { zipEntryPath } from '$lib/zipPath.js';
 
 	import InputModal from '$lib/components/InputModal.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
@@ -316,7 +317,7 @@
 					}
 
 					const fileBlob = new Blob(downloadedChunks);
-					zip.file(file.name, fileBlob);
+					zip.file(zipEntryPath('', file.name), fileBlob);
 					processedCount++;
 				} catch (e) {
 					console.error(`Failed to process file ${file.name}`, e);
@@ -1394,7 +1395,7 @@
 					// hold each file in memory to hand it to JSZip, so the cap does
 					// not apply; the size guard for this path is bulkZipTooBig below.
 					const blob = await fetchDecryptedBlob(file, { password: pw, maxBytes: 0 });
-					zip.file(file.name, blob);
+					zip.file(zipEntryPath('', file.name), blob);
 					okc++;
 				} catch (e) {
 					console.error('zip file failed', file.name, e);
