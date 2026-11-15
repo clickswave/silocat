@@ -47,18 +47,23 @@ pub fn normalize(input: &[u8]) -> anyhow::Result<Vec<u8>> {
     limits.max_image_width = Some(8192);
     limits.max_image_height = Some(8192);
     limits.max_alloc = Some(64 * 1024 * 1024); // 64 MB decode budget
-    reader.limits(limits);
+    reader.limits(limits.clone());
     let refuse = |e: image::ImageError| match e {
         image::ImageError::Limits(_) => anyhow::Error::new(TooLarge),
         e => anyhow::anyhow!("Unsupported or corrupt image: {e}"),
     };
-    let decoder = reader.into_decoder().map_err(refuse)?;
+    let mut decoder = reader.into_decoder().map_err(refuse)?;
     // The header gives the size, so an oversized image is refused before any
     // pixel is decoded.
     let (w, h) = image::ImageDecoder::dimensions(&decoder);
     if u64::from(w) * u64::from(h) > MAX_DP_PIXELS {
         return Err(anyhow::Error::new(TooLarge));
     }
+    // into_decoder() only checks the dimensions, so charge the decoded buffer
+    // to the 64 MB budget here, as ImageReader::decode() would. A 16-bit RGBA
+    // image at the pixel cap needs 128 MB and is refused.
+    limits.reserve(image::ImageDecoder::total_bytes(&decoder)).map_err(refuse)?;
+    image::ImageDecoder::set_limits(&mut decoder, limits).map_err(refuse)?;
     let img = image::DynamicImage::from_decoder(decoder).map_err(refuse)?;
 
     let (w, h) = img.dimensions();
@@ -113,6 +118,31 @@ mod tests {
             match normalize(&bytes) {
                 Ok(_) => panic!("{w} x {h} was accepted"),
                 Err(e) => assert!(e.is::<TooLarge>(), "{w} x {h}: {e}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_deep_colour_file_cannot_decode_past_the_memory_budget() {
+        // 4096 x 4096 is within the pixel cap, but at 16 bits per channel the
+        // decoded buffer is 128 MiB (RGBA) or 96 MiB (RGB), over the 64 MiB
+        // decode budget, while the flat PNG is still small on the wire.
+        for (color, bpp) in [(image::ExtendedColorType::Rgba16, 8), (image::ExtendedColorType::Rgb16, 6)] {
+            use image::ImageEncoder;
+            let pixels = vec![0u8; 4096 * 4096 * bpp];
+            let mut bytes = Vec::new();
+            image::codecs::png::PngEncoder::new_with_quality(
+                &mut bytes,
+                image::codecs::png::CompressionType::Fast,
+                image::codecs::png::FilterType::NoFilter,
+            )
+            .write_image(&pixels, 4096, 4096, color)
+            .expect("encode test png");
+            drop(pixels);
+            assert!(bytes.len() < MAX_DP_BYTES, "{color:?}: {} bytes", bytes.len());
+            match normalize(&bytes) {
+                Ok(_) => panic!("{color:?} at 4096 x 4096 was accepted"),
+                Err(e) => assert!(e.is::<TooLarge>(), "{color:?}: {e}"),
             }
         }
     }
