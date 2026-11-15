@@ -760,8 +760,9 @@
 				<h2>Zero-knowledge</h2>
 				<p>
 					Turn on password protection and your files are encrypted in the browser, before a single
-					byte moves, so the server stores ciphertext and nothing else. We cannot read those files,
-					hand them over, or recover them for you.
+					byte moves, so the server stores ciphertext in place of their contents. We cannot read
+					those files, hand them over, or recover them for you. Leave it off and the upload is not
+					encrypted.
 				</p>
 			</div>
 			<div class="fact">

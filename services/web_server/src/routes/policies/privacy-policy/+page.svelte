@@ -5,7 +5,7 @@
 
 <Seo
 	title="Privacy Policy | SiloCat"
-	description="SiloCat's privacy policy. We operate on a zero-knowledge basis: your files are end-to-end encrypted, and we comply with India's DPDP Act, 2023."
+	description="SiloCat's privacy policy: what we store, what we can read when encryption is off, what we cannot read when it is on, and how we comply with India's DPDP Act, 2023."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'Privacy Policy', path: '/policies/privacy-policy' }

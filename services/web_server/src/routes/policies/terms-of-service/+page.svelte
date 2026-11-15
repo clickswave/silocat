@@ -14,7 +14,7 @@
 
 <div class="policy-document">
 	<h1>Terms of Service</h1>
-	<p class="last-updated">Last Updated: 2026-07-20</p>
+	<p class="last-updated">Last Updated: 2026-11-15</p>
 
 	<section>
 		<h2>1. Acceptance of Terms</h2>
@@ -29,10 +29,14 @@
 	<section>
 		<h2>2. Service Description</h2>
 		<p>
-			SiloCat provides end-to-end encrypted file storage and sharing. The architecture ensures that
-			<strong>all encryption happens client-side</strong>. We (the server) never see your plaintext
-			data or your encryption keys. Your encrypted data is managed by our internal storage service,
-			<strong>WatchCat</strong>, and stored on distributed backends (Cloudflare R2 / Backblaze B2).
+			SiloCat provides file storage and sharing with <strong>optional</strong> end-to-end
+			encryption. When you turn on password protection, files are encrypted in your browser before
+			they are uploaded, and we (the server) never see their plaintext or your encryption key. Without
+			password protection (the default), files are uploaded <strong>unencrypted</strong> and we can
+			read them. Either way we store each file's name, size, type and a hash of its plaintext, as the
+			<a href="/policies/privacy-policy">Privacy Policy</a> describes. Your data is managed by our
+			internal storage service, <strong>WatchCat</strong>, and stored on distributed backends
+			(Cloudflare R2 / Backblaze B2).
 		</p>
 		<p>
 			You agree to use the Service only for lawful purposes and in compliance with our <a
@@ -44,23 +48,27 @@
 	<section>
 		<h2>3. User Responsibilities and Encryption</h2>
 		<p>
-			You are solely responsible for the content you encrypt and upload. Because SiloCat operates on
-			a <strong>zero-knowledge</strong> basis:
+			You are solely responsible for the content you upload, encrypted or not. For files you upload
+			with password protection, SiloCat operates on a <strong>zero-knowledge</strong> basis:
 		</p>
 		<ul>
 			<li>
-				We <strong>cannot recover your password</strong> or your data if you lose your encryption key
-				or share link.
+				We <strong>cannot recover your password</strong> or those files if you lose your encryption
+				key or share link.
 			</li>
 			<li>
-				We <strong>cannot decrypt</strong> your files to comply with law-enforcement requests (though
+				We <strong>cannot decrypt</strong> those files to comply with law-enforcement requests (though
 				we can delete the encrypted blobs).
 			</li>
 			<li>
-				You retain full ownership of your data, and you grant us only a limited license to store the
-				encrypted blobs so that we can provide the Service.
+				You retain full ownership of your data, and you grant us only a limited license to store your
+				files so that we can provide the Service.
 			</li>
 		</ul>
+		<p>
+			Files uploaded without password protection are not zero-knowledge: they are stored unencrypted,
+			and we can read them.
+		</p>
 	</section>
 
 	<section>

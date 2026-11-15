@@ -58,7 +58,7 @@
 
 <Seo
 	title="Privacy & security model | Silocat"
-	description="How Silocat protects your data: zero-knowledge architecture and client-side end-to-end encryption mean we can never read your files. Understand the security model."
+	description="How Silocat protects your data: turn on password protection and files are encrypted in your browser, so we cannot read them. Understand the security model."
 	schema={breadcrumbSchema([
 		{ name: 'Home', path: '/' },
 		{ name: 'Security', path: '/privacy' }

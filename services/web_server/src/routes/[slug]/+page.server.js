@@ -18,11 +18,12 @@ export const load = async ({ params }) => {
 	// A UUID that the API will not describe still renders: password, one-time
 	// and expiring links answer 404 to an anonymous caller, and those pages have
 	// to load so the visitor can unlock them.
+	// Nothing is known about the file here, so the preview cannot say it is
+	// encrypted: uploads are unencrypted unless the sender turned it on.
 	const fallback = {
 		og: {
-			title: 'Secure download on SiloCat',
-			description:
-				'A file shared securely and stored on silo.cat, the zero-knowledge encrypted cloud.'
+			title: 'Download on SiloCat',
+			description: 'A file shared on silo.cat. Open the link to download it.'
 		}
 	};
 
@@ -37,12 +38,11 @@ export const load = async ({ params }) => {
 		if (d.resource_type === 'file' && d.file) {
 			const name = d.file.name || 'File';
 			const size = formatSize(Number(d.file.size) || 0);
-			return {
-				og: {
-					title: `${name}: shared on SiloCat`,
-					description: `${name} (${size}). Encrypted file stored on silo.cat: download it securely.`
-				}
-			};
+			const description =
+				d.file.encrypted === true
+					? `${name} (${size}). Encrypted in the sender's browser and stored on silo.cat: open the link to decrypt and download it.`
+					: `${name} (${size}), stored on silo.cat: open the link to download it.`;
+			return { og: { title: `${name}: shared on SiloCat`, description } };
 		}
 
 		if (d.resource_type === 'folder' && d.folder) {
@@ -51,12 +51,13 @@ export const load = async ({ params }) => {
 			const totalSize = formatSize(files.reduce((sum, f) => sum + (Number(f?.size) || 0), 0));
 			const count = files.length;
 			const label = count === 1 ? '1 file' : `${count} files`;
-			return {
-				og: {
-					title: `${name}: shared on SiloCat`,
-					description: `${label} (${totalSize}) stored on silo.cat: download them securely from this encrypted vault.`
-				}
-			};
+			// Encryption is chosen per file, so a folder is only called encrypted
+			// when every file in it is.
+			const encrypted = count > 0 && files.every((f) => f?.encrypted === true);
+			const description = encrypted
+				? `${label} (${totalSize}), encrypted in the sender's browser and stored on silo.cat: open the link to decrypt and download them.`
+				: `${label} (${totalSize}) stored on silo.cat: open the link to download them.`;
+			return { og: { title: `${name}: shared on SiloCat`, description } };
 		}
 
 		return fallback;

@@ -14,18 +14,19 @@
 
 <div class="policy-document">
 	<h1>Disclaimer</h1>
-	<p class="last-updated">Last Updated: 2026-07-20</p>
+	<p class="last-updated">Last Updated: 2026-11-15</p>
 
 	<section>
 		<h2>1. "As Is" and Encryption Risks</h2>
 		<p>
-			SiloCat is a zero-knowledge, end-to-end encrypted file sharing and cloud storage service.
+			SiloCat is a file sharing and cloud storage service with optional end-to-end encryption.
 			The Service is provided on an "as is" and "as available" basis, without guarantees of any
 			kind regarding its operation or availability.
 		</p>
 		<p>
-			<strong>Critical warning:</strong> because encryption happens on your device (client-side),
-			we never hold your keys and cannot see your files.
+			<strong>Critical warning:</strong> when you turn on password protection, encryption happens on
+			your device (client-side), so we never hold your keys and cannot see those files. Files
+			uploaded without password protection are stored unencrypted, and we can read them.
 			<strong>
 				If you lose your URL, key, or password, your data is permanently unrecoverable.
 			</strong>

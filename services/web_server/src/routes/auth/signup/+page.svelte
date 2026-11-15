@@ -52,13 +52,13 @@
 	}
 </script>
 
-<Seo title="Create your account | Silocat" description="Create your encrypted Silocat account." noindex />
+<Seo title="Create your account | Silocat" description="Create your Silocat account." noindex />
 
 <section class="auth-card">
 	<div class="card-header">
 		<img class="mark" src="/silocat-logo.png" alt="" />
 		<h1>Create account</h1>
-		<p>10 GB free, encrypted end to end.</p>
+		<p>10 GB free, with optional end-to-end encryption.</p>
 	</div>
 
 	<Button variant="ghost" block href={googleAuthUrl}>

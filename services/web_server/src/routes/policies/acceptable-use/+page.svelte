@@ -14,11 +14,11 @@
 
 <div class="policy-document">
 	<h1>Acceptable Use Policy</h1>
-	<p class="last-updated">Last Updated: 2026-07-20</p>
+	<p class="last-updated">Last Updated: 2026-11-15</p>
 
 	<p>
-		SiloCat is a zero-knowledge, end-to-end encrypted file sharing and cloud storage service built
-		for everyone, including security researchers. Because we cannot read your encrypted content, we
+		SiloCat is a file sharing and cloud storage service with optional end-to-end encryption, built
+		for everyone, including security researchers. Because we cannot read encrypted content, we
 		rely on this policy to keep the platform safe and lawful. By using the Service, you agree to the
 		terms below.
 	</p>
