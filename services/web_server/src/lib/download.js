@@ -17,6 +17,7 @@ import axios from 'axios';
 import { deriveKey, decryptChunk } from '$lib/cryptoClient.js';
 import { createFileSink, willStruggle, BLOB_SINK_LIMIT } from '$lib/fileSink.js';
 import { holdTransfer } from '$lib/transferGuard.js';
+import { assertChunkOrder } from '$lib/chunkOrder.js';
 
 /**
  * One in-flight or recently finished download, as DownloadToasts renders it.
@@ -112,6 +113,8 @@ export async function downloadFile(file, { password = null, chunksUrl = '/api/v1
 		const chunksRes = await axios.post(chunksUrl, { file_id: file.id }, { signal: controller.signal });
 		const chunks = chunksRes.data?.data?.chunks;
 		if (!chunks || chunks.length === 0) throw new Error('No chunks found');
+		// Before a byte is written: a reordered, short or repeated list fails here.
+		if (file.encrypted) assertChunkOrder(chunks);
 
 		// Total = sum of (server) chunk sizes: that's what we actually pull down.
 		const total = chunks.reduce((s, c) => s + (Number(c.size) || 0), 0) || Number(file.size) || 0;
@@ -206,6 +209,7 @@ export async function fetchDecryptedBlob(
 	const chunksRes = await axios.post(chunksUrl, { file_id: file.id }, { signal });
 	const chunks = chunksRes.data?.data?.chunks;
 	if (!chunks || chunks.length === 0) throw new Error('No chunks found');
+	if (file.encrypted) assertChunkOrder(chunks);
 
 	const total = chunks.reduce((s, c) => s + (Number(c.size) || 0), 0) || Number(file.size) || 0;
 

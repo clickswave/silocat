@@ -169,6 +169,7 @@
 	// one in the Files page.
 	import sodium from 'libsodium-wrappers-sumo'; // for the RNG helpers below
 	import { hashFile, deriveKey, encryptChunk } from '$lib/cryptoClient.js';
+	import { framedNonce } from '$lib/chunkOrder.js';
 
 	// Helpers for quick generation on main thread
 	function generateSalt() {
@@ -388,6 +389,8 @@
 				}
 
 				const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+				// Each nonce carries its chunk's place in the file (see chunkOrder.js).
+				const nonceSeed = encryptionEnabled ? generateNonce() : null;
 				const chunksMeta = [];
 				for (let i = 0; i < totalChunks; i++) {
 					const start = i * CHUNK_SIZE;
@@ -396,7 +399,7 @@
 					let chunkNonce = null;
 					let chunkSalt = null;
 					if (encryptionEnabled) {
-						chunkNonce = generateNonce();
+						chunkNonce = framedNonce(nonceSeed, i, totalChunks);
 						chunkSalt = salt;
 					}
 					chunksMeta.push({

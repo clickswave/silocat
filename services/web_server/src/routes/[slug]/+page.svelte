@@ -6,6 +6,7 @@
 	import axios from 'axios';
 	import sodium from 'libsodium-wrappers-sumo';
 	import { decryptChunk, deriveKey } from '$lib/cryptoClient.js';
+	import { chunkOrderCheck } from '$lib/chunkOrder.js';
 	import { createFileSink } from '$lib/fileSink.js';
 	import { toast } from 'svelte-sonner';
 	import Icon from '$lib/ui/Icon.svelte';
@@ -248,6 +249,9 @@
 
 		let key = null; // Re-derive key per file
 		let isLocalWaiting = false;
+		// Chunks arrive while the upload runs, so their order is checked one at a
+		// time, and the count once the last one is in.
+		const order = fileTarget.encrypted ? chunkOrderCheck() : null;
 
 		await sodium.ready;
 
@@ -309,6 +313,7 @@
 					if (fileTarget.encrypted) {
 						if (!key) throw new Error('Encryption key not initialized (missing salt?)');
 						if (!chunk.nonce) throw new Error(`Chunk ${i} missing nonce`);
+						order.next(chunk);
 						const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
 						try {
 							finalBytes = await decryptChunk(dataBytes, key, nonceBytes);
@@ -335,6 +340,7 @@
 			}
 		}
 
+		order?.done();
 		return sink ? null : new Blob(downloadedChunks, { type: fileTarget.mime });
 	}
 

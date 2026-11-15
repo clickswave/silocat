@@ -184,6 +184,7 @@
 	// Hashing, Argon2id and the per-chunk cipher all go to the shared worker: they
 	// are the calls that freeze the tab.
 	import { generateSalt, generateNonce } from '$lib/chacha.js';
+	import { framedNonce, assertChunkOrder } from '$lib/chunkOrder.js';
 	import {
 		hashFile,
 		deriveKey,
@@ -293,6 +294,7 @@
 
 					let fileKey = null;
 					if (file.encrypted) {
+						assertChunkOrder(chunks);
 						const firstChunk = chunks[0];
 						if (!firstChunk.salt) throw new Error(`File ${file.name} missing salt.`);
 						const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
@@ -794,6 +796,8 @@
 			}
 
 			const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+			// Each nonce carries its chunk's place in the file (see chunkOrder.js).
+			const nonceSeed = encryptionEnabled ? generateNonce() : null;
 			const chunksMeta = [];
 
 			for (let i = 0; i < totalChunks; i++) {
@@ -802,7 +806,7 @@
 				let chunkNonce = null;
 				let chunkSalt = null;
 				if (encryptionEnabled) {
-					chunkNonce = generateNonce(); // Fast
+					chunkNonce = framedNonce(nonceSeed, i, totalChunks);
 					chunkSalt = salt;
 				}
 				chunksMeta.push({

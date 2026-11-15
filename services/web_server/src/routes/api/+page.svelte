@@ -297,7 +297,9 @@ const plaintext = await silo.download(file.id, {
 					Silocat is zero-knowledge, so the API cannot accept a file. It accepts ciphertext. Doing
 					that by hand means deriving a key with Argon2id at libsodium's MODERATE limits, splitting
 					the file into 100&nbsp;MB chunks, and encrypting each one with XChaCha20-Poly1305 under a
-					fresh 24-byte nonce, with a single salt per file.
+					24-byte nonce that records the chunk's place in the file (8 random bytes per file, the
+					ASCII tag <code>silocat1</code>, then the chunk index and the chunk count as big-endian
+					32-bit integers), with a single salt per file.
 				</p>
 				<p>
 					Every one of those has to match exactly. Get a parameter wrong and the upload still

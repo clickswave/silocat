@@ -71,7 +71,7 @@ that property only holds if you keep them separate.
 | `listFolders({ parentId })` | |
 | `createFolder(name, { parentId })` | |
 | `upload(data, { name, password, mime, folderId, onProgress })` | `Uint8Array`, `ArrayBuffer` or `Blob`. Omit `password` to upload unencrypted, readable by the server. |
-| `download(id, { password, onProgress })` | returns `Uint8Array` |
+| `download(id, { password, onProgress })` | returns `Uint8Array`. Pass `password` exactly when the file is encrypted. Throws if the server returns the chunks reordered, short or repeated. |
 | `share(id, { type })` | `'public'`, `'once'` or `'off'` |
 | `unshare(id)` | |
 | `trash(id)` | recoverable until the retention window expires |

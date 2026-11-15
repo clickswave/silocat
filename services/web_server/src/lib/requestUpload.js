@@ -10,6 +10,7 @@ import axios from 'axios';
 import { generateSalt, generateNonce } from '$lib/chacha.js';
 import { hashFile, deriveKey, encryptChunk } from '$lib/cryptoClient.js';
 import { CHUNK_SIZE } from '$lib/chunking.js';
+import { framedNonce } from '$lib/chunkOrder.js';
 
 
 function b64(bytes) {
@@ -49,12 +50,14 @@ export async function uploadToRequest(token, file, opts = {}) {
 	}
 
 	// 2. Chunk metadata (per-chunk nonce; shared salt).
+	// Each nonce carries its chunk's place in the file (see chunkOrder.js).
 	const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+	const nonceSeed = encrypt ? generateNonce() : null;
 	const chunksMeta = [];
 	for (let i = 0; i < totalChunks; i++) {
 		const start = i * CHUNK_SIZE;
 		const end = Math.min(start + CHUNK_SIZE, file.size);
-		const nonce = encrypt ? generateNonce() : null;
+		const nonce = encrypt ? framedNonce(nonceSeed, i, totalChunks) : null;
 		chunksMeta.push({
 			start,
 			end,

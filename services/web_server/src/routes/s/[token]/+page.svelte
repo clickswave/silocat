@@ -10,6 +10,7 @@
 	import { fade, scale } from 'svelte/transition';
 	import { toast } from '$lib/toast.js';
 	import { deriveKey, decryptChunk } from '$lib/cryptoClient.js';
+	import { assertChunkOrder } from '$lib/chunkOrder.js';
 	import { createFileSink } from '$lib/fileSink.js';
 	import Prompt from '$lib/ui/Prompt.svelte';
 	import sodium from 'libsodium-wrappers-sumo';
@@ -221,6 +222,8 @@
 				toast.error('Incorrect link password.');
 			} else if (e.message.includes('Wrong password') || e.message.includes('Decryption failed')) {
 				toast.error('Incorrect decryption password.');
+			} else if (e.name === 'ChunkOrderError' || e.message?.includes('missing its salt')) {
+				toast.error(e.message);
 			} else if (e.response && e.response.status === 410) {
 				error = e.response.data?.message || 'This link has expired.';
 			} else {
@@ -281,6 +284,8 @@
 				toast.error('Incorrect link password.');
 			} else if (e.message?.includes('Decryption failed')) {
 				toast.error('Incorrect decryption password.');
+			} else if (e.name === 'ChunkOrderError' || e.message?.includes('missing its salt')) {
+				toast.error(e.message);
 			} else if (e.response && e.response.status === 410) {
 				error = e.response.data?.message || 'This link has expired.';
 			} else {
@@ -293,13 +298,13 @@
 		// Prepare decryption key if needed
 		let fileKey = null;
 		if (fileMeta.encrypted) {
+			assertChunkOrder(chunks);
+			// Without a salt there is no key, and the chunks used to be saved as
+			// they came, undecrypted. A file the sender encrypted never lacks one.
 			const firstChunk = chunks[0];
-			if (!firstChunk.salt) {
-				console.warn('Encrypted file missing salt!');
-			} else {
-				const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
-				fileKey = await deriveKey(decryptionPassword, saltBytes);
-			}
+			if (!firstChunk.salt) throw new Error('This encrypted file is missing its salt, so it was not saved');
+			const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));
+			fileKey = await deriveKey(decryptionPassword, saltBytes);
 		}
 
 		// Chunk sizes are ciphertext lengths and each carries a 16-byte Poly1305
@@ -329,7 +334,7 @@
 
 				let dataBytes = new Uint8Array(chunkDataRes.data);
 
-				if (fileMeta.encrypted && fileKey) {
+				if (fileMeta.encrypted) {
 					if (!chunk.nonce) throw new Error(`Chunk ${i} missing nonce`);
 					const nonceBytes = Uint8Array.from(atob(chunk.nonce), (c) => c.charCodeAt(0));
 					try {
@@ -393,6 +398,7 @@
 					// Decrypt setup
 					let fileKey = null;
 					if (f.encrypted) {
+						assertChunkOrder(chunks);
 						const firstChunk = chunks[0];
 						if (!firstChunk.salt) throw new Error(`File ${f.name} missing salt.`);
 						const saltBytes = Uint8Array.from(atob(firstChunk.salt), (c) => c.charCodeAt(0));

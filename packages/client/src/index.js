@@ -30,6 +30,7 @@ import {
 	sha256Hex,
 	b64
 } from './crypto.js';
+import { framedNonce, assertChunkOrder } from './chunkOrder.js';
 
 /** Matches the web app. Chunks are uploaded individually to presigned URLs. */
 const CHUNK_SIZE = 100 * 1024 * 1024;
@@ -156,11 +157,14 @@ export class Silocat {
 		const total = bytes.byteLength;
 		const chunkCount = Math.max(1, Math.ceil(total / CHUNK_SIZE));
 
+		// Each nonce carries its chunk's place in the file, so a download can tell
+		// when the server hands the chunks back reordered, short or repeated.
+		const nonceSeed = encrypted ? await randomNonce() : null;
 		const chunks = [];
 		for (let i = 0; i < chunkCount; i++) {
 			const start = i * CHUNK_SIZE;
 			const end = Math.min(start + CHUNK_SIZE, total);
-			const nonce = encrypted ? await randomNonce() : null;
+			const nonce = encrypted ? framedNonce(nonceSeed, i, chunkCount) : null;
 			chunks.push({
 				start,
 				end,
@@ -255,9 +259,24 @@ export class Silocat {
 		const chunks = r?.data?.chunks ?? [];
 		if (!chunks.length) throw new SilocatError('No chunks returned for that file');
 
-		const encrypted = chunks.some((c) => c.nonce);
-		if (encrypted && !password) {
+		// Whether to decrypt is the caller's call, not the server's. Taking it from
+		// the chunk metadata let a server strip the nonces and have its own bytes
+		// returned as the "decrypted" file.
+		const encrypted = Boolean(password);
+		if (!encrypted && chunks.some((c) => c.nonce)) {
 			throw new SilocatError('This file is encrypted; pass { password }');
+		}
+		if (encrypted) {
+			if (!chunks.every((c) => c.nonce && c.salt)) {
+				throw new SilocatError(
+					'A password was given but the server returned this file as not encrypted, so it was not trusted'
+				);
+			}
+			try {
+				assertChunkOrder(chunks);
+			} catch (err) {
+				throw new SilocatError(err.message);
+			}
 		}
 
 		// The salt rides with the chunk metadata: same salt, same password, same key.
