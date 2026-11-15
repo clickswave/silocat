@@ -197,6 +197,7 @@ mod tests {
 
     use super::*;
     use crate::libs::{apikey, key_guard, rng};
+    use serde_json::json;
     use sqlx::{Connection, Row};
 
     async fn connect() -> Option<PgConnection> {
@@ -620,5 +621,216 @@ mod tests {
         }
         assert!(!allowed, "the toggle was let through on the registrant's key");
         assert!(!published, "the registrant's toggle republished the folder after the claim");
+    }
+
+    /// The /user routes behind validate_token, served on a local port, and
+    /// the state they run on. These tests send real requests, so the account
+    /// is committed and deleted again at the end.
+    async fn serve() -> Option<(String, crate::AppState)> {
+        let st = crate::test_support::state().await?;
+        let app = super::super::router(st.clone()).with_state(st.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        Some((base, st))
+    }
+
+    /// `seed`, committed, with a live verification code and a pending email
+    /// change to an address of the registrant's that no other test uses. The
+    /// account counts as active, so validate_token's activity stamp does not
+    /// queue behind a lock the test holds.
+    async fn seed_committed(conn: &mut PgConnection) -> (Seeded, String) {
+        let mut setup = conn.begin().await.unwrap();
+        let s = seed(&mut setup, false).await;
+        let registrant_inbox = format!("registrant-{}@example.net", s.id);
+        sqlx::query(
+            "UPDATE users SET pending_email = $1, otp_expires_at = NOW() + INTERVAL '10 minutes', \
+             otp_attempts = 0, last_active_at = NOW() WHERE id = $2",
+        )
+        .bind(&registrant_inbox)
+        .bind(&s.id)
+        .execute(&mut *setup)
+        .await
+        .unwrap();
+        setup.commit().await.unwrap();
+        (s, registrant_inbox)
+    }
+
+    async fn forget_seeded(conn: &mut PgConnection, id: &str) {
+        for sql in [
+            "DELETE FROM file_requests WHERE owner_user_id = $1",
+            "DELETE FROM files WHERE user_id = $1",
+            "DELETE FROM folders WHERE user_id = $1",
+            "DELETE FROM users WHERE id = $1",
+        ] {
+            sqlx::query(sql).bind(id).execute(&mut *conn).await.unwrap();
+        }
+    }
+
+    async fn post(base: &str, path: &str, raw_key: &str, body: serde_json::Value) -> (u16, String) {
+        let resp = reqwest::Client::new()
+            .post(format!("{base}{path}"))
+            .header("X-Api-Key", raw_key)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        (resp.status().as_u16(), resp.text().await.unwrap())
+    }
+
+    /// Send a request on `raw_key` while `held` (a transaction that has
+    /// locked the account row and replaced its key) is open. The request gets
+    /// past validate_token on the old key, since the change is not committed
+    /// yet, and queues behind the lock at its first write. Then `held`
+    /// commits, as a claim finishing mid-request would.
+    async fn post_while_held(
+        base: &str,
+        path: &str,
+        raw_key: &str,
+        body: serde_json::Value,
+        held: sqlx::Transaction<'_, sqlx::Postgres>,
+        watcher: &mut PgConnection,
+    ) -> (u16, String) {
+        let mut held = held;
+        let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *held).await.unwrap();
+        let (base, path, raw_key) = (base.to_string(), path.to_string(), raw_key.to_string());
+        let request = tokio::spawn(async move { post(&base, &path, &raw_key, body).await });
+        for _ in 0..100 {
+            let queued: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid)) \
+                 AND query NOT LIKE '%last_active_at%')",
+            )
+            .bind(holder)
+            .fetch_one(&mut *watcher)
+            .await
+            .unwrap();
+            if queued {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        held.commit().await.unwrap();
+        request.await.unwrap()
+    }
+
+    /// A profile update let in on the registrant's key while the owner's
+    /// claim is in progress used to wait for the claim, write, and send back
+    /// the key the claim had just minted for the owner.
+    #[tokio::test]
+    async fn a_profile_update_racing_a_claim_gets_no_key() {
+        let Some(mut conn) = connect().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (base, _st) = serve().await.unwrap();
+        let mut watcher = connect().await.unwrap();
+        let (s, _) = seed_committed(&mut conn).await;
+
+        let mut claim = conn.begin().await.unwrap();
+        let key = apikey::mint().unwrap();
+        google_sign_in(&mut claim, &s.id, &s.email, "owner", None, &key).await.unwrap();
+        let (status, body) =
+            post_while_held(&base, "/update-profile", &s.old_raw, json!({ "bio": "x" }), claim, &mut watcher).await;
+
+        let bio: Option<String> =
+            sqlx::query_scalar("SELECT bio FROM users WHERE id = $1").bind(&s.id).fetch_one(&mut conn).await.unwrap();
+        forget_seeded(&mut conn, &s.id).await;
+        assert!(!body.contains(&key.raw), "the registrant was handed the owner's new key: {status} {body}");
+        assert_eq!(status, 401, "{body}");
+        assert_eq!(bio, None, "the registrant's bio landed after the claim");
+    }
+
+    /// An email change the registrant staged to their own inbox, confirmed
+    /// while the owner's claim is in progress, used to move the account to
+    /// the registrant's address, mark it verified and return the owner's new
+    /// key: the whole account, back in the registrant's hands.
+    #[tokio::test]
+    async fn an_email_change_confirmed_during_a_claim_takes_nothing() {
+        let Some(mut conn) = connect().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (base, _st) = serve().await.unwrap();
+        let mut watcher = connect().await.unwrap();
+        let (s, _) = seed_committed(&mut conn).await;
+
+        let mut claim = conn.begin().await.unwrap();
+        let key = apikey::mint().unwrap();
+        google_sign_in(&mut claim, &s.id, &s.email, "owner", None, &key).await.unwrap();
+        let (status, body) = post_while_held(
+            &base,
+            "/confirm-email-change",
+            &s.old_raw,
+            json!({ "otp": "135790" }),
+            claim,
+            &mut watcher,
+        )
+        .await;
+
+        let email: String =
+            sqlx::query_scalar("SELECT email FROM users WHERE id = $1").bind(&s.id).fetch_one(&mut conn).await.unwrap();
+        forget_seeded(&mut conn, &s.id).await;
+        assert!(!body.contains(&key.raw), "the registrant was handed the owner's new key: {status} {body}");
+        assert_eq!(status, 401, "{body}");
+        assert_eq!(email, s.email, "the account moved to the registrant's address after the claim");
+    }
+
+    /// Email verification let in on a key that is replaced before it writes
+    /// (here by a rotation, which leaves the code in place) used to verify
+    /// the account and return the replacement key.
+    #[tokio::test]
+    async fn a_verification_racing_a_key_change_gets_no_key() {
+        let Some(mut conn) = connect().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (base, _st) = serve().await.unwrap();
+        let mut watcher = connect().await.unwrap();
+        let (s, _) = seed_committed(&mut conn).await;
+
+        let mut rotation = conn.begin().await.unwrap();
+        let fresh = apikey::mint().unwrap();
+        super::super::rotate_api_key::replace_key(&mut rotation, &s.id, &fresh.blind_index, &fresh.encrypted)
+            .await
+            .unwrap();
+        let (status, body) =
+            post_while_held(&base, "/verify-email", &s.old_raw, json!({ "otp": "424242" }), rotation, &mut watcher)
+                .await;
+
+        let verified: bool = sqlx::query_scalar("SELECT email_verified FROM users WHERE id = $1")
+            .bind(&s.id)
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        forget_seeded(&mut conn, &s.id).await;
+        assert!(!body.contains(&fresh.raw), "the old key was handed its replacement: {status} {body}");
+        assert_eq!(status, 401, "{body}");
+        assert!(!verified, "the account was verified on a key it no longer has");
+    }
+
+    /// With the account's current key, all three still work and send back
+    /// that same key, and a wrong verification code still counts against the
+    /// attempt limit.
+    #[tokio::test]
+    async fn the_current_key_still_verifies_updates_and_changes_email() {
+        let Some(mut conn) = connect().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (base, _st) = serve().await.unwrap();
+        let (s, inbox) = seed_committed(&mut conn).await;
+
+        let wrong = post(&base, "/verify-email", &s.old_raw, json!({ "otp": "000000" })).await;
+        let attempts: i32 = sqlx::query_scalar("SELECT otp_attempts FROM users WHERE id = $1")
+            .bind(&s.id)
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        let verify = post(&base, "/verify-email", &s.old_raw, json!({ "otp": "424242" })).await;
+        let profile = post(&base, "/update-profile", &s.old_raw, json!({ "bio": "mine", "country": "IN" })).await;
+        let change = post(&base, "/confirm-email-change", &s.old_raw, json!({ "otp": "135790" })).await;
+
+        let row = user_row(&mut conn, &s.id).await;
+        let email: String =
+            sqlx::query_scalar("SELECT email FROM users WHERE id = $1").bind(&s.id).fetch_one(&mut conn).await.unwrap();
+        forget_seeded(&mut conn, &s.id).await;
+        assert_eq!(wrong.0, 400, "{}", wrong.1);
+        assert_eq!(attempts, 1, "a wrong code was not counted");
+        for (status, body) in [&verify, &profile, &change] {
+            assert_eq!(*status, 200, "{body}");
+            let v: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(v.pointer("/data/api_key"), Some(&json!(s.old_raw)), "{body}");
+        }
+        assert_eq!(row.get::<Option<String>, _>("bio").as_deref(), Some("mine"));
+        assert!(row.get::<bool, _>("email_verified"));
+        assert_eq!(email, inbox);
     }
 }

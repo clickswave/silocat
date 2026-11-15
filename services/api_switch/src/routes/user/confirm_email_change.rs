@@ -1,6 +1,7 @@
 use axum::{extract::State, response::IntoResponse, Extension, Json};
 use serde::Deserialize;
 use serde_json::json;
+use crate::middlewares::validate_token::PresentedKey;
 use crate::{models, models::UserTokenData, routes::respond};
 
 #[derive(Deserialize)]
@@ -10,16 +11,35 @@ pub struct Input {
 
 // Confirm a staged email change: verify the OTP, then swap the account email
 // to the pending address (already verified by virtue of the code) and clear it.
+//
+// All of it runs in one transaction that first locks the account while it
+// still has the key this request came in with. A request let in just before
+// the owner of the address claimed the account would otherwise read the
+// registrant's pending address, wait for the claim, then move the account to
+// that address, mark it verified and return the key the claim minted.
 pub async fn handle(
     State(state): State<crate::AppState>,
     Extension(user): Extension<UserTokenData>,
+    Extension(key): Extension<PresentedKey>,
     Json(payload): Json<Input>,
 ) -> impl IntoResponse {
+    let mut tx = match state.pg_pool.begin().await {
+        Ok(tx) => tx,
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
+    };
+    match crate::libs::key_guard::still_current(&mut tx, &user.id, &key.0).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return respond(401, "Unauthorized", vec!["Invalid or missing API key".to_string()], json!({}))
+        }
+        Err(_e) => return respond(500, "Database error", vec![], json!({})),
+    }
+
     let row = sqlx::query_as::<_, (Option<String>, Option<String>)>(
         "SELECT pending_email, pending_email_otp FROM users WHERE id = $1",
     )
     .bind(user.id.clone())
-    .fetch_optional(&state.pg_pool)
+    .fetch_optional(&mut *tx)
     .await;
 
     let (pending_email, pending_otp) = match row {
@@ -56,7 +76,7 @@ pub async fn handle(
     )
     .bind(pending_email.to_lowercase())
     .bind(user.id.clone())
-    .fetch_one(&state.pg_pool)
+    .fetch_one(&mut *tx)
     .await;
     if let Ok(c) = taken {
         if c > 0 {
@@ -75,7 +95,7 @@ pub async fn handle(
     )
     .bind(&pending_email)
     .bind(user.id.clone())
-    .execute(&state.pg_pool)
+    .execute(&mut *tx)
     .await
     {
         if e.as_database_error().map(|db| db.is_unique_violation()).unwrap_or(false) {
@@ -91,12 +111,15 @@ pub async fn handle(
 
     let updated_user = match sqlx::query_as::<_, models::User>("SELECT * FROM users WHERE id = $1")
         .bind(user.id.clone())
-        .fetch_one(&state.pg_pool)
+        .fetch_one(&mut *tx)
         .await
     {
         Ok(u) => u,
         Err(_e) => return respond(500, "Failed to fetch updated profile", vec![], json!({})),
     };
+    if let Err(_e) = tx.commit().await {
+        return respond(500, "Failed to update email", vec![], json!({}));
+    }
 
     let token_data = models::token_data(updated_user, user.subscription.clone());
     respond(200, "Email updated successfully", vec![], json!(token_data))

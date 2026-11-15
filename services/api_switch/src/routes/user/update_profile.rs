@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use crate::middlewares::validate_token::PresentedKey;
 use crate::{libs, models, routes::respond};
 
 #[derive(Deserialize)]
@@ -17,6 +18,7 @@ pub struct UpdateProfilePayload {
 pub async fn handle(
     State(state): State<crate::AppState>,
     Extension(user): Extension<models::UserTokenData>,
+    Extension(key): Extension<PresentedKey>,
     Json(payload): Json<UpdateProfilePayload>,
 ) -> impl IntoResponse {
     
@@ -32,6 +34,18 @@ pub async fn handle(
         Ok(tx) => tx,
         Err(_e) => return respond(500, "Database connection error", vec![], json!({})),
     };
+
+    // The response carries the account's key, so write and answer only while
+    // the account still has the key this request came in with. Otherwise a
+    // request let in just before the owner of the address claimed the account
+    // would wait for the claim and then be handed the key it minted.
+    match libs::key_guard::still_current(&mut tx, &user.id, &key.0).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return respond(401, "Unauthorized", vec!["Invalid or missing API key".to_string()], json!({}))
+        }
+        Err(_e) => return respond(500, "Database connection error", vec![], json!({})),
+    }
 
     // Username is display-only here (no links/lookups depend on it). Validate it,
     // enforce "at most 2 changes per rolling 30 days", and rely on the UNIQUE
@@ -139,20 +153,21 @@ pub async fn handle(
         }
     }
 
-    if let Err(_e) = tx.commit().await {
-        return respond(500, "Failed to commit changes", vec![], json!({}));
-    }
-
-    // Fetch updated user
+    // Read back under the same lock, so the key in the response is the one
+    // that was checked.
     let updated_user = match sqlx::query_as::<_, models::User>("SELECT * FROM users WHERE id = $1")
         .bind(user.id.clone())
-        .fetch_optional(&state.pg_pool)
+        .fetch_optional(&mut *tx)
         .await
     {
         Ok(Some(u)) => u,
         Ok(None) => return respond(404, "User not found after update", vec![], json!({})),
         Err(_e) => return respond(500, "Failed to fetch updated profile", vec![], json!({})),
     };
+
+    if let Err(_e) = tx.commit().await {
+        return respond(500, "Failed to commit changes", vec![], json!({}));
+    }
 
     let token_data = models::token_data(updated_user, user.subscription.clone());
 

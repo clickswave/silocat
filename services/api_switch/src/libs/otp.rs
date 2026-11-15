@@ -52,7 +52,7 @@ const FRESH_DAY: &str =
 /// the daily limits have room, then clears it. Otherwise both counters go up. It is a
 /// single UPDATE, so parallel guesses queue on the row lock and each one is
 /// judged on the counts the previous one left.
-pub async fn consume(pool: &Pool<Postgres>, user_id: &str, provided: &str) -> Outcome {
+pub async fn consume<'e>(db: impl sqlx::PgExecutor<'e>, user_id: &str, provided: &str) -> Outcome {
     // Every SET expression reads the row as it was before this UPDATE, so the
     // verdict is spelled out in each one rather than computed once.
     let ok = format!(
@@ -80,7 +80,7 @@ pub async fn consume(pool: &Pool<Postgres>, user_id: &str, provided: &str) -> Ou
         .bind(provided)
         .bind(MAX_ATTEMPTS)
         .bind(DAILY_MAX_FAILURES)
-        .fetch_optional(pool)
+        .fetch_optional(db)
         .await;
 
     match consumed {
