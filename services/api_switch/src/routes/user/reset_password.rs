@@ -78,6 +78,20 @@ pub async fn handle(
         }
     }
 
+    // Banned accounts get no session here either, the same refusal password
+    // login gives. It comes after the code check so only the inbox owner
+    // learns of the ban, as only the password holder does at login, and before
+    // the claim so a refused reset leaves the password and key as they were.
+    let ban_active = user.is_banned && user.banned_until.map(|u| u > chrono::Utc::now()).unwrap_or(true);
+    if ban_active {
+        return respond(
+            403,
+            "Account banned",
+            vec![user.ban_reason.clone().unwrap_or_else(|| "Your account has been banned.".to_string())],
+            json!({ "banned": true, "reason": user.ban_reason, "until": user.banned_until }),
+        );
+    }
+
     let new_hash = match libs::argon2::hash(payload.new_password) {
         Ok(h) => h,
         Err(_) => return respond(500, "Internal Error", vec!["Failed to process password".to_string()], json!({})),
@@ -143,4 +157,124 @@ pub async fn handle(
 
     let token_data = models::token_data(updated, subscription);
     respond(200, "Password reset successful", vec![], json!({ "user": token_data }))
+}
+
+#[cfg(test)]
+mod tests {
+    //! These reset passwords on accounts in a Postgres named by
+    //! SILOCAT_TEST_DATABASE_URL and skip when it is unset. Each deletes the
+    //! account it made.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+    use axum::extract::ConnectInfo;
+
+    const NEW_PASSWORD: &str = "Fresh-Password-42";
+
+    /// What /user/forgot-password leaves on the row: a live reset code.
+    async fn issue(st: &crate::AppState, id: &str) -> String {
+        let code = libs::otp::new_reset_code();
+        libs::otp::store_reset(&st.pg_pool, id, &code).await.unwrap();
+        code
+    }
+
+    async fn reset(st: &crate::AppState, id: &str, otp: &str) -> (u16, serde_json::Value) {
+        let email: String =
+            sqlx::query_scalar("SELECT email FROM users WHERE id = $1").bind(id).fetch_one(&st.pg_pool).await.unwrap();
+        let payload = ResetPasswordInput { email, otp: otp.to_string(), new_password: NEW_PASSWORD.to_string() };
+        let resp = handle(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st.clone()), Default::default(), Json(payload))
+            .await
+            .into_response();
+        let status = resp.status().as_u16();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    async fn set(st: &crate::AppState, sql: &str, id: &str) {
+        sqlx::query(sql).bind(id).execute(&st.pg_pool).await.expect(sql);
+    }
+
+    /// The columns a reset would change: password hash, key index, verified.
+    async fn row(st: &crate::AppState, id: &str) -> (String, String, bool) {
+        sqlx::query_as("SELECT password_hash, api_key, email_verified FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_reset_signs_in_an_account_in_good_standing() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        let code = issue(&st, &id).await;
+        let (status, body) = reset(&st, &id, &code).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(status, 200);
+        assert_eq!(body.pointer("/data/user/id"), Some(&json!(id)));
+    }
+
+    #[tokio::test]
+    async fn a_banned_account_gets_no_session_from_a_reset() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, banned_until = NULL, ban_reason = 'abuse' WHERE id = $1", &id)
+            .await;
+        let before = row(&st, &id).await;
+        let code = issue(&st, &id).await;
+        let (status, body) = reset(&st, &id, &code).await;
+        let after = row(&st, &id).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(status, 403);
+        assert!(body.pointer("/data/user").is_none(), "a refused reset must not carry the key");
+        assert_eq!(body.pointer("/data/banned"), Some(&json!(true)));
+        assert_eq!(after, before, "a refused reset must leave the password and key as they were");
+    }
+
+    #[tokio::test]
+    async fn a_temporarily_banned_account_resets_once_the_ban_ends() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, banned_until = NOW() + INTERVAL '1 day' WHERE id = $1", &id).await;
+        let code = issue(&st, &id).await;
+        let (during, _) = reset(&st, &id, &code).await;
+        set(&st, "UPDATE users SET banned_until = NOW() - INTERVAL '1 minute' WHERE id = $1", &id).await;
+        let code = issue(&st, &id).await;
+        let (after, _) = reset(&st, &id, &code).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(during, 403);
+        assert_eq!(after, 200);
+    }
+
+    #[tokio::test]
+    async fn a_banned_unverified_account_is_not_claimed_by_a_reset() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (id, _) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET email_verified = FALSE, is_banned = TRUE WHERE id = $1", &id).await;
+        let before = row(&st, &id).await;
+        let code = issue(&st, &id).await;
+        let (status, _) = reset(&st, &id, &code).await;
+        let after = row(&st, &id).await;
+        forget(&st.pg_pool, &id).await;
+        assert_eq!(status, 403);
+        assert_eq!(after, before, "a refused reset must not claim the account");
+    }
+
+    #[tokio::test]
+    async fn a_wrong_code_says_nothing_about_a_ban() {
+        // Only someone holding the code learns the account is banned, as only
+        // someone holding the password does at login.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (clean, _) = account(&st.pg_pool).await;
+        let (banned, _) = account(&st.pg_pool).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, ban_reason = 'abuse' WHERE id = $1", &banned).await;
+        issue(&st, &clean).await;
+        issue(&st, &banned).await;
+        let (clean_status, clean_body) = reset(&st, &clean, "WRONGCDE").await;
+        let (banned_status, banned_body) = reset(&st, &banned, "WRONGCDE").await;
+        forget(&st.pg_pool, &clean).await;
+        forget(&st.pg_pool, &banned).await;
+        assert_eq!(banned_status, clean_status);
+        assert_eq!(banned_body, clean_body);
+    }
 }
