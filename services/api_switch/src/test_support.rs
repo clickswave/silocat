@@ -149,3 +149,8 @@ pub fn storage_holding(size: u64) -> crate::libs::r2::R2 {
     });
     crate::libs::r2::R2::at(&endpoint)
 }
+
+/// Held by tests that settle orders. Settling one numbers its invoice from the
+/// highest number so far, and two settling at once in different tests would
+/// take the same number.
+pub static SETTLING_ORDERS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

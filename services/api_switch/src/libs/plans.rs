@@ -45,10 +45,12 @@ pub const SUBSCRIPTION_TOTAL_COUNT: u32 = 120; // 10 years of monthly, or annual
 /// granted plan (Plus/Pro/invite/trial). Used to gate the delivery-workflow
 /// features (delivery receipts, request-a-file), which are the paid monetization
 /// surface; every privacy feature (encryption, link passwords, expiry, basic and
-/// one-time sharing) stays free for everyone.
+/// one-time sharing) stays free for everyone. A signup promo's bonus storage
+/// is stored as a subscription named 'Promo' and is not a plan, so it does not
+/// count.
 pub async fn is_paid(pool: &sqlx::Pool<sqlx::Postgres>, user_id: &str) -> bool {
     sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM subscriptions WHERE created_by = $1 AND expires_on > NOW()",
+        "SELECT COUNT(*) FROM subscriptions WHERE created_by = $1 AND expires_on > NOW() AND name <> 'Promo'",
     )
     .bind(user_id)
     .fetch_one(pool)
@@ -96,7 +98,56 @@ pub async fn sender_paid(pool: &sqlx::Pool<sqlx::Postgres>, by: SharedBy<'_>) ->
            SELECT 1 FROM (SELECT user_id FROM files WHERE {col} = $1 \
                           UNION ALL SELECT user_id FROM folders WHERE {col} = $1) r \
            JOIN subscriptions s ON s.created_by = r.user_id \
-           WHERE r.user_id IS NOT NULL AND s.expires_on > NOW())"
+           WHERE r.user_id IS NOT NULL AND s.expires_on > NOW() AND s.name <> 'Promo')"
     );
     sqlx::query_scalar::<_, bool>(&sql).bind(val).fetch_one(pool).await.unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    //! These read accounts in a Postgres named by SILOCAT_TEST_DATABASE_URL and
+    //! skip when it is unset.
+
+    use super::*;
+    use crate::test_support::{account, forget, state};
+
+    async fn grant(pool: &sqlx::Pool<sqlx::Postgres>, user: &str, name: &str) {
+        sqlx::query(
+            "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) \
+             VALUES ($1, $2, $3, NOW() + INTERVAL '36500 days', TRUE)",
+        )
+        .bind(name)
+        .bind(100 * GIB)
+        .bind(user)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn signup_promo_storage_is_not_a_paid_plan() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let pool = &st.pg_pool;
+        let (promo_only, _) = account(pool).await;
+        grant(pool, &promo_only, "Promo").await;
+        let folder = crate::libs::rng::uuid();
+        sqlx::query("INSERT INTO folders (id, name, user_id) VALUES ($1, 'f', $2)")
+            .bind(&folder)
+            .bind(&promo_only)
+            .execute(pool)
+            .await
+            .unwrap();
+        let (invited_pro, _) = account(pool).await;
+        grant(pool, &invited_pro, "Pro").await;
+
+        let promo_paid = is_paid(pool, &promo_only).await;
+        let promo_sender = sender_paid(pool, SharedBy::Id(&folder)).await;
+        let pro_paid = is_paid(pool, &invited_pro).await;
+        sqlx::query("DELETE FROM folders WHERE id = $1").bind(&folder).execute(pool).await.unwrap();
+        forget(pool, &promo_only).await;
+        forget(pool, &invited_pro).await;
+        assert!(!promo_paid, "bonus storage from a signup promo does not unlock paid features");
+        assert!(!promo_sender, "nor does it take SiloCat's promotion off the download page");
+        assert!(pro_paid, "an invited Pro plan still counts");
+    }
 }

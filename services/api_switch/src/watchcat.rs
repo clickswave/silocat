@@ -326,20 +326,30 @@ async fn gc_abandoned_orders(pool: &Pool<Postgres>) -> anyhow::Result<()> {
     // still in flight, waiting on a slow gateway webhook.
     let ttl_days = env_u64("WATCHCAT_ORDER_TTL_DAYS", 7).max(1) as i64;
 
-    let res = sqlx::query(&format!(
-        "DELETE FROM orders \
-          WHERE NOT order_is_settled(status) \
-            AND invoice_number IS NULL \
-            AND created_on < NOW() - INTERVAL '{} days'",
+    // Each order took one use of its promo code when it was written, so the
+    // uses of the orders removed here go back in the same statement.
+    let removed: i64 = sqlx::query_scalar(&format!(
+        "WITH gone AS ( \
+           DELETE FROM orders \
+            WHERE NOT order_is_settled(status) \
+              AND status <> 'refunded' \
+              AND invoice_number IS NULL \
+              AND created_on < NOW() - INTERVAL '{} days' \
+           RETURNING details->>'promo_code' AS code), \
+         released AS ( \
+           UPDATE promo_codes p SET uses_count = GREATEST(p.uses_count - g.n, 0) \
+             FROM (SELECT code, COUNT(*)::INT AS n FROM gone WHERE code IS NOT NULL GROUP BY code) g \
+            WHERE p.code = g.code) \
+         SELECT COUNT(*) FROM gone",
         ttl_days
     ))
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
 
-    if res.rows_affected() > 0 {
+    if removed > 0 {
         println!(
             "[watchcat] removed {} abandoned order(s) older than {}d",
-            res.rows_affected(),
+            removed,
             ttl_days
         );
     }
@@ -589,5 +599,57 @@ mod tests {
         crate::test_support::forget(pool, &owner).await;
         assert!(gone);
         assert_eq!(count, 0);
+    }
+
+    /// An order reserves one use of its promo code when it is written. Sweeping
+    /// an abandoned order must hand that use back, or anyone could spend a
+    /// capped code with checkouts they never pay. Runs against a Postgres named
+    /// by SILOCAT_TEST_DATABASE_URL and skips when it is unset.
+    #[tokio::test]
+    async fn sweeping_abandoned_orders_gives_their_promo_uses_back() {
+        let Some(st) = crate::test_support::state().await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        let pool = &st.pg_pool;
+        let (user, _key) = crate::test_support::account(pool).await;
+        let code = format!("GC{}", crate::libs::rng::string(10)).to_uppercase();
+        sqlx::query("INSERT INTO promo_codes (code, discount_percentage, duration, active, max_uses, uses_count) VALUES ($1, 50, '1 month', TRUE, 4, 4)")
+            .bind(&code)
+            .execute(pool)
+            .await
+            .unwrap();
+        // Two abandoned checkouts and one failed payment, all past the TTL, and
+        // one checkout still in flight.
+        for (status, age) in [("pending", 30), ("pending", 30), ("failed", 30), ("pending", 0)] {
+            sqlx::query(&format!(
+                "INSERT INTO orders (reference_id, user_id, subscription_name, subscription_cycle, payment_gateway, \
+                 currency, amount, status, details, created_on) \
+                 VALUES ($1, $2, 'pro', 'monthly', 'razorpay', 'USD', 500, $3, $4, NOW() - INTERVAL '{} days')",
+                age
+            ))
+            .bind(format!("order_{}", crate::libs::rng::string(14)))
+            .bind(&user)
+            .bind(status)
+            .bind(serde_json::json!({ "promo_code": code }))
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        gc_abandoned_orders(pool).await.unwrap();
+        let used: i32 = sqlx::query_scalar("SELECT uses_count FROM promo_codes WHERE code = $1")
+            .bind(&code)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM orders WHERE user_id = $1")
+            .bind(&user)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM orders WHERE user_id = $1").bind(&user).execute(pool).await.unwrap();
+        sqlx::query("DELETE FROM promo_codes WHERE code = $1").bind(&code).execute(pool).await.unwrap();
+        crate::test_support::forget(pool, &user).await;
+        assert_eq!(left, 1, "only the checkout still in flight stays");
+        assert_eq!(used, 1, "the three swept orders give their uses back");
     }
 }

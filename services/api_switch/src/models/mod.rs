@@ -219,7 +219,7 @@ pub struct Chunk {
     pub uploading: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
 pub struct InviteCode {
     pub code: String,
     pub description: String,

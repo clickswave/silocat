@@ -156,6 +156,40 @@ pub async fn handle(
     let user_id = rng::uuid();
 
 
+    // Claim the invite before anything it grants is written. The check above
+    // only read it, and parallel signups with one code all pass that check, so
+    // only the signup whose conditional claim lands gets the benefit. The claim
+    // is given back if the account is not created.
+    let valid_invite_code = match valid_invite_code {
+        Some(invite) => match sqlx::query_as::<_, models::InviteCode>(
+            "UPDATE invite_codes SET claimed_by = $1 WHERE code = $2 AND claimed_by IS NULL RETURNING *",
+        )
+        .bind(&user_id)
+        .bind(&invite.code)
+        .fetch_optional(&axum_state.pg_pool)
+        .await
+        {
+            Ok(claimed) => claimed,
+            Err(_) => {
+                return respond(
+                    500,
+                    "Could not create a new account",
+                    vec!["Something went wrong while trying to verify your invite code".to_string()],
+                    json!({}),
+                );
+            }
+        },
+        None => None,
+    };
+    if invite_only && valid_invite_code.is_none() {
+        return respond(
+            400,
+            "Invite code required",
+            vec!["This service is currently invite-only. Please provide a valid invite code.".to_string()],
+            json!({}),
+        );
+    }
+
     // Determine initial storage. The default is owned by libs::quota so that this
     // path and the Google signup path cannot drift apart again (existing users keep
     // whatever their row already holds: this only applies to new signups).
@@ -172,7 +206,10 @@ pub async fn handle(
 
     let minted = match libs::apikey::mint() {
         Some(k) => k,
-        None => return respond(500, "Server misconfigured", vec![], json!({})),
+        None => {
+            release_invite(&axum_state.pg_pool, &valid_invite_code, &user_id).await;
+            return respond(500, "Server misconfigured", vec![], json!({}));
+        }
     };
 
     let user = sqlx::query_as::<_, models::User>(
@@ -229,9 +266,14 @@ pub async fn handle(
             if let Some(ref pc) = payload.promo_code {
                 let code = pc.trim();
                 if !code.is_empty() {
-                    let promo = sqlx::query_as::<_, (i64, Option<i32>, Option<i32>, i32)>(
-                        "SELECT bonus_bytes, duration_days, max_uses, uses_count \
-                         FROM signup_promos WHERE code = $1 AND active = TRUE",
+                    // Take a use first, in one conditional statement, so parallel
+                    // signups cannot all pass the cap check before any of them
+                    // counts. The use is given back if the grant is not written.
+                    let promo = sqlx::query_as::<_, (i64, Option<i32>)>(
+                        "UPDATE signup_promos SET uses_count = uses_count + 1 \
+                         WHERE code = $1 AND active = TRUE AND bonus_bytes > 0 \
+                           AND (max_uses IS NULL OR uses_count < max_uses) \
+                         RETURNING bonus_bytes, duration_days",
                     )
                     .bind(code)
                     .fetch_optional(&axum_state.pg_pool)
@@ -239,45 +281,45 @@ pub async fn handle(
                     .ok()
                     .flatten();
 
-                    if let Some((bonus, duration_days, max_uses, uses_count)) = promo {
-                        let has_room = max_uses.map(|m| uses_count < m).unwrap_or(true);
-                        if has_room && bonus > 0 {
-                            // duration_days comes from our own DB as an integer, safe to inline
-                            let days = duration_days.unwrap_or(36500).max(0);
-                            let insert_sub = format!(
-                                "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) \
-                                 VALUES ('Promo', $1, $2, NOW() + INTERVAL '{} days', TRUE) RETURNING *",
-                                days
-                            );
-                            // Only bump uses_count if the subscription row was actually
-                            // created: otherwise the admin panel shows a redemption that
-                            // never granted any space (the bug we are fixing).
-                            match sqlx::query(&insert_sub)
-                                .bind(bonus)
-                                .bind(&user.id)
-                                .fetch_optional(&axum_state.pg_pool)
-                                .await
-                            {
-                                Ok(Some(row)) => {
-                                    created_subscription = Some(models::Subscription {
-                                        id: row.get("id"),
-                                        name: row.get("name"),
-                                        additional_space: row.get("additional_space"),
-                                        created_by: row.get("created_by"),
-                                        created_on: row.get("created_on"),
-                                        expires_on: row.get("expires_on"),
-                                        invited: row.get("invited"),
-                                        razorpay_subscription_id: None,
-                                    });
-                                    let _ = sqlx::query("UPDATE signup_promos SET uses_count = uses_count + 1 WHERE code = $1")
-                                        .bind(code)
-                                        .execute(&axum_state.pg_pool)
-                                        .await;
-                                }
-                                Ok(None) => {}
-                                Err(e) => {
+                    if let Some((bonus, duration_days)) = promo {
+                        // duration_days comes from our own DB as an integer, safe to inline
+                        let days = duration_days.unwrap_or(36500).max(0);
+                        let insert_sub = format!(
+                            "INSERT INTO subscriptions (name, additional_space, created_by, expires_on, invited) \
+                             VALUES ('Promo', $1, $2, NOW() + INTERVAL '{} days', TRUE) RETURNING *",
+                            days
+                        );
+                        // A use is only kept when the subscription row was actually
+                        // created: otherwise the admin panel shows a redemption that
+                        // never granted any space.
+                        match sqlx::query(&insert_sub)
+                            .bind(bonus)
+                            .bind(&user.id)
+                            .fetch_optional(&axum_state.pg_pool)
+                            .await
+                        {
+                            Ok(Some(row)) => {
+                                created_subscription = Some(models::Subscription {
+                                    id: row.get("id"),
+                                    name: row.get("name"),
+                                    additional_space: row.get("additional_space"),
+                                    created_by: row.get("created_by"),
+                                    created_on: row.get("created_on"),
+                                    expires_on: row.get("expires_on"),
+                                    invited: row.get("invited"),
+                                    razorpay_subscription_id: None,
+                                });
+                            }
+                            other => {
+                                if let Err(e) = other {
                                     println!("Promo subscription insert failed for {}: {:?}", code, e);
                                 }
+                                let _ = sqlx::query(
+                                    "UPDATE signup_promos SET uses_count = GREATEST(uses_count - 1, 0) WHERE code = $1",
+                                )
+                                .bind(code)
+                                .execute(&axum_state.pg_pool)
+                                .await;
                             }
                         }
                     }
@@ -376,22 +418,6 @@ pub async fn handle(
                 bio: user.bio,
             };
 
-            let code = match valid_invite_code {
-                Some(invite_code) => invite_code.code,
-                None => "invalid".to_string(),
-            };
-
-            // mark the invite code as claimed
-            let _ = sqlx::query!(
-                "
-                UPDATE invite_codes SET claimed_by = $1 WHERE code = $2 AND claimed_by IS NULL
-                ",
-                user_id,
-                code
-            )
-            .execute(&axum_state.pg_pool)
-            .await;
-
             return respond(
                 201,
                 "Account registration was successful",
@@ -400,6 +426,7 @@ pub async fn handle(
             );
         }
         Err(error) => {
+            release_invite(&axum_state.pg_pool, &valid_invite_code, &user_id).await;
             let check_error = error.as_database_error();
             match check_error {
                 None => {
@@ -451,4 +478,170 @@ pub async fn handle(
         vec!["Something went wrong while creating a new account".to_string()],
         json!({}),
     )
+}
+
+/// Give back an invite claimed for an account that was then not created.
+async fn release_invite(pool: &sqlx::Pool<sqlx::Postgres>, invite: &Option<models::InviteCode>, user_id: &str) {
+    if let Some(invite) = invite {
+        let _ = sqlx::query("UPDATE invite_codes SET claimed_by = NULL WHERE code = $1 AND claimed_by = $2")
+            .bind(&invite.code)
+            .bind(user_id)
+            .execute(pool)
+            .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! These register accounts in a Postgres named by SILOCAT_TEST_DATABASE_URL
+    //! and skip when it is unset. Each deletes the accounts and codes it made.
+
+    use super::*;
+    use crate::test_support::{forget, state};
+    use axum::extract::ConnectInfo;
+
+    /// Several people sign up at once with the same code, each from its own
+    /// address. Returns the ids of the accounts that were created.
+    async fn signups(st: &crate::AppState, invite: Option<&str>, promo: Option<&str>) -> Vec<String> {
+        let run = crate::libs::rng::string(8).to_lowercase();
+        let mut tasks = Vec::new();
+        for i in 0..6 {
+            let st = st.clone();
+            let payload = RegisterAccountInput {
+                username: format!("race{}{}", run, i),
+                email: format!("race{}{}@example.com", run, i),
+                password: "Race-Password-42".to_string(),
+                invite_code: invite.map(str::to_string),
+                promo_code: promo.map(str::to_string),
+                client_country: None,
+                source: None,
+            };
+            tasks.push(tokio::spawn(async move {
+                let mut headers = axum::http::HeaderMap::new();
+                headers.insert("x-client-ip", format!("198.51.100.{}", i + 1).parse().unwrap());
+                let resp = handle(ConnectInfo("127.0.0.1:1".parse().unwrap()), State(st), headers, Json(payload))
+                    .await
+                    .into_response();
+                let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                body.pointer("/data/user/id").and_then(|v| v.as_str()).map(str::to_string)
+            }));
+        }
+        let mut ids = Vec::new();
+        for t in tasks {
+            if let Some(id) = t.await.unwrap() {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
+    async fn grants(st: &crate::AppState, ids: &[String], name: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM subscriptions WHERE created_by = ANY($1) AND name = $2")
+            .bind(ids)
+            .bind(name)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap()
+    }
+
+    async fn forget_all(st: &crate::AppState, ids: &[String]) {
+        for id in ids {
+            forget(&st.pg_pool, id).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn parallel_signups_get_a_single_use_invite_once() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let code = format!("INV{}", crate::libs::rng::string(10)).to_uppercase();
+        sqlx::query("INSERT INTO invite_codes (code, account_type, benefit) VALUES ($1, 'personal', '1y-pro')")
+            .bind(&code)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let ids = signups(&st, Some(&code), None).await;
+        let pro = grants(&st, &ids, "Pro").await;
+        let claimed_by: Option<String> = sqlx::query_scalar("SELECT claimed_by FROM invite_codes WHERE code = $1")
+            .bind(&code)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget_all(&st, &ids).await;
+        sqlx::query("DELETE FROM invite_codes WHERE code = $1").bind(&code).execute(&st.pg_pool).await.unwrap();
+        assert_eq!(ids.len(), 6, "public signup still lets everyone in");
+        assert_eq!(pro, 1, "one invite gives one Pro grant");
+        assert!(claimed_by.is_some_and(|c| ids.contains(&c)), "the invite is claimed by an account that exists");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn parallel_signups_get_a_storage_invite_once() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let code = format!("INV{}", crate::libs::rng::string(10)).to_uppercase();
+        sqlx::query("INSERT INTO invite_codes (code, account_type, benefit) VALUES ($1, 'personal', '5000GB')")
+            .bind(&code)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let ids = signups(&st, Some(&code), None).await;
+        let boosted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = ANY($1) AND default_storage_bytes = $2")
+            .bind(&ids)
+            .bind(5000 * libs::quota::GIB)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget_all(&st, &ids).await;
+        sqlx::query("DELETE FROM invite_codes WHERE code = $1").bind(&code).execute(&st.pg_pool).await.unwrap();
+        assert_eq!(ids.len(), 6);
+        assert_eq!(boosted, 1, "one invite gives its storage to one account");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn parallel_signups_stay_within_a_promo_cap() {
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let code = format!("SP{}", crate::libs::rng::string(10)).to_uppercase();
+        sqlx::query("INSERT INTO signup_promos (code, bonus_bytes, max_uses, active) VALUES ($1, $2, 1, TRUE)")
+            .bind(&code)
+            .bind(100 * libs::quota::GIB)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        // Hold the code's row until all six signups are waiting on it, so they
+        // all reach the redemption together.
+        let mut hold = st.pg_pool.begin().await.unwrap();
+        sqlx::query("SELECT 1 FROM signup_promos WHERE code = $1 FOR UPDATE")
+            .bind(&code)
+            .execute(&mut *hold)
+            .await
+            .unwrap();
+        let racing = {
+            let (st, code) = (st.clone(), code.clone());
+            tokio::spawn(async move { signups(&st, None, Some(&code)).await })
+        };
+        for _ in 0..600 {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+            )
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+            if waiting >= 6 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        hold.commit().await.unwrap();
+        let ids = racing.await.unwrap();
+        let promo = grants(&st, &ids, "Promo").await;
+        let used: i32 = sqlx::query_scalar("SELECT uses_count FROM signup_promos WHERE code = $1")
+            .bind(&code)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget_all(&st, &ids).await;
+        sqlx::query("DELETE FROM signup_promos WHERE code = $1").bind(&code).execute(&st.pg_pool).await.unwrap();
+        assert_eq!(ids.len(), 6);
+        assert_eq!(promo, 1, "a promo capped at one use grants once");
+        assert_eq!(used, 1);
+    }
 }
