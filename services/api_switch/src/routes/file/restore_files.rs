@@ -50,6 +50,13 @@ pub async fn handle(
             //    and repeating, then restoring everything held any amount. The
             //    quota lock is held from the check to the commit, so restores
             //    sent together cannot each fit into the same free space.
+            //
+            //    The check counts every byte the file will hold, not only chunks
+            //    already marked complete: a chunk PUT but not marked whose room
+            //    has lapsed counts at its signed length, since marking it is all
+            //    that is left. A chunk whose PUT URL still works is already in
+            //    `used`. An account over its plan, as a lapsed subscription
+            //    leaves it, restores nothing, not even an empty file.
             let mut tx = match axum_state.pg_pool.begin().await {
                 Ok(tx) => tx,
                 Err(_e) => return respond(500, "Database error", vec![], json!({})),
@@ -59,20 +66,25 @@ pub async fn handle(
                     return respond(500, "Database error", vec![], json!({}));
                 }
                 let trashed_bytes = sqlx::query_scalar::<_, Option<i64>>(
-                    "SELECT COALESCE((SELECT SUM(GREATEST(c.size_on_server, 0)) FROM chunks c \
-                                      WHERE c.file_id = f.id AND c.uploaded = true), 0)::BIGINT \
+                    "SELECT COALESCE((SELECT SUM(CASE WHEN c.uploaded THEN GREATEST(c.size_on_server, 0) \
+                                                      WHEN c.created_on <= NOW() - make_interval(secs => $2) \
+                                                      THEN GREATEST(c.size, 0) + CASE WHEN f.encrypted THEN $3 ELSE 0 END \
+                                                      ELSE 0 END) \
+                                      FROM chunks c WHERE c.file_id = f.id), 0)::BIGINT \
                      FROM files f WHERE f.id = $1 AND f.deleted = true",
                 )
                 .bind(&payload.file_id)
+                .bind(crate::libs::quota::pending_window_secs() as f64)
+                .bind(crate::libs::uploads::ENCRYPTION_TAG_BYTES)
                 .fetch_optional(&mut *tx)
                 .await;
                 let trashed_bytes = match trashed_bytes {
                     // Not in the trash: restoring it changes nothing.
-                    Ok(None) => 0,
-                    Ok(Some(n)) => n.unwrap_or(0),
+                    Ok(None) => None,
+                    Ok(Some(n)) => Some(n.unwrap_or(0)),
                     Err(_e) => return respond(500, "Database error", vec![], json!({})),
                 };
-                if trashed_bytes > 0 {
+                if let Some(trashed_bytes) = trashed_bytes {
                     match crate::libs::quota::for_user(&mut tx, user_id).await {
                         Some(q) if !q.would_exceed(trashed_bytes) => {}
                         Some(q) => {
@@ -238,6 +250,66 @@ mod tests {
         let status = handle(State(st.clone()), Extension(Some(caller)), Json(payload)).await.into_response().status();
         forget(&st.pg_pool, &user).await;
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    /// Restore a trashed 80-byte file whose chunk was PUT but never marked
+    /// complete, created `age` ago, for an account on a plan of `limit` bytes
+    /// already holding 80 stored bytes.
+    async fn restore_unmarked(limit: i64, age: &str) -> Option<StatusCode> {
+        let st = state().await?;
+        let (user, key) = account(&st.pg_pool).await;
+        sqlx::query("UPDATE users SET default_storage_bytes = $2 WHERE id = $1")
+            .bind(&user)
+            .bind(limit)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        stored_file(&st.pg_pool, &user, 80, false).await;
+        let file_id = stored_file(&st.pg_pool, &user, 80, true).await;
+        sqlx::query(&format!(
+            "UPDATE chunks SET uploaded = false, size_on_server = 0, created_on = NOW() - INTERVAL '{age}' WHERE file_id = $1"
+        ))
+        .bind(&file_id)
+        .execute(&st.pg_pool)
+        .await
+        .unwrap();
+        let caller = Caller { api_key: key, user_id: Some(user.clone()), email_verified: true };
+        let payload: RestorePayload = serde_json::from_value(json!({ "file_id": file_id })).unwrap();
+        let status = handle(State(st.clone()), Extension(Some(caller)), Json(payload)).await.into_response().status();
+        forget(&st.pg_pool, &user).await;
+        Some(status)
+    }
+
+    #[tokio::test]
+    async fn a_trashed_upload_never_marked_complete_still_has_to_fit() {
+        // PUT every chunk, skip mark-complete, trash it and wait out its room.
+        // It counted as 0 bytes, so restore skipped the check, and marking the
+        // chunks afterwards held any number of plans.
+        let Some(status) = restore_unmarked(100, "3 hours").await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn an_upload_still_holding_its_room_is_not_counted_twice_on_restore() {
+        // Its PUT URL still works, so its 80 bytes are already in the account's
+        // usage: 80 stored plus 80 reserved fits a 160-byte plan exactly.
+        let Some(status) = restore_unmarked(160, "1 minute").await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn an_account_over_its_plan_cannot_restore_even_an_empty_file() {
+        // What a lapsed plan leaves behind: the account keeps its files but
+        // takes nothing back from the trash until it is under the plan again.
+        let Some((status, still_trashed)) = restore(150, 0).await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(still_trashed);
     }
 
     #[tokio::test]

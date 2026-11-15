@@ -91,6 +91,72 @@ pub async fn measure_chunk(r2: &R2, storage: &str, key: &str, expected: i64) -> 
     }
 }
 
+pub enum Marked {
+    /// The chunk now counts as stored.
+    Stored,
+    /// Its room had lapsed and the plan has no space for it now.
+    OverPlan(crate::libs::quota::Quota),
+    /// The chunk no longer exists.
+    Gone,
+}
+
+/// Record a chunk as stored at `measured` bytes, its HeadObject length.
+///
+/// A chunk keeps its room in the plan only while its PUT URL works (see
+/// quota::for_user). Marked later than that, nothing holds its room any more
+/// and another upload may have taken it, so it is admitted again like a new
+/// upload, under the account's quota lock. Before this, an upload left
+/// unmarked until its room lapsed and then marked stored two plans' worth,
+/// and any number of them when trashed and restored in between. A chunk of a
+/// trashed file takes no room until the file is restored, which checks it.
+pub async fn mark_stored(pool: &sqlx::PgPool, chunk_id: &str, measured: i64) -> Result<Marked, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let owner = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT f.user_id FROM chunks c JOIN files f ON f.id = c.file_id WHERE c.id = $1",
+    )
+    .bind(chunk_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(owner) = owner else { return Ok(Marked::Gone) };
+    if let Some(user_id) = &owner {
+        crate::libs::quota::lock(&mut tx, user_id).await?;
+        let row = sqlx::query_as::<_, (bool, i64, bool, bool)>(
+            "SELECT c.uploaded, GREATEST(c.size_on_server, 0), f.deleted, \
+                    c.created_on <= NOW() - make_interval(secs => $2) \
+             FROM chunks c JOIN files f ON f.id = c.file_id WHERE c.id = $1 FOR UPDATE OF c",
+        )
+        .bind(chunk_id)
+        .bind(crate::libs::quota::pending_window_secs() as f64)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((uploaded, on_server, trashed, lapsed)) = row else { return Ok(Marked::Gone) };
+        // What the account's usage already counts for this chunk.
+        let held = if uploaded {
+            on_server
+        } else if lapsed {
+            0
+        } else {
+            measured
+        };
+        let adds = if trashed { 0 } else { (measured - held).max(0) };
+        if adds > 0 {
+            let quota = crate::libs::quota::for_user(&mut tx, user_id)
+                .await
+                .ok_or(sqlx::Error::RowNotFound)?;
+            if quota.would_exceed(adds) {
+                return Ok(Marked::OverPlan(quota));
+            }
+        }
+    }
+    sqlx::query("UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2")
+        .bind(measured)
+        .bind(chunk_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Marked::Stored)
+}
+
 /// Give back the request-link slot of each unfinished upload among `file_ids`
 /// and untie it from its request, so it can no longer finish through the link.
 /// Call it before deleting files, since afterwards nothing says which of them

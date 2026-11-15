@@ -70,14 +70,18 @@ pub async fn handle(
             return respond(503, "Could not confirm the chunk was stored. Try again.", vec![], json!({}))
         }
     };
-    let upd = sqlx::query!(
-        "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2",
-        sz, payload.chunk_id
-    )
-    .execute(&axum_state.pg_pool)
-    .await;
-    if upd.is_err() {
-        return respond(500, "Failed to update chunk status", vec![], json!({}));
+    match crate::libs::uploads::mark_stored(&axum_state.pg_pool, &payload.chunk_id, sz).await {
+        Ok(crate::libs::uploads::Marked::Stored) => {}
+        Ok(crate::libs::uploads::Marked::OverPlan(q)) => {
+            return respond(
+                413,
+                "Storage quota exceeded",
+                vec!["This upload took too long and its space has been given back. It no longer fits your storage limit.".to_string()],
+                json!({ "limit": q.limit, "used": q.used }),
+            )
+        }
+        Ok(crate::libs::uploads::Marked::Gone) => return respond(404, "Chunk not found", vec![], json!({})),
+        Err(_e) => return respond(500, "Failed to update chunk status", vec![], json!({})),
     }
 
     // 2. Recount completed chunks and update the file.
@@ -162,5 +166,93 @@ mod tests {
         assert_ne!(status, StatusCode::OK);
         assert!(!uploaded);
         assert_eq!(on_server, 0);
+    }
+
+    /// An account on a plan of `limit` bytes already holding `live` stored
+    /// bytes, with a pending 80-byte chunk created `age` ago in a file that is
+    /// trashed or not. Marks that chunk complete against storage that holds it
+    /// and returns the status and whether the chunk now counts as stored.
+    async fn mark_pending(limit: i64, live: i64, age: &str, trashed: bool) -> Option<(StatusCode, bool)> {
+        let mut st = state().await?;
+        st.r2 = crate::test_support::storage_holding(80);
+        let (user, key) = account(&st.pg_pool).await;
+        sqlx::query("UPDATE users SET default_storage_bytes = $2 WHERE id = $1")
+            .bind(&user)
+            .bind(limit)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        if live > 0 {
+            let stored = pending_chunk(&st.pg_pool, &user, live).await;
+            sqlx::query("UPDATE chunks SET uploaded = true, size_on_server = size WHERE id = $1")
+                .bind(&stored)
+                .execute(&st.pg_pool)
+                .await
+                .unwrap();
+        }
+        let chunk_id = pending_chunk(&st.pg_pool, &user, 80).await;
+        sqlx::query(&format!("UPDATE chunks SET created_on = NOW() - INTERVAL '{age}' WHERE id = $1"))
+            .bind(&chunk_id)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE files SET deleted = $2, deleted_on = CASE WHEN $2 THEN NOW() END WHERE id = (SELECT file_id FROM chunks WHERE id = $1)")
+            .bind(&chunk_id)
+            .bind(trashed)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let caller = Caller { api_key: key, user_id: Some(user.clone()), email_verified: true };
+        let payload: PayloadBody = serde_json::from_value(json!({ "chunk_id": chunk_id })).unwrap();
+        let status = handle(State(st.clone()), Extension(Some(caller)), Json(payload)).await.into_response().status();
+        let uploaded: bool = sqlx::query_scalar("SELECT uploaded FROM chunks WHERE id = $1")
+            .bind(&chunk_id)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget(&st.pg_pool, &user).await;
+        Some((status, uploaded))
+    }
+
+    #[tokio::test]
+    async fn a_chunk_marked_after_its_room_lapsed_cannot_pass_the_plan() {
+        // Its room was given back when its PUT URL expired and another upload
+        // took it. Marking it complete afterwards stored two plans' worth.
+        let Some((status, uploaded)) = mark_pending(100, 80, "3 hours", false).await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(!uploaded);
+    }
+
+    #[tokio::test]
+    async fn a_late_chunk_that_fits_the_plan_is_counted() {
+        let Some((status, uploaded)) = mark_pending(200, 80, "3 hours", false).await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::OK);
+        assert!(uploaded);
+    }
+
+    #[tokio::test]
+    async fn a_chunk_marked_in_time_uses_the_room_it_already_holds() {
+        // Its room was counted from the moment it was created, so the plan
+        // being full of it is no reason to refuse it.
+        let Some((status, uploaded)) = mark_pending(100, 0, "1 minute", false).await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::OK);
+        assert!(uploaded);
+    }
+
+    #[tokio::test]
+    async fn a_late_chunk_of_a_trashed_file_waits_for_restore_to_be_checked() {
+        // Trashed bytes do not count, so marking it takes no room now.
+        // Restoring the file is what has to fit it in the plan.
+        let Some((status, uploaded)) = mark_pending(100, 80, "3 hours", true).await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        assert_eq!(status, StatusCode::OK);
+        assert!(uploaded);
     }
 }

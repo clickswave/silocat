@@ -205,12 +205,16 @@ pub async fn handle(
         }
         // anonymous (shadow) uploads
         None => {
-            // Enforce bandwidth limit for the shadow key's IP.
+            // Enforce bandwidth limit for the shadow key's IP. Every query here
+            // runs on the upload's transaction: one that went to the pool while
+            // the transaction held a connection needed two at once, so as many
+            // drops at once as the pool has connections stalled every handler,
+            // and a lookup that timed out skipped this cap.
             let user_info = sqlx::query!(
                 "SELECT ip_address FROM anonymous_users WHERE api_key = $1",
                 owner_api_key
             )
-            .fetch_optional(&axum_state.pg_pool)
+            .fetch_optional(&mut *tx)
             .await;
 
             if let Ok(Some(info)) = user_info {
@@ -223,7 +227,7 @@ pub async fn handle(
                      WHERE ip_address = $1 AND last_reset_stats < NOW() - INTERVAL '24 hours'",
                     info.ip_address
                 )
-                .execute(&axum_state.pg_pool)
+                .execute(&mut *tx)
                 .await;
 
                 // Sum total usage for this IP.
@@ -231,7 +235,7 @@ pub async fn handle(
                     "SELECT COALESCE(SUM(bandwidth_usage_bytes), 0)::BIGINT as total_usage FROM anonymous_users WHERE ip_address = $1",
                     info.ip_address
                 )
-                .fetch_one(&axum_state.pg_pool)
+                .fetch_one(&mut *tx)
                 .await;
 
                 if let Ok(stats) = ip_stats {
@@ -271,7 +275,7 @@ pub async fn handle(
                             "SELECT bandwidth_usage_bytes, last_reset_stats FROM anonymous_users WHERE api_key = $1",
                             api_key
                         )
-                        .fetch_optional(&axum_state.pg_pool)
+                        .fetch_optional(&mut *tx)
                         .await;
 
                         if let Ok(Some(stats)) = user_stats {
@@ -289,7 +293,7 @@ pub async fn handle(
                                     now,
                                     api_key
                                 )
-                                .execute(&axum_state.pg_pool)
+                                .execute(&mut *tx)
                                 .await;
                             } else {
                                 let _ = sqlx::query!(
@@ -297,7 +301,7 @@ pub async fn handle(
                                     new_usage,
                                     api_key
                                 )
-                                .execute(&axum_state.pg_pool)
+                                .execute(&mut *tx)
                                 .await;
                             }
                         }
@@ -630,6 +634,99 @@ mod tests {
         forget(&st.pg_pool, &user).await;
         assert_eq!(first, StatusCode::OK);
         assert_eq!(second, StatusCode::OK);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn anonymous_drops_sent_together_do_not_starve_the_pool() {
+        // Each drop held a pooled transaction while its per-IP checks waited for
+        // a second connection from the same pool, so as many drops at once as
+        // the pool has connections stalled every handler until the acquire
+        // timed out, and a timed-out lookup skipped the per-IP cap.
+        let Some(st) = crate::test_support::state_on_small_pool(2).await else {
+            return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL");
+        };
+        let ip = format!("test-{}", crate::libs::rng::uuid());
+        let keys: Vec<String> = (0..6).map(|_| format!("shadow-{}", crate::libs::rng::uuid())).collect();
+        for key in &keys {
+            sqlx::query("INSERT INTO anonymous_users (api_key, ip_address) VALUES ($1, $2)")
+                .bind(key)
+                .bind(&ip)
+                .execute(&st.pg_pool)
+                .await
+                .unwrap();
+        }
+        let started = std::time::Instant::now();
+        let tasks: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let st = st.clone();
+                let caller = Caller { api_key: key.clone(), user_id: None, email_verified: true };
+                tokio::spawn(async move { create(&st, caller, body(5, false, &[5])).await.0 })
+            })
+            .collect();
+        let mut statuses = Vec::new();
+        for t in tasks {
+            statuses.push(t.await.unwrap());
+        }
+        let took = started.elapsed();
+        let metered: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(bandwidth_usage_bytes), 0)::BIGINT FROM anonymous_users WHERE ip_address = $1",
+        )
+        .bind(&ip)
+        .fetch_one(&st.pg_pool)
+        .await
+        .unwrap();
+        for sql in [
+            "DELETE FROM chunks WHERE file_id IN (SELECT id FROM files WHERE owner_api_key = ANY($1))",
+            "DELETE FROM files WHERE owner_api_key = ANY($1)",
+            "DELETE FROM anonymous_users WHERE api_key = ANY($1)",
+        ] {
+            sqlx::query(sql).bind(&keys).execute(&st.pg_pool).await.unwrap();
+        }
+        assert!(statuses.iter().all(|s| *s == StatusCode::OK), "{statuses:?}");
+        assert!(took < std::time::Duration::from_secs(3), "took {took:?}");
+        assert_eq!(metered, 30, "every drop counts toward its IP's daily cap");
+    }
+
+    #[tokio::test]
+    async fn an_account_left_over_its_plan_when_a_subscription_lapses_takes_no_uploads() {
+        // A lapsed plan leaves the account holding more than its free tier. It
+        // keeps what it has, read-only: nothing new goes in, not even an empty
+        // file, until it is back under the plan.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (user, caller) = on_plan(&st, 100).await;
+        sqlx::query(
+            "INSERT INTO subscriptions (id, name, additional_space, created_by, expires_on) \
+             VALUES ($1, 'Plus', 1000, $2, NOW() - INTERVAL '1 day')",
+        )
+        .bind(crate::libs::rng::uuid())
+        .bind(&user)
+        .execute(&st.pg_pool)
+        .await
+        .unwrap();
+        let file_id: String = sqlx::query_scalar(
+            "INSERT INTO files (user_id, name, mime, size, encrypted, total_chunks, uploaded_chunks, sha256_checksum, blake3_checksum, public_access) \
+             VALUES ($1, 'kept.bin', 'application/octet-stream', 500, false, 1, 1, 's', '', false) RETURNING id",
+        )
+        .bind(&user)
+        .fetch_one(&st.pg_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO chunks (id, file_id, chunk_index, size, presigned_url, file_offset, size_on_server, checksum, uploaded) \
+             VALUES ($1, $2, 0, 500, '', 0, 500, 'c', true)",
+        )
+        .bind(crate::libs::rng::uuid())
+        .bind(&file_id)
+        .execute(&st.pg_pool)
+        .await
+        .unwrap();
+        let small = create(&st, caller.clone(), body(5, false, &[5])).await.0;
+        let empty = create(&st, caller, body(0, false, &[])).await.0;
+        let made = files_of(&st, &user).await;
+        forget(&st.pg_pool, &user).await;
+        assert_eq!((small, empty), (StatusCode::PAYLOAD_TOO_LARGE, StatusCode::PAYLOAD_TOO_LARGE));
+        assert_eq!(made, 1);
     }
 
     #[tokio::test]

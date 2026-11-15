@@ -24,6 +24,20 @@ pub async fn state() -> Option<crate::AppState> {
     Some(state_with(pg_pool).await)
 }
 
+/// `state` on a pool of `size` connections that gives up waiting for one after
+/// three seconds, for tests that a handler needing two connections at once
+/// would stall.
+pub async fn state_on_small_pool(size: u32) -> Option<crate::AppState> {
+    let url = std::env::var("SILOCAT_TEST_DATABASE_URL").ok()?;
+    let pg_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(size)
+        .acquire_timeout(std::time::Duration::from_secs(3))
+        .connect(&url)
+        .await
+        .expect("connect to SILOCAT_TEST_DATABASE_URL");
+    Some(state_with(pg_pool).await)
+}
+
 /// State for handlers a test drives only up to the storage call, which fails
 /// against the closed port. The pool never connects, so no database is needed.
 pub async fn offline_state() -> crate::AppState {

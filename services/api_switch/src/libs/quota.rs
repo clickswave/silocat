@@ -23,9 +23,11 @@
 //! is emptied, so restoring one checks the plan again (restore_files). A
 //! trashed upload whose URLs still work keeps its room until they expire.
 //!
-//! Every path that admits bytes (create, a request-link create, restore) takes
-//! `lock` first and writes in the same transaction, so requests sent together
-//! cannot each see the same usage.
+//! Every path that admits bytes (create, a request-link create, restore, and a
+//! chunk marked complete after its room lapsed) takes `lock` first and writes
+//! in the same transaction, so requests sent together cannot each see the same
+//! usage. An account over its plan, as a lapsed subscription leaves it, is
+//! read-only: every one of those paths refuses it until it is under the plan.
 
 use sqlx::{PgConnection, Postgres};
 

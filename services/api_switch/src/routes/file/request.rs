@@ -659,15 +659,21 @@ pub async fn upload_mark_complete(
                 .into_response()
         }
     };
-    let upd = sqlx::query!(
-        "UPDATE chunks SET uploaded = true, uploading = false, size_on_server = $1 WHERE id = $2",
-        sz,
-        p.chunk_id
-    )
-    .execute(&st.pg_pool)
-    .await;
-    if upd.is_err() {
-        return respond(500, "Failed to update chunk status", vec![], json!({})).into_response();
+    match crate::libs::uploads::mark_stored(&st.pg_pool, &p.chunk_id, sz).await {
+        Ok(crate::libs::uploads::Marked::Stored) => {}
+        Ok(crate::libs::uploads::Marked::OverPlan(_)) => {
+            return respond(
+                413,
+                "The recipient is out of storage",
+                vec!["This upload took too long and the request's owner no longer has space for it.".to_string()],
+                json!({}),
+            )
+            .into_response()
+        }
+        Ok(crate::libs::uploads::Marked::Gone) => {
+            return respond(404, "Chunk not found", vec![], json!({})).into_response()
+        }
+        Err(_e) => return respond(500, "Failed to update chunk status", vec![], json!({})).into_response(),
     }
 
     // Recount completed chunks. The upload already holds its slot on the
@@ -1243,6 +1249,37 @@ mod tests {
         let mut st = state().await?;
         st.r2 = crate::test_support::storage_holding(5);
         Some(st)
+    }
+
+    #[tokio::test]
+    async fn a_request_chunk_marked_after_its_room_lapsed_cannot_pass_the_owners_plan() {
+        // Start A, PUT it, wait out its room, start B in that room, finish B,
+        // then finish A: a link holder stored two of the owner's plans' worth.
+        let Some(st) = state_with_stored_chunks().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, token) = open_link(&st).await;
+        sqlx::query("UPDATE users SET default_storage_bytes = 8 WHERE id = $1")
+            .bind(&owner)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let (first, _, late_chunk) = start(&st, &token).await;
+        sqlx::query("UPDATE chunks SET created_on = NOW() - INTERVAL '3 hours' WHERE id = $1")
+            .bind(&late_chunk)
+            .execute(&st.pg_pool)
+            .await
+            .unwrap();
+        let (second, _, chunk) = start(&st, &token).await;
+        let in_time = mark(&st, &token, &chunk).await;
+        let late = mark(&st, &token, &late_chunk).await;
+        let late_counted: bool = sqlx::query_scalar("SELECT uploaded FROM chunks WHERE id = $1")
+            .bind(&late_chunk)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!((first, second, in_time), (StatusCode::OK, StatusCode::OK, StatusCode::OK));
+        assert_eq!(late, StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(!late_counted);
     }
 
     #[tokio::test]
