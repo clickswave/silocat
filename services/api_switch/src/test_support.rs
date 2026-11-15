@@ -20,6 +20,20 @@ const STORAGE_ENV: [&str; 9] = [
 
 pub async fn state() -> Option<crate::AppState> {
     let url = std::env::var("SILOCAT_TEST_DATABASE_URL").ok()?;
+    let pg_pool = Pool::<Postgres>::connect(&url).await.expect("connect to SILOCAT_TEST_DATABASE_URL");
+    Some(state_with(pg_pool).await)
+}
+
+/// State for handlers a test drives only up to the storage call, which fails
+/// against the closed port. The pool never connects, so no database is needed.
+pub async fn offline_state() -> crate::AppState {
+    let pg_pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://silocat@127.0.0.1:9/none")
+        .expect("lazy pool");
+    state_with(pg_pool).await
+}
+
+async fn state_with(pg_pool: Pool<Postgres>) -> crate::AppState {
     unsafe {
         std::env::set_var("API_KEY_ENC_KEY", "test-master-key-for-unit-tests");
         for name in STORAGE_ENV {
@@ -27,8 +41,7 @@ pub async fn state() -> Option<crate::AppState> {
             std::env::set_var(name, value);
         }
     }
-    let pg_pool = Pool::<Postgres>::connect(&url).await.expect("connect to SILOCAT_TEST_DATABASE_URL");
-    Some(crate::AppState {
+    crate::AppState {
         pg_pool,
         smtp_config: crate::libs::configs::SmtpConfig {
             address: String::new(),
@@ -49,7 +62,7 @@ pub async fn state() -> Option<crate::AppState> {
         },
         geoip: None,
         rate_limiter: crate::libs::ratelimit::RateLimiter::new(),
-    })
+    }
 }
 
 /// A verified account as signup leaves it. Returns its id and key index.
