@@ -63,9 +63,10 @@ pub async fn handle(
         }
     };
 
-    // Verify + consume the code atomically: rejects an empty/expired code and
-    // locks out after too many wrong guesses, so it can't be brute-forced.
-    match libs::otp::consume(&state.pg_pool, &user.id, &otp).await {
+    // Verify + consume the reset code atomically: rejects an empty/expired code
+    // and locks it after too many wrong guesses. It is a separate code from the
+    // email verification one, so guesses here never touch that.
+    match libs::otp::consume_reset(&state.pg_pool, &user.id, &otp).await {
         libs::otp::Outcome::Valid => {}
         libs::otp::Outcome::Invalid => {
             return respond(

@@ -207,7 +207,7 @@
 		<form onsubmit={submitReset}>
 			<div class="otp-group">
 				<span class="otp-label">Reset code</span>
-				<OtpInput bind:value={resetOtp} />
+				<OtpInput bind:value={resetOtp} length={8} letters />
 			</div>
 
 			<PasswordInput

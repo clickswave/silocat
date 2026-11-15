@@ -71,7 +71,7 @@ pub async fn handle(
 
     if let Err(e) = sqlx::query(
         "UPDATE users SET email = $1, email_verified = true, pending_email = NULL, \
-         pending_email_otp = NULL WHERE id = $2",
+         pending_email_otp = NULL, reset_code = '' WHERE id = $2",
     )
     .bind(&pending_email)
     .bind(user.id.clone())

@@ -1,14 +1,20 @@
 <script>
+	import { cleanCode } from '$lib/otpCode.js';
+
 	let {
 		value = $bindable(''),
 		length = 6,
+		// Letters and digits, as in a password reset code, rather than digits
+		// only. No maxlength then, since a pasted code may carry a hyphen or
+		// spaces that cleanCode drops.
+		letters = false,
 		disabled = false,
 		oncomplete = undefined,
 		...rest
 	} = $props();
 
 	function oninput(e) {
-		value = e.target.value.replace(/\D/g, '').slice(0, length);
+		value = cleanCode(e.target.value, length, letters);
 		e.target.value = value;
 		if (value.length === length) oncomplete?.(value);
 	}
@@ -17,10 +23,12 @@
 <input
 	class="otp"
 	type="text"
-	inputmode="numeric"
+	inputmode={letters ? 'text' : 'numeric'}
 	autocomplete="one-time-code"
-	placeholder={'0'.repeat(length)}
-	maxlength={length}
+	autocapitalize={letters ? 'characters' : 'off'}
+	spellcheck="false"
+	placeholder={(letters ? 'X' : '0').repeat(length)}
+	maxlength={letters ? undefined : length}
 	{disabled}
 	{value}
 	{oninput}
