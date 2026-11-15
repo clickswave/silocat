@@ -396,26 +396,24 @@ pub async fn public_info(
     if !request_allowed(&st, &ip, &token, "info", 120, 240) {
         return too_many();
     }
-    let row = sqlx::query!(
-        "SELECT label, message, max_uploads, upload_count, expires_at, active \
+    type Info = (Option<String>, Option<String>, Option<i32>, i32, Option<chrono::DateTime<Utc>>, bool, String);
+    let row = sqlx::query_as::<_, Info>(
+        "SELECT label, message, max_uploads, upload_count, expires_at, active, owner_user_id \
          FROM file_requests WHERE token = $1",
-        token
     )
+    .bind(&token)
     .fetch_optional(&st.pg_pool)
     .await;
     match row {
-        Ok(Some(r)) => {
-            let open = r.active
-                && r.expires_at.map(|e| e > Utc::now()).unwrap_or(true)
-                && r.max_uploads.map(|c| r.upload_count < c).unwrap_or(true)
-                && resolve_active(&st.pg_pool, &token).await.is_ok();
-            respond(
-                200,
-                "Request",
-                vec![],
-                json!({ "label": r.label, "message": r.message, "open": open }),
-            )
-            .into_response()
+        Ok(Some((label, message, max_uploads, upload_count, expires_at, active, owner))) => {
+            // The same checks resolve_active makes before an upload, so the
+            // page never shows a link as open that would refuse the file.
+            let open = active
+                && expires_at.map(|e| e > Utc::now()).unwrap_or(true)
+                && max_uploads.map(|c| upload_count < c).unwrap_or(true)
+                && owner_receives(&st.pg_pool, &owner).await.unwrap_or(false);
+            respond(200, "Request", vec![], json!({ "label": label, "message": message, "open": open }))
+                .into_response()
         }
         Ok(None) => respond(404, "Request not found", vec![], json!({})).into_response(),
         Err(_e) => respond(500, "Database error", vec![], json!({})).into_response(),
@@ -822,6 +820,28 @@ mod tests {
         let (owner, key_index) = account(&st.pg_pool).await;
         subscribe(&st.pg_pool, &owner).await;
         set(&st, "UPDATE users SET is_restricted = TRUE WHERE id = $1", &owner).await;
+        let caller = Some(Caller { api_key: key_index, user_id: Some(owner.clone()), email_verified: true });
+        let payload: CreateRequestPayload = serde_json::from_value(json!({})).unwrap();
+        let status =
+            create_request(State(st.clone()), Extension(caller), Json(payload)).await.into_response().status();
+        let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM file_requests WHERE owner_user_id = $1")
+            .bind(&owner)
+            .fetch_one(&st.pg_pool)
+            .await
+            .unwrap();
+        forget(&st.pg_pool, &owner).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(links, 0);
+    }
+
+    #[tokio::test]
+    async fn a_banned_account_cannot_open_a_request_link() {
+        // resolve_identity already turns a banned key away before this handler
+        // runs; this holds the handler's own refusal for any route that does not.
+        let Some(st) = state().await else { return eprintln!("skipped: no SILOCAT_TEST_DATABASE_URL") };
+        let (owner, key_index) = account(&st.pg_pool).await;
+        subscribe(&st.pg_pool, &owner).await;
+        set(&st, "UPDATE users SET is_banned = TRUE, banned_until = NULL WHERE id = $1", &owner).await;
         let caller = Some(Caller { api_key: key_index, user_id: Some(owner.clone()), email_verified: true });
         let payload: CreateRequestPayload = serde_json::from_value(json!({})).unwrap();
         let status =
