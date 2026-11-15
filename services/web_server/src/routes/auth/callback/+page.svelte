@@ -7,6 +7,7 @@
 
 	onMount(async () => {
 		const code = $page.url.searchParams.get('code');
+		const state = $page.url.searchParams.get('state');
 		if (!code) {
 			toast.error('No authorization code found');
 			goto('/auth/signin');
@@ -16,6 +17,7 @@
 		try {
 			const res = await FrontendClient.post('/api/v1/user/google-auth', {
 				code,
+				state,
 				redirect_uri: `${window.location.origin}/auth/callback`
 			});
 			// Backend returns standard response structure { status, message, data }

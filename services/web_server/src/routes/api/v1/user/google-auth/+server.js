@@ -2,10 +2,22 @@
 import { json } from '@sveltejs/kit';
 import { ApiServerClient } from '$lib/network.js';
 import { readSource } from '$lib/source.js';
+import { takeOAuthState } from '$lib/server/oauthState.js';
 
 export async function POST({ request, locals, cookies }) {
     try {
-        const payload = await request.json();
+        let payload = await request.json();
+        // Only the browser that started this sign-in at /auth/google holds the
+        // state Google sent back. A code from anyone else's sign-in is refused
+        // before it is exchanged, so it can never become a session here.
+        const { state, ...rest } = payload ?? {};
+        if (!takeOAuthState(cookies, state)) {
+            return json(
+                { status: 400, message: 'This sign-in link has expired. Please try again.', errors: [], data: {} },
+                { status: 400 }
+            );
+        }
+        payload = rest;
         // Forward the user's real country (Cloudflare sets CF-IPCountry on this
         // request). The API can't geolocate the user since the call is proxied.
         payload.client_country = request.headers.get('cf-ipcountry') || null;

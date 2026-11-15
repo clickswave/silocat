@@ -98,7 +98,7 @@
 
 	let googleAuthUrl = $derived(
 		browser
-			? `https://accounts.google.com/o/oauth2/v2/auth?client_id=${data.googleClientId}&redirect_uri=${window.location.origin}/auth/callback&response_type=code&scope=openid%20email%20profile`
+			? `/auth/google?redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}`
 			: ''
 	);
 
@@ -178,7 +178,7 @@
 
 		<div class="or-divider"><span>or</span></div>
 
-		<Button variant="ghost" block href={googleAuthUrl}>
+		<Button variant="ghost" block href={googleAuthUrl} data-sveltekit-reload>
 			<Icon icon="logos:google-icon" width="16" /> Continue with Google
 		</Button>
 
