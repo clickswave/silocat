@@ -71,22 +71,90 @@ fn is_legacy_share_pw(stored: &str) -> bool {
 /// per-token stops a distributed attack converging on a single link. This is
 /// also what keeps Argon2id from becoming a memory-exhaustion lever, so it must
 /// run before any verification work.
-fn share_pw_allowed(state: &crate::AppState, ip: &str, token: &str) -> bool {
+fn share_pw_allowed(limiter: &crate::libs::ratelimit::RateLimiter, ip: &str, token: &str) -> bool {
     const WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
-    state.rate_limiter.check(&format!("sharepw:{}", ip), 30, WINDOW)
-        && state.rate_limiter.check(&format!("sharepwtok:{}", token), 20, WINDOW)
+    limiter.check(&format!("sharepw:{}", ip), 30, WINDOW)
+        && limiter.check(&format!("sharepwtok:{}", token), 20, WINDOW)
+}
+
+/// Why fetch-chunks refuses a file from a shared folder.
+#[derive(Debug, PartialEq)]
+enum FolderFetchRefusal {
+    Throttled,
+    WrongPassword,
+    Spent,
+    AuthorizeRequired,
+}
+
+/// The folder a fetch-chunks call names, as far as deciding access goes.
+struct FolderFetch<'a> {
+    token: &'a str,
+    one_time: bool,
+    spent: bool,
+    password_hash: Option<&'a str>,
+}
+
+/// Whether fetch-chunks may serve a file from `folder`. `granted` is whether
+/// the caller presented a valid grant for it. Ok(true) means the link password
+/// matched a legacy hash that should now be rewritten.
+///
+/// A valid grant stands in for the link password. Authorize issues one only
+/// after checking the password, and the grant is bound to the stored hash, so
+/// it proves no less than the password would. Checking the password on every
+/// file as well put each one through the attempt meter, and a zip of more than
+/// about twenty files came back short.
+fn gate_folder_fetch(
+    limiter: &crate::libs::ratelimit::RateLimiter,
+    ip: &str,
+    folder: &FolderFetch,
+    supplied_pw: Option<&str>,
+    granted: bool,
+) -> Result<bool, FolderFetchRefusal> {
+    if granted {
+        return Ok(false);
+    }
+    let mut upgrade = false;
+    if let Some(required) = folder.password_hash {
+        // Meter before the KDF runs, not after.
+        if !share_pw_allowed(limiter, ip, folder.token) {
+            return Err(FolderFetchRefusal::Throttled);
+        }
+        if !verify_share_pw(supplied_pw, required) {
+            return Err(FolderFetchRefusal::WrongPassword);
+        }
+        upgrade = is_legacy_share_pw(required);
+    }
+    // A one-time folder is served only to whoever spent it. Checking the
+    // counter here instead let anyone skip authorize and fetch every file
+    // forever without spending the link, and refused the recipient who had
+    // spent it, so the zip download always failed.
+    if folder.one_time {
+        return Err(if folder.spent { FolderFetchRefusal::Spent } else { FolderFetchRefusal::AuthorizeRequired });
+    }
+    Ok(upgrade)
+}
+
+/// Whether authorize hands back a grant for this folder: a one-time folder so
+/// its files can be fetched after the spend, a password-protected one so they
+/// can be fetched without a password check per file.
+fn folder_grant_needed(one_time: bool, password_protected: bool) -> bool {
+    one_time || password_protected
 }
 
 /// Rewrite a legacy SHA-256 link password as Argon2id after a successful check.
 /// Best-effort: on failure the old hash stays and the next use retries.
-async fn upgrade_share_pw(pool: &sqlx::PgPool, table: &str, id: &str, pw: &str) {
-    let Some(new_hash) = hash_share_pw(pw.trim()) else { return };
+/// Returns the hash now stored when the rewrite went through.
+async fn upgrade_share_pw(pool: &sqlx::PgPool, table: &str, id: &str, pw: &str) -> Option<String> {
+    let new_hash = hash_share_pw(pw.trim())?;
     let sql = if table == "files" {
         "UPDATE files SET share_password_hash = $1 WHERE id = $2"
     } else {
         "UPDATE folders SET share_password_hash = $1 WHERE id = $2"
     };
-    let _ = sqlx::query(sql).bind(new_hash).bind(id).execute(pool).await;
+    match sqlx::query(sql).bind(&new_hash).bind(id).execute(pool).await {
+        Ok(_) => Some(new_hash),
+        Err(_) => None,
+    }
 }
 
 #[derive(Deserialize)]
@@ -712,34 +780,39 @@ pub async fn public_fetch_file_chunks(
                 return respond(410, "This link has expired.", vec![], json!({}));
             }
         }
-        if let Some(ref required) = folder_rec.share_password_hash {
-            // Meter before the KDF runs, not after.
-            if !share_pw_allowed(&axum_state, &client_ip, &token) {
+        let one_time = folder_rec.share_type.as_deref() == Some("once");
+        let granted = payload.grant.as_deref().map_or(false, |g| {
+            crate::libs::share_grant::verify(
+                g,
+                crate::libs::share_grant::GrantScope {
+                    folder_id: &folder_rec.id,
+                    token: &token,
+                    password_hash: folder_rec.share_password_hash.as_deref(),
+                },
+            )
+        });
+        let gate = FolderFetch {
+            token: &token,
+            one_time,
+            spent: folder_rec.link_downloads.unwrap_or(0) >= folder_rec.link_max_downloads.unwrap_or(1),
+            password_hash: folder_rec.share_password_hash.as_deref(),
+        };
+        match gate_folder_fetch(&axum_state.rate_limiter, &client_ip, &gate, supplied_pw, granted) {
+            Ok(upgrade) => {
+                if let (true, Some(pw)) = (upgrade, supplied_pw) {
+                    let _ = upgrade_share_pw(&axum_state.pg_pool, "folders", &folder_rec.id, pw).await;
+                }
+            }
+            Err(FolderFetchRefusal::Throttled) => {
                 return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
             }
-            if !verify_share_pw(supplied_pw, required) {
+            Err(FolderFetchRefusal::WrongPassword) => {
                 return respond(401, "Incorrect password", vec!["password_required".to_string()], json!({ "password_required": true }));
             }
-            if is_legacy_share_pw(required) {
-                if let Some(pw) = supplied_pw {
-                    upgrade_share_pw(&axum_state.pg_pool, "folders", &folder_rec.id, pw).await;
-                }
+            Err(FolderFetchRefusal::Spent) => {
+                return respond(410, "This safe-link has expired.", vec![], json!({}));
             }
-        }
-        // A one-time folder is served only to whoever spent it. Checking the
-        // counter here instead let anyone skip authorize and fetch every file
-        // forever without spending the link, and refused the recipient who had
-        // spent it, so the zip download always failed.
-        if folder_rec.share_type == Some("once".to_string()) {
-            let granted = payload.grant.as_deref().map_or(false, |g| {
-                crate::libs::share_grant::verify(g, &folder_rec.id, &token)
-            });
-            if !granted {
-                let downloads = folder_rec.link_downloads.unwrap_or(0);
-                let max = folder_rec.link_max_downloads.unwrap_or(1);
-                if downloads >= max {
-                    return respond(410, "This safe-link has expired.", vec![], json!({}));
-                }
+            Err(FolderFetchRefusal::AuthorizeRequired) => {
                 return respond(
                     403,
                     "Download not authorized",
@@ -873,7 +946,7 @@ pub async fn public_authorize_download(
         }
         if let Some(ref required) = r.share_password_hash {
             // Meter before the KDF runs, not after.
-            if !share_pw_allowed(&axum_state, &client_ip, &token) {
+            if !share_pw_allowed(&axum_state.rate_limiter, &client_ip, &token) {
                 return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
             }
             if !verify_share_pw(supplied_pw, required) {
@@ -881,7 +954,7 @@ pub async fn public_authorize_download(
             }
             if is_legacy_share_pw(required) {
                 if let Some(pw) = supplied_pw {
-                    upgrade_share_pw(&axum_state.pg_pool, "files", &r.id, pw).await;
+                    let _ = upgrade_share_pw(&axum_state.pg_pool, "files", &r.id, pw).await;
                 }
             }
         }
@@ -979,9 +1052,12 @@ pub async fn public_authorize_download(
                 return respond(410, "This link has expired.", vec![], json!({}));
             }
         }
+        // The link password hash as stored once this call is done, which is what
+        // fetch-chunks will check a grant against.
+        let mut stored_pw_hash = r.share_password_hash.clone();
         if let Some(ref required) = r.share_password_hash {
             // Meter before the KDF runs, not after.
-            if !share_pw_allowed(&axum_state, &client_ip, &token) {
+            if !share_pw_allowed(&axum_state.rate_limiter, &client_ip, &token) {
                 return respond(429, "Too many attempts", vec!["Too many password attempts for this link. Try again in a few minutes.".to_string()], json!({ "password_required": true }));
             }
             if !verify_share_pw(supplied_pw, required) {
@@ -989,7 +1065,9 @@ pub async fn public_authorize_download(
             }
             if is_legacy_share_pw(required) {
                 if let Some(pw) = supplied_pw {
-                    upgrade_share_pw(&axum_state.pg_pool, "folders", &r.id, pw).await;
+                    if let Some(new_hash) = upgrade_share_pw(&axum_state.pg_pool, "folders", &r.id, pw).await {
+                        stored_pw_hash = Some(new_hash);
+                    }
                 }
             }
         }
@@ -1030,10 +1108,17 @@ pub async fn public_authorize_download(
 
                 // A one-time folder's files are fetched one by one after this, by
                 // which point the counter reads spent. The grant is what lets this
-                // caller, and only this caller, finish. It lasts as long as a
-                // folder of this size needs (see share_grant::ttl_for).
-                let grant = if r.share_type.as_deref() == Some("once") {
-                    match crate::libs::share_grant::issue(&r.id, &token, total_bytes) {
+                // caller, and only this caller, finish. On a password-protected
+                // folder it also saves a password check, and a slot of the attempt
+                // meter, per file. It lasts as long as a folder of this size needs
+                // (see share_grant::ttl_for).
+                let grant = if folder_grant_needed(r.share_type.as_deref() == Some("once"), stored_pw_hash.is_some()) {
+                    let scope = crate::libs::share_grant::GrantScope {
+                        folder_id: &r.id,
+                        token: &token,
+                        password_hash: stored_pw_hash.as_deref(),
+                    };
+                    match crate::libs::share_grant::issue(scope, total_bytes) {
                         Some(g) => Some(g),
                         None => return respond(500, "Download grant unavailable", vec![], json!({})),
                     }
@@ -1118,5 +1203,91 @@ mod share_pw_tests {
         assert!(!verify_share_pw(None, &stored));
         assert!(!verify_share_pw(Some(""), &stored));
         assert!(!verify_share_pw(Some("   "), &stored));
+    }
+}
+
+#[cfg(test)]
+mod folder_fetch_tests {
+    use super::*;
+    use crate::libs::ratelimit::RateLimiter;
+
+    const IP: &str = "203.0.113.9";
+    const TOKEN: &str = "tok-folder";
+
+    fn folder<'a>(one_time: bool, spent: bool, hash: Option<&'a str>) -> FolderFetch<'a> {
+        FolderFetch { token: TOKEN, one_time, spent, password_hash: hash }
+    }
+
+    /// A zip is one authorize and then one fetch-chunks per file. Each of those
+    /// used to take a slot of the password meter, so a 24 file one-time folder
+    /// got 19 files and 429 for the rest, from a link that was now spent.
+    #[test]
+    fn a_granted_zip_of_a_one_time_password_folder_gets_every_file() {
+        let limiter = RateLimiter::new();
+        let hash = hash_share_pw("k7-Fern-Ridge-92").unwrap();
+        assert!(share_pw_allowed(&limiter, IP, TOKEN), "authorize");
+        for i in 0..24 {
+            let got = gate_folder_fetch(&limiter, IP, &folder(true, true, Some(&hash)), Some("k7-Fern-Ridge-92"), true);
+            assert_eq!(got, Ok(false), "file {i} of 24");
+        }
+    }
+
+    #[test]
+    fn a_granted_zip_of_a_public_password_folder_gets_every_file() {
+        assert!(folder_grant_needed(false, true), "authorize must hand a password folder a grant");
+        let limiter = RateLimiter::new();
+        let hash = hash_share_pw("k7-Fern-Ridge-92").unwrap();
+        assert!(share_pw_allowed(&limiter, IP, TOKEN), "authorize");
+        for i in 0..24 {
+            let got = gate_folder_fetch(&limiter, IP, &folder(false, false, Some(&hash)), Some("k7-Fern-Ridge-92"), true);
+            assert_eq!(got, Ok(false), "file {i} of 24");
+        }
+    }
+
+    #[test]
+    fn folders_without_a_password_or_a_spend_get_no_grant() {
+        assert!(folder_grant_needed(true, false));
+        assert!(folder_grant_needed(true, true));
+        assert!(!folder_grant_needed(false, false));
+    }
+
+    #[test]
+    fn guesses_without_a_grant_are_still_metered() {
+        let limiter = RateLimiter::new();
+        let hash = hash_share_pw("k7-Fern-Ridge-92").unwrap();
+        for _ in 0..20 {
+            let got = gate_folder_fetch(&limiter, IP, &folder(false, false, Some(&hash)), Some("guess"), false);
+            assert_eq!(got, Err(FolderFetchRefusal::WrongPassword));
+        }
+        let got = gate_folder_fetch(&limiter, IP, &folder(false, false, Some(&hash)), Some("k7-Fern-Ridge-92"), false);
+        assert_eq!(got, Err(FolderFetchRefusal::Throttled));
+    }
+
+    #[test]
+    fn a_password_folder_without_a_grant_still_needs_the_password() {
+        let limiter = RateLimiter::new();
+        let hash = hash_share_pw("k7-Fern-Ridge-92").unwrap();
+        let f = folder(false, false, Some(&hash));
+        assert_eq!(gate_folder_fetch(&limiter, IP, &f, None, false), Err(FolderFetchRefusal::WrongPassword));
+        assert_eq!(gate_folder_fetch(&limiter, IP, &f, Some("k7-Fern-Ridge-92"), false), Ok(false));
+    }
+
+    #[test]
+    fn a_one_time_folder_without_a_grant_is_refused_even_with_the_password() {
+        let limiter = RateLimiter::new();
+        let hash = hash_share_pw("k7-Fern-Ridge-92").unwrap();
+        let pw = Some("k7-Fern-Ridge-92");
+        assert_eq!(gate_folder_fetch(&limiter, IP, &folder(true, false, Some(&hash)), pw, false), Err(FolderFetchRefusal::AuthorizeRequired));
+        assert_eq!(gate_folder_fetch(&limiter, IP, &folder(true, true, Some(&hash)), pw, false), Err(FolderFetchRefusal::Spent));
+        assert_eq!(gate_folder_fetch(&limiter, IP, &folder(true, true, None), None, false), Err(FolderFetchRefusal::Spent));
+        assert_eq!(gate_folder_fetch(&limiter, IP, &folder(true, true, None), None, true), Ok(false));
+    }
+
+    #[test]
+    fn a_legacy_hash_is_flagged_for_upgrade() {
+        let limiter = RateLimiter::new();
+        let legacy = hex::encode(Sha256::digest("old-password".as_bytes()));
+        let got = gate_folder_fetch(&limiter, IP, &folder(false, false, Some(&legacy)), Some("old-password"), false);
+        assert_eq!(got, Ok(true));
     }
 }
