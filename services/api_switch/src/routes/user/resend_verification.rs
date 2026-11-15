@@ -42,6 +42,22 @@ pub async fn handle(
 
     let otp = libs::rng::number(6);
 
+    // Send first: a send the mail limiter refuses must not replace the code
+    // the owner already has or set its guess count back to zero.
+    if let Err(_e) = libs::email::send_verification_email(
+        &axum_state.smtp_config,
+        &user.username,
+        &user.email,
+        &otp
+    ).await {
+         return respond(
+            500,
+            "Failed to send email",
+            vec![],
+            json!({}),
+        );
+    }
+
     // Update user with new OTP and timestamp
     if let Err(_e) = sqlx::query!(
         "UPDATE users SET otp = $1, otp_last_sent_at = NOW(), otp_expires_at = NOW() + INTERVAL '10 minutes', otp_attempts = 0 WHERE id = $2",
@@ -53,21 +69,6 @@ pub async fn handle(
          return respond(
             500,
             "Failed to update OTP",
-            vec![],
-            json!({}),
-        );
-    }
-
-    // send verification email
-    if let Err(_e) = libs::email::send_verification_email(
-        &axum_state.smtp_config,
-        &user.username,
-        &user.email,
-        &otp
-    ).await {
-         return respond(
-            500,
-            "Failed to send email",
             vec![],
             json!({}),
         );
