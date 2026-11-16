@@ -336,13 +336,14 @@ test('the empty-state hints name the encryption control the upload form shows', 
 test('page titles do not call the whole product encrypted', () => {
 	const titles = [
 		['lib/seo.js', repo('services/web_server/src/lib/seo.js').match(/defaultTitle: '([^']*)'/)?.[1]],
-		['landing', page('+page.svelte').match(/<Seo title="([^"]*)"/)?.[1]],
-		['about', page('about/+page.svelte').match(/<Seo title="([^"]*)"/)?.[1]]
+		['landing', page('+page.svelte').match(/<Seo\s+title="([^"]*)"/)?.[1]],
+		['about', page('about/+page.svelte').match(/<Seo\s+title="([^"]*)"/)?.[1]]
 	];
 	for (const [name, title] of titles) {
 		assert.ok(title, `${name} title not found`);
 		if (/encrypt|zero-knowledge/i.test(title)) {
-			assert.match(title, /optional/i, `${name} title: ${title}`);
+			// "optional encryption" or "encrypted if you want": either says it is a choice.
+			assert.match(title, /optional|if you want/i, `${name} title: ${title}`);
 		}
 	}
 });
