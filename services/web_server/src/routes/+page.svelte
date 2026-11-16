@@ -574,8 +574,9 @@
 		<section class="hero">
 			<h1>Big files. Zero knowledge, when you want it.</h1>
 			<p class="sub">
-				Optional end-to-end encryption, on the moment you turn on password protection. No account
-				needed. Drop up to 20&nbsp;GB and share a link that expires in seven days.
+				Send up to 20&nbsp;GB to anyone, with no account. Drop the files and share the link: it
+				works before the upload has finished, and it lasts seven days. Add a password and the
+				files are encrypted on your device first.
 			</p>
 		</section>
 
@@ -876,7 +877,7 @@
 		<div class="ok-footer">
 			{#if !data?.user}
 				<div class="convert">
-					<span>This link expires in 7 days. A free account keeps 10 GB forever.</span>
+					<span>This link is gone in 7 days. A free account keeps up to 10 GB until you delete it.</span>
 					<a href="/auth/signup">Create free account →</a>
 				</div>
 			{/if}

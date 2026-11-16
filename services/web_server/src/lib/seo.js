@@ -11,7 +11,7 @@ export const SITE = {
 	defaultTitle: 'SiloCat: Open-source 20 GB file sharing, encrypted if you want',
 	titleSuffix: 'SiloCat',
 	defaultDescription:
-		'SiloCat is file sharing and cloud storage with optional end-to-end encryption. Upload up to 20 GB, share an anonymous link, and keep full control. Built for the privacy-conscious.',
+		'SiloCat sends files up to 20 GB to anyone, with no account. Add a password and they are encrypted on your device before upload. It is open source, and you can host it yourself.',
 	ogImage: '/og-image.png',
 	ogImageWidth: 1200,
 	ogImageHeight: 630
