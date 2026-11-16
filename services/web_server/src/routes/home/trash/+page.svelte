@@ -2,6 +2,7 @@
 	import Icon from '$lib/ui/Icon.svelte';
 	import { formatSize } from '$lib/format.js';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+	import OverQuotaNotice from '$lib/components/OverQuotaNotice.svelte';
 	import { FrontendClient } from '$lib/frontendClient';
 	import { onMount } from 'svelte';
 	import { toast } from '$lib/toast.js';
@@ -188,6 +189,8 @@
 			Empty Trash
 		</button>
 	</header>
+
+	<OverQuotaNotice />
 
 	{#if loading}
 		<div class="table">

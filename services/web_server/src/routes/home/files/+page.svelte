@@ -203,6 +203,7 @@
 	import InputModal from '$lib/components/InputModal.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import ShareModal from '$lib/components/ShareModal.svelte';
+	import OverQuotaNotice from '$lib/components/OverQuotaNotice.svelte';
 	import Modal from '$lib/ui/Modal.svelte';
 
 	// ... existing imports ...
@@ -1842,6 +1843,8 @@
 		</div>
 	{/if}
 
+	<OverQuotaNotice />
+
 	{#if offline}
 		<div class="offline">
 			<Icon name="alert" size={15} />
@@ -2337,6 +2340,7 @@
 
 			<div class="modal-body">
 				{#if !isUploading}
+					<OverQuotaNotice />
 					<div
 						class="upload-area {isDragging ? 'active' : ''}"
 						ondragover={handleDragOver}
