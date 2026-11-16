@@ -5,6 +5,10 @@
 //! sessions started per week. Anonymous drops themselves are deleted by
 //! watchcat after their TTL, so the sessions behind them are what keeps a
 //! history. Active accounts come from users.last_active_at (0046).
+//!
+//! Internal accounts (GROWTH_INTERNAL_EMAILS, see libs::internal_accounts) are
+//! left out of every figure. The `*_daily` series are the same counts per day;
+//! the weekly ones stay for consoles that predate them.
 
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use serde_json::json;
@@ -18,33 +22,84 @@ pub fn router() -> Router<crate::AppState> {
 
 async fn handle(State(state): State<crate::AppState>) -> impl IntoResponse {
     let pool = &state.pg_pool;
+    let patterns = crate::libs::internal_accounts::patterns();
+    let internal: Vec<String> = match sqlx::query("SELECT id, email FROM users").fetch_all(pool).await {
+        Ok(rows) => rows
+            .iter()
+            .filter(|r| crate::libs::internal_accounts::is_internal(&r.try_get::<Option<String>, _>("email").ok().flatten().unwrap_or_default(), &patterns))
+            .map(|r| r.get::<String, _>("id"))
+            .collect(),
+        Err(_) => return respond(500, "Failed to compute traction", vec![], json!({})),
+    };
+    let ids = &internal;
+    // The same counts per day, keyed `day`.
+    let mut daily = serde_json::Map::new();
+    for (key, sql) in [
+        ("signups_daily", "SELECT created_on::date AS d, COUNT(*)::BIGINT AS n, COUNT(*) FILTER (WHERE email_verified)::BIGINT AS verified \
+                           FROM users WHERE NOT (id = ANY($1)) GROUP BY 1 ORDER BY 1"),
+        ("subscriptions_daily", "SELECT created_on::date AS d, COUNT(*)::BIGINT AS n \
+                                 FROM subscriptions WHERE NOT (coalesce(created_by, '') = ANY($1)) GROUP BY 1 ORDER BY 1"),
+        ("uploads_daily", "SELECT created_on::date AS d, COUNT(*)::BIGINT AS files, COALESCE(SUM(size), 0)::BIGINT AS bytes, \
+                                  COUNT(*) FILTER (WHERE encrypted)::BIGINT AS encrypted \
+                           FROM files WHERE deleted = false AND user_id IS NOT NULL AND NOT (user_id = ANY($1)) GROUP BY 1 ORDER BY 1"),
+        ("anon_sessions_daily", "SELECT created_at::date AS d, COUNT(*)::BIGINT AS n FROM anonymous_users \
+                                 GROUP BY 1 ORDER BY 1"),
+    ] {
+        // Anonymous sessions belong to no account, so there is nothing to leave out.
+        let q = sqlx::query(sql);
+        let q = if sql.contains("$1") { q.bind(ids) } else { q };
+        let Ok(rows) = q.fetch_all(pool).await else {
+            return respond(500, "Failed to compute traction", vec![], json!({}));
+        };
+        let cols: &[&str] = match key {
+            "signups_daily" => &["n", "verified"],
+            "uploads_daily" => &["files", "bytes", "encrypted"],
+            _ => &["n"],
+        };
+        let list: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                let mut o = serde_json::Map::new();
+                o.insert("day".into(), json!(r.get::<chrono::NaiveDate, _>("d")));
+                for c in cols {
+                    o.insert((*c).into(), json!(r.try_get::<i64, _>(*c).unwrap_or(0)));
+                }
+                serde_json::Value::Object(o)
+            })
+            .collect();
+        daily.insert(key.into(), json!(list));
+    }
     let signups = sqlx::query(
         "SELECT date_trunc('week', created_on)::date AS wk, COUNT(*)::BIGINT AS n, \
                 COUNT(*) FILTER (WHERE email_verified)::BIGINT AS verified \
-         FROM users GROUP BY 1 ORDER BY 1",
+         FROM users WHERE NOT (id = ANY($1)) GROUP BY 1 ORDER BY 1",
     )
+    .bind(ids)
     .fetch_all(pool)
     .await;
     let subs = sqlx::query(
         "SELECT date_trunc('week', created_on)::date AS wk, COUNT(*)::BIGINT AS n \
-         FROM subscriptions GROUP BY 1 ORDER BY 1",
+         FROM subscriptions WHERE NOT (coalesce(created_by, '') = ANY($1)) GROUP BY 1 ORDER BY 1",
     )
+    .bind(ids)
     .fetch_all(pool)
     .await;
     let orders = sqlx::query(
         "SELECT date_trunc('month', created_on)::date AS mo, currency, \
                 SUM(amount) FILTER (WHERE status IN ('completed','paid'))::BIGINT AS amount, \
                 COUNT(*) FILTER (WHERE status IN ('completed','paid'))::BIGINT AS paid \
-         FROM orders GROUP BY 1, 2 ORDER BY 1",
+         FROM orders WHERE NOT (coalesce(user_id, '') = ANY($1)) GROUP BY 1, 2 ORDER BY 1",
     )
+    .bind(ids)
     .fetch_all(pool)
     .await;
     let uploads = sqlx::query(
         "SELECT date_trunc('week', created_on)::date AS wk, COUNT(*)::BIGINT AS files, \
                 COALESCE(SUM(size), 0)::BIGINT AS bytes, \
                 COUNT(*) FILTER (WHERE encrypted)::BIGINT AS encrypted \
-         FROM files WHERE deleted = false AND user_id IS NOT NULL GROUP BY 1 ORDER BY 1",
+         FROM files WHERE deleted = false AND user_id IS NOT NULL AND NOT (user_id = ANY($1)) GROUP BY 1 ORDER BY 1",
     )
+    .bind(ids)
     .fetch_all(pool)
     .await;
     let anon = sqlx::query(
@@ -58,17 +113,19 @@ async fn handle(State(state): State<crate::AppState>) -> impl IntoResponse {
     let sources = sqlx::query(
         "SELECT date_trunc('week', u.created_on)::date AS wk, u.signup_source AS src, COUNT(*)::BIGINT AS n, \
                 COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM subscriptions s WHERE s.created_by = u.id))::BIGINT AS paid \
-         FROM users u WHERE u.signup_source IS NOT NULL GROUP BY 1, 2 ORDER BY 1",
+         FROM users u WHERE u.signup_source IS NOT NULL AND NOT (u.id = ANY($1)) GROUP BY 1, 2 ORDER BY 1",
     )
+    .bind(ids)
     .fetch_all(pool)
     .await;
     let now = sqlx::query(
         "SELECT \
-            (SELECT COUNT(*) FROM users)::BIGINT AS accounts, \
-            (SELECT COUNT(*) FROM users WHERE last_active_at > NOW() - INTERVAL '7 days')::BIGINT AS active7, \
-            (SELECT COUNT(*) FROM users WHERE last_active_at > NOW() - INTERVAL '30 days')::BIGINT AS active30, \
-            (SELECT COUNT(DISTINCT created_by) FROM subscriptions WHERE expires_on > NOW())::BIGINT AS paying",
+            (SELECT COUNT(*) FROM users WHERE NOT (id = ANY($1)))::BIGINT AS accounts, \
+            (SELECT COUNT(*) FROM users WHERE last_active_at > NOW() - INTERVAL '7 days' AND NOT (id = ANY($1)))::BIGINT AS active7, \
+            (SELECT COUNT(*) FROM users WHERE last_active_at > NOW() - INTERVAL '30 days' AND NOT (id = ANY($1)))::BIGINT AS active30, \
+            (SELECT COUNT(DISTINCT created_by) FROM subscriptions WHERE expires_on > NOW() AND NOT (coalesce(created_by, '') = ANY($1)))::BIGINT AS paying",
     )
+    .bind(ids)
     .fetch_one(pool)
     .await;
 
@@ -107,6 +164,11 @@ async fn handle(State(state): State<crate::AppState>) -> impl IntoResponse {
                     "amount": r.try_get::<Option<i64>, _>("amount").ok().flatten().unwrap_or(0),
                     "paid": r.try_get::<Option<i64>, _>("paid").ok().flatten().unwrap_or(0),
                 })).collect::<Vec<_>>(),
+                "signups_daily": daily["signups_daily"],
+                "subscriptions_daily": daily["subscriptions_daily"],
+                "uploads_daily": daily["uploads_daily"],
+                "anon_sessions_daily": daily["anon_sessions_daily"],
+                "internal": { "count": internal.len(), "ids": internal },
                 "now": {
                     "accounts": n.get::<i64, _>("accounts"),
                     "active7": n.get::<i64, _>("active7"),
